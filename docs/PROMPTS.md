@@ -1,9 +1,419 @@
-Resume Analysis Prompt
+# Prompts
 
-Job Match Prompt
+Gemini is used in two places:
 
-ATS Keyword Prompt
+1. Skill extraction (resume upload)
+2. Job matching (job scoring)
 
-Resume Tailoring Prompt
+Both prompts live in:
 
-Cover Letter Prompt
+```text
+backend/app/ai/prompts.py
+```
+
+---
+
+# Design Principles
+
+## Structured JSON Only
+
+All prompts must return valid JSON.
+
+No markdown.
+
+No explanations.
+
+No code fences.
+
+No conversational text.
+
+---
+
+## Explicit Schema
+
+The exact output structure is provided inside every prompt.
+
+Models produce more consistent outputs when given a strict schema.
+
+---
+
+## Bounded Output
+
+### Skill Extraction
+
+* Maximum 30 skills
+
+### Job Matching
+
+* Maximum 5 missing skills
+* Exactly 2 summary sentences
+
+---
+
+## No Hallucinations
+
+The model must not:
+
+* invent skills
+* infer technologies
+* assume experience
+* add requirements not present in input
+
+Only explicit information should be used.
+
+---
+
+## Deterministic Behaviour
+
+Prompts are optimized for consistency rather than creativity.
+
+Use:
+
+```python
+temperature = 0.1
+```
+
+for all requests.
+
+---
+
+# Prompt 1 — Skill Extraction
+
+Used in:
+
+```text
+resume_service.upload_resume()
+↓
+gemini_client.extract_skills()
+```
+
+```python
+SKILL_EXTRACTION_PROMPT = """
+You are a resume parser.
+
+Extract technical skills from the resume text below.
+
+Rules:
+
+- Include only technical skills.
+- Include programming languages, frameworks, libraries, databases, cloud platforms, developer tools, DevOps tools, testing tools, and software methodologies.
+- Do not include soft skills.
+- Do not include company names.
+- Do not include job titles.
+- Do not include degree names.
+- Do not infer skills.
+- Include a skill only if it appears explicitly.
+- Normalize names:
+    - PostgreSQL (not Postgres)
+    - React (not React.js)
+    - TypeScript (not TS)
+- Remove duplicates.
+- Return at most 30 skills.
+
+Return ONLY valid JSON:
+
+{
+  "skills": [
+    "Skill1",
+    "Skill2"
+  ]
+}
+
+Resume Text:
+
+{resume_text}
+"""
+```
+
+---
+
+## Example Output
+
+```json
+{
+  "skills": [
+    "Python",
+    "FastAPI",
+    "PostgreSQL",
+    "SQLAlchemy",
+    "Alembic",
+    "React",
+    "TypeScript",
+    "Next.js",
+    "Tailwind CSS",
+    "Docker",
+    "Git",
+    "GitHub Actions",
+    "REST APIs",
+    "Pytest",
+    "Linux",
+    "AWS"
+  ]
+}
+```
+
+---
+
+# Prompt 2 — Job Matching
+
+Used in:
+
+```text
+match_service.score_job()
+↓
+gemini_client.match_job()
+```
+
+```python
+JOB_MATCH_PROMPT = """
+You are a technical recruiter evaluating a candidate's technical fit for a role.
+
+Candidate Skills:
+
+{skills_list}
+
+Job Description:
+
+{job_description}
+
+Return ONLY valid JSON:
+
+{
+  "match_score": 75,
+  "missing_skills": [
+    "Skill1",
+    "Skill2"
+  ],
+  "match_summary": "Sentence one. Sentence two."
+}
+
+Scoring Rules:
+
+- Score from 0 to 100.
+- Score technical fit only.
+- Ignore location.
+- Ignore salary.
+- Ignore company prestige.
+- Ignore cultural fit.
+- Ignore years of experience.
+
+Scoring Guide:
+
+80-100
+Candidate satisfies most technical requirements.
+
+60-79
+Candidate satisfies core requirements but has some gaps.
+
+40-59
+Candidate partially satisfies requirements and has important gaps.
+
+0-39
+Candidate lacks several required skills.
+
+Missing Skills Rules:
+
+- Maximum 5 skills.
+- Include only skills explicitly mentioned in the job description.
+- Do not invent skills.
+- Do not infer skills.
+
+Summary Rules:
+
+- Exactly 2 sentences.
+- Sentence 1:
+  strongest technical alignment.
+- Sentence 2:
+  largest technical gaps.
+
+Important:
+
+Do not inflate scores.
+
+A candidate missing multiple required technologies should rarely receive a score above 80.
+"""
+```
+
+---
+
+## Example Output
+
+```json
+{
+  "match_score": 78,
+  "missing_skills": [
+    "GraphQL",
+    "Kubernetes"
+  ],
+  "match_summary": "Strong alignment on Python backend development, FastAPI, and PostgreSQL requirements. The primary gaps are Kubernetes and GraphQL, both listed as preferred technologies."
+}
+```
+
+---
+
+# Gemini Client Notes
+
+Implementation:
+
+```text
+gemini_client.py
+```
+
+---
+
+## Model
+
+Default:
+
+```python
+MODEL_NAME = "gemini-2.5-flash"
+```
+
+Store model name in settings:
+
+```env
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+Avoid hardcoding model names.
+
+---
+
+## Response Parsing
+
+````python
+import json
+import re
+
+def parse_json_response(raw: str) -> dict:
+    cleaned = re.sub(
+        r"```(?:json)?|```",
+        "",
+        raw
+    ).strip()
+
+    return json.loads(cleaned)
+````
+
+---
+
+## Retry Policy
+
+Retry on:
+
+```text
+429
+503
+```
+
+Maximum attempts:
+
+```text
+3
+```
+
+Backoff:
+
+```text
+1 second
+2 seconds
+4 seconds
+```
+
+Raise:
+
+```python
+AIError
+```
+
+after final failure.
+
+---
+
+## Temperature
+
+```python
+temperature = 0.1
+```
+
+Reason:
+
+* More consistent JSON
+* Less hallucination
+* Better scoring consistency
+
+---
+
+## Safety Settings
+
+Default Gemini safety settings are sufficient.
+
+No custom overrides required.
+
+---
+
+# Prompt Iteration Log
+
+Track prompt changes here.
+
+| Version | Date    | Change                                                        | Reason                 |
+| ------- | ------- | ------------------------------------------------------------- | ---------------------- |
+| v1      | Initial | Base prompts                                                  | Initial implementation |
+| v2      | Current | Added duplicate removal, score strictness, configurable model | Better consistency     |
+
+---
+
+# Common Failure Modes
+
+### Markdown Fences
+
+Bad:
+
+````text
+```json
+{
+}
+```
+````
+
+Solution:
+
+Strip fences before parsing.
+
+---
+
+### Inflated Scores
+
+Bad:
+
+```json
+{
+  "match_score": 95
+}
+```
+
+despite missing multiple required skills.
+
+Solution:
+
+Use strict scoring rubric.
+
+---
+
+### Invented Skills
+
+Bad:
+
+```json
+{
+  "missing_skills": [
+    "AWS"
+  ]
+}
+```
+
+when AWS does not appear in the job description.
+
+Solution:
+
+Prompt explicitly forbids inference.
