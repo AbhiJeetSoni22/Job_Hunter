@@ -1,94 +1,180 @@
-# AI Internship Hunter - Product Requirements Document
+# Product Requirements Document
 
-## Project Vision
-
-AI Internship Hunter is a personal AI-powered job acquisition system designed to automate internship discovery, resume-job matching, application tracking, and job prioritization.
-
-The initial goal is not to build a SaaS product.
-
-The goal is to help the developer secure high-quality internships faster while simultaneously creating a portfolio-worthy AI project.
+**Project:** AI Internship Hunter  
+**Version:** 1.0 MVP  
+**Scope:** Personal use
 
 ---
 
-## Problem Statement
+## Problem
 
-Students spend hours manually searching job portals, comparing opportunities, tailoring resumes, and tracking applications.
+Internship hunting is manual and unstructured. Browsing job boards, reading descriptions, mentally comparing them to your resume, and then remembering which ones you applied to — all of it happens in your head or across a mess of browser tabs and spreadsheet rows.
 
-The process is repetitive and inefficient.
-
----
-
-## Solution
-
-Build a centralized platform that:
-
-* Collects internships from multiple sources
-* Matches jobs against a user's resume
-* Scores opportunities
-* Tracks applications
-* Recommends the best internships to pursue
+The result: good opportunities get missed, weak ones get time, and the overall process is slower than it needs to be.
 
 ---
 
-## Target User
+## Goal
 
-Primary User:
+Build a personal tool that automates job discovery, ranks opportunities by resume fit using AI, and tracks application status — replacing the browser-tab-and-spreadsheet workflow with one focused system.
 
-* Abhijeet Soni
-
-Future Users:
-
-* Students
-* Developers
-* AI/ML Intern Applicants
+Secondary goal: produce a portfolio-quality project that demonstrates full-stack development, AI integration, and thoughtful system design.
 
 ---
 
-## MVP Features
+## Users
 
-### Job Discovery
-
-* Wellfound Jobs
-* YC Jobs
-* RemoteOK
-
-### Resume Management
-
-* Upload Resume
-* Extract Skills
-* Extract Projects
-
-### Match Engine
-
-* Resume vs JD Analysis
-* Missing Skills Detection
-* Match Score Generation
-
-### Application Tracking
-
-* Saved
-* Applied
-* Interview
-* Offer
-* Rejected
+One user. You. No auth, no accounts, no multi-tenancy.
 
 ---
 
-## Success Metrics
+## MVP Scope
 
-After 2 weeks of use:
+Four capabilities and nothing else.
 
-* 500+ jobs collected
-* 50+ quality opportunities identified
-* 20+ applications submitted
-* 3+ interview responses
+## Technology Stack
+
+Frontend:
+- Next.js 15
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+
+Backend:
+- FastAPI
+- PostgreSQL
+- SQLAlchemy
+- Alembic
+
+AI:
+- Gemini API
+
+Scraping:
+- RemoteOK API
+- Playwright (YC Jobs)
+
+## MVP Constraints
+
+- Single user only
+- Single active resume only
+- Manual sync only
+- No background workers
+- No authentication
+- No scheduled jobs
+
+### 1. Job Collection
+
+**What:** Pull job listings from two sources on demand.
+
+**Sources:**
+- RemoteOK — via their public JSON API (`remoteok.com/api`). No scraping, no ToS concerns.
+- YC Jobs (Work at a Startup) — via Playwright headless browser.
+
+**Behaviour:**
+- User triggers a sync manually via a "Sync Jobs" button in the UI.
+- Each source runs sequentially. Results are saved. Duplicate URLs are skipped.
+- After sync, a status summary shows: source, jobs found, jobs new, any errors.
+- Fields stored per job: `title`, `company`, `description`, `url`, `source`, `location`, `posted_at`.
+
+**Out of scope:** Scheduled/automatic syncing. Wellfound. LinkedIn. Any source requiring login.
 
 ---
 
-## Out of Scope (V1)
+### 2. Resume Upload
 
-* Auto Apply
-* LinkedIn Automation
-* Multi-Agent Systems
-* Recruiter Discovery
-* Follow-up Automation
+**What:** Upload a PDF resume. Extract skills. Store for use in scoring.
+
+**Behaviour:**
+- User uploads a PDF on the `/resume` page.
+- Backend extracts raw text using PyMuPDF.
+- Gemini receives the raw text and returns a flat list of skills.
+- Skills and raw text are saved. Previous resume is replaced.
+- Only one resume exists at any time. No versioning.
+
+**Out of scope:** Resume editing in UI. Multiple versions. Resume builder.
+
+---
+
+### 3. Job Scoring
+
+**What:** For any job, run an AI match analysis against the current resume.
+
+**Behaviour:**
+- User clicks "Score" on a job (in list or detail view).
+- Backend checks if score already exists → returns cached result if yes.
+- If no cache: sends job description + resume skills to Gemini.
+- Gemini returns: `match_score` (0–100), `missing_skills` (up to 5), `match_summary` (2 sentences).
+- Results stored on the job record. Displayed in job detail view.
+- Job list is sortable by score.
+
+**Out of scope:** Bulk auto-scoring on sync. Score history. Multiple resume comparisons.
+
+---
+
+### 4. Application Tracking
+
+**What:** Track status and notes per job.
+
+**Statuses:** `saved` → `applied` → `interview` → `offer` / `rejected`
+
+**Behaviour:**
+- Every job has a `status` field, defaulting to `saved`.
+- User changes status via dropdown in the job card or detail view.
+- Free-text `notes` field per job for anything relevant (contact name, next step, etc.).
+- No kanban board. Status lives on the job card directly.
+
+**Out of scope:** Reminders, calendar integration, email tracking, follow-up automation.
+
+---
+
+## User Flows
+
+### Flow 1 — First time setup
+1. Open app
+2. Navigate to `/resume`
+3. Upload PDF
+4. View extracted skills list
+5. Navigate to `/jobs`
+6. Click "Sync Jobs"
+7. Jobs appear in list
+
+### Flow 2 — Daily use
+1. Open `/jobs`
+2. Click "Sync Jobs" if needed
+3. Browse list sorted by score (or trigger scoring for new jobs)
+4. Click a job → read match analysis
+5. Update status / add notes
+
+### Flow 3 — Scoring a job
+1. On job card or detail: click "Score"
+2. Loading state while Gemini runs (or instant if cached)
+3. Score badge, missing skills list, and summary appear
+
+---
+
+## Success Criteria
+
+| Criterion | Measure |
+|---|---|
+| Jobs collected | Sync pulls at least 20 relevant jobs per run |
+| Skills extracted | Gemini returns ≥10 skills from a standard resume PDF |
+| Scoring works | Match score + missing skills display for any scored job |
+| Caching works | Re-clicking "Score" returns instantly with no new API call |
+| Tracking works | Status and notes update persists across page refreshes |
+| No crashes | Scraper failure on one source doesn't prevent the other from completing |
+
+---
+
+## Non-Requirements
+
+These are explicitly not part of this MVP:
+
+- Authentication or user accounts
+- Mobile-optimised layout
+- Email or notification system
+- Auto-apply functionality
+- Browser extension
+- Wellfound scraping
+- Resume version history
+- Cover letter generation
+- Scheduled background jobs
