@@ -19,13 +19,13 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 
-# ── Import Base so Alembic sees all model metadata ────────────────────────
-# Add model imports here as they're created in Phase 1+:
-#
-#   from app.models import job, resume, scrape_run  # noqa: F401
-#
-# Models must be imported before autogenerate can detect them.
-from app.database import Base  # noqa: F401
+# ── Import all models so Alembic sees every table in Base.metadata ────────
+# PHASE 1A: app.models imported so Job, Resume, ScrapeRun register into
+# Base.metadata before autogenerate inspects it. Without this import,
+# autogenerate produces an empty migration even though models exist.
+import app.models  # noqa: F401  — side effect: registers all ORM tables
+
+from app.database import Base
 from app.config import get_settings
 
 # ── Alembic config object ─────────────────────────────────────────────────
