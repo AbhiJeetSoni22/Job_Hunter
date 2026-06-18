@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-internship-hunter"
+version = "0.1.0"
+description = "Personal AI-powered internship acquisition system"
+requires-python = ">=3.12"
+
+dependencies = [
+    # Web framework
+    "fastapi==0.115.5",
+    "uvicorn[standard]==0.32.1",
+
+    # Database
+    "sqlalchemy==2.0.36",
+    "alembic==1.14.0",
+    "psycopg2-binary==2.9.10",
+
+    # Configuration
+    "pydantic-settings==2.6.1",
+
+    # PDF parsing
+    "pymupdf==1.24.14",
+
+    # HTTP client (scrapers)
+    "httpx==0.27.2",
+
+    # Playwright (YC Jobs scraper)
+    "playwright==1.48.0",
+
+    # Google Gemini
+    "google-generativeai==0.8.3",
+
+    # Utilities
+    "python-multipart==0.0.18",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.24.0",
+    "httpx==0.27.2",
+    "ruff==0.8.3",
+    "mypy==1.13.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+# ── Ruff (linter + formatter) ──────────────────────────────────────────────
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ── Mypy ──────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+# ── Pytest ─────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
