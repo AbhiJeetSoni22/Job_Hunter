@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.routers import health, jobs, scraper
+from app.routers import health, jobs, resume, scraper
 
 settings = get_settings()
 
@@ -111,7 +111,9 @@ def create_app() -> FastAPI:
     # Phase 1B: jobs and scraper routers
     application.include_router(jobs.router,    prefix="/api")
     application.include_router(scraper.router, prefix="/api")
-    # Phase 2: application.include_router(resumes.router, prefix="/api")
+    # Phase 1D: resume upload and retrieval
+    application.include_router(resume.router,  prefix="/api")
+    # Phase 2: application.include_router(matches.router, prefix="/api")
 
     return application
 
