@@ -28,7 +28,7 @@ from app.models.job import Job, JOB_STATUS_VALUES
 from app.schemas.job import (
     JobListItem,
     JobResponse,
-    JobUpdateData,
+    JobUpdateRequest,
     JobUpdateResponse,
     JobUpsertData,
     PaginatedJobList,
@@ -180,7 +180,7 @@ class JobService:
     def update_job(
         self,
         job_id: uuid.UUID,
-        update: "JobUpdateData",
+        update: "JobUpdateRequest",
     ) -> JobUpdateResponse:
         """
         Update status and/or notes on a job.
@@ -190,7 +190,7 @@ class JobService:
 
         Args:
             job_id: UUID of the job to update.
-            update: JobUpdateData with optional status and notes fields.
+            update: JobUpdateRequest with optional status and notes fields.
 
         Raises:
             LookupError:  if no job with job_id exists.

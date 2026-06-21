@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.routers import health
+from app.routers import health, jobs, scraper
 
 settings = get_settings()
 
@@ -108,10 +108,10 @@ def create_app() -> FastAPI:
     # All routes are prefixed with /api to match the frontend's api.ts client.
     application.include_router(health.router, prefix="/api")
 
-    # Phase 1+ routers registered here as they're built:
-    # application.include_router(jobs.router,    prefix="/api")
-    # application.include_router(resumes.router, prefix="/api")
-    # application.include_router(scraper.router, prefix="/api")
+    # Phase 1B: jobs and scraper routers
+    application.include_router(jobs.router,    prefix="/api")
+    application.include_router(scraper.router, prefix="/api")
+    # Phase 2: application.include_router(resumes.router, prefix="/api")
 
     return application
 
