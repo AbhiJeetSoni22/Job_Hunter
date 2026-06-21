@@ -108,8 +108,8 @@ ai-internship-hunter/
         │   └── yc_jobs.py              ← stub (Phase 1E)
         └── ai/
             ├── __init__.py
-            ├── gemini_client.py        ← Phase 2
-            └── prompts.py              ← Phase 2
+            ├── gemini_client.py        ← Phase 2A ✅
+            └── prompts.py              ← Phase 2A ✅
 ```
 
 ---
@@ -162,6 +162,23 @@ ai-internship-hunter/
 - No schema changes needed; `Resume` model already has all required columns
 - No new migration needed; `resumes` table created in Phase 1A initial migration
 
+### ✅ Phase 2A — Gemini Client
+- `ai/gemini_client.py`: `GeminiClient` class with `extract_skills()` and `match_job()`
+- Retry on 429, 500, 502, 503 with backoff 1s → 2s → 4s; custom `AIError` after 3 failures
+- `_is_retryable()` detects transient failures by status code and exception type
+- Response parsing validates schema, clamps score to [0, 100], strips markdown fences
+- `ai/prompts.py`: `SKILL_EXTRACTION_PROMPT` and `JOB_MATCH_PROMPT` as string constants
+- Temperature `0.1` for deterministic output; `max_output_tokens=2048`
+- Never logs API key or raw resume text
+
+### ✅ Phase 2B — Resume Skill Extraction
+- `resume_service._extract_skills_safe()` wraps Gemini call with full exception handling
+- Graceful degradation: `AIError` or unexpected exception → `skills=[]`, resume saved
+- `_persist()` now accepts `skills` parameter populated from Gemini
+- `ResumeUploadResponse.skills` now returns populated list on success
+- No schema or migration changes needed
+
+
 ---
 
 ## Pending Phases
@@ -172,17 +189,21 @@ ai-internship-hunter/
 - Extract and normalise job fields to `JobUpsertData`
 - Handle browser timeout gracefully in finally block
 
-### 🔲 Phase 2A — Gemini Client
-- Implement `ai/gemini_client.py`
-- `extract_skills(raw_text)` → `list[str]` with retry on 429/503
-- `match_job(description, skills)` → `dict` with score, missing_skills, summary
-- Exponential backoff: 1s → 2s → 4s, raise `AIError` after 3 failures
-- Temperature `0.1` for deterministic JSON output
+### ✅ Phase 2A — Gemini Client
+- `ai/gemini_client.py` implemented
+- `extract_skills(raw_text)` → `list[str]` with retry on 429/500/502/503
+- `match_job(description, skills)` → `MatchResult` TypedDict
+- Exponential backoff: 1s → 2s → 4s; raises `AIError` after 3 failures
+- Temperature `0.1`; response validated and clamped before return
+- `ai/prompts.py` with `SKILL_EXTRACTION_PROMPT` and `JOB_MATCH_PROMPT`
+- Markdown fence stripping on all Gemini responses
+- `_is_retryable()` detects 429, 500-503, timeout, connection errors
 
-### 🔲 Phase 2B — Resume Skill Extraction
-- Wire `resume_service.upload_resume()` to call `gemini_client.extract_skills()`
-- Store extracted skills in `resume.skills` JSONB column
-- Return `skills` array in upload response
+### ✅ Phase 2B — Resume Skill Extraction
+- `resume_service._extract_skills_safe()` calls `GeminiClient.extract_skills()`
+- Graceful degradation: Gemini failure stores `skills=[]`, upload still succeeds
+- Skills persisted into `resume.skills` JSONB column
+- `ResumeUploadResponse.skills` now populated on successful extraction
 
 ### 🔲 Phase 2C — Job Match Scoring
 - Implement `services/match_service.py`
@@ -218,13 +239,13 @@ ai-internship-hunter/
 | Resume retrieval (by id) | ✅ Working | `GET /api/resume/{resume_id}` |
 | Job scoring | 🔲 Stub (501) | `POST /api/jobs/{id}/score` |
 | YC Jobs sync | 🔲 Stub | via `POST /api/scraper/run` |
-| Skill extraction | 🔲 Phase 2 | via resume upload |
+| Skill extraction | ✅ Working | via `POST /api/resume/upload` |
 
 ---
 
 ## Known Limitations
 
-- **No skill extraction yet.** Resume upload stores raw text only; `skills` array is empty until Phase 2 Gemini integration.
+- **Skill extraction degrades gracefully.** If Gemini is unavailable at upload time, `skills=[]` is stored. Re-upload the PDF once Gemini is reachable.
 - **Job scoring returns 501.** `POST /api/jobs/{id}/score` is wired but returns `NOT_IMPLEMENTED` until Phase 2C.
 - **YC Jobs is a stub.** `YCJobsScraper.run()` returns `[]`; Playwright implementation pending Phase 1E.
 - **No frontend yet.** All interaction is via API (`http://localhost:8000/docs`).
@@ -236,17 +257,15 @@ ai-internship-hunter/
 
 ## Next Immediate Phase
 
-**Phase 1E — YC Jobs Scraper**
+**Phase 2C — Job Match Scoring**
 
 Tasks:
-1. Install Playwright browser: `playwright install chromium`
-2. Implement `scrapers/yc_jobs.py` with Playwright sync API
-3. Navigate to `https://www.workatastartup.com/jobs?jobType=intern`
-4. Wait for job card elements to render
-5. Extract: title, company, description, url, location, posted_at
-6. Close browser in `finally` block (browser must close even on exception)
-7. Normalise to `JobUpsertData`
-8. Test via `POST /api/scraper/run` and check `yc_jobs` source in `GET /api/jobs`
+1. Create `services/match_service.py` with `score_job(job_id, db)`
+2. Cache check: return existing score if `job.resume_uploaded_at == resume.uploaded_at`
+3. Call `GeminiClient().match_job(description, skills)` on cache miss
+4. Store `match_score`, `missing_skills`, `match_summary`, `matched_at`, `resume_uploaded_at` on job
+5. Activate `get_active_resume` dependency in `dependencies.py`
+6. Wire `POST /api/jobs/{id}/score` in `routers/jobs.py` (currently returns 501)
 
 ---
 
@@ -272,7 +291,7 @@ Tasks:
 
 ## Last Updated
 
-**Phase:** 1D complete
+**Phase:** 2B complete
 **Date:** 2026-06-21
 **Updated by:** Implementation engineer
-**Next update due:** After Phase 1E completion
+**Next update due:** After Phase 2C completion

@@ -13,10 +13,10 @@ Architecture rules (ARCHITECTURE.md):
   - Raise LookupError for not-found.
   - Routers translate these into HTTP responses.
 
-Phase 1D scope:
-  Text extraction is complete. Skill extraction (Gemini) is NOT called here
-  yet — that is Phase 2B. The `skills` column is stored as an empty list []
-  and will be populated in Phase 2B without any schema changes.
+Phase 2B:
+  Gemini skill extraction is now wired. After PDF text extraction, the service
+  calls GeminiClient.extract_skills(). If Gemini fails (AIError or network),
+  the resume is still stored with skills=[] — upload always succeeds.
 
 PyMuPDF import note:
   The package is installed as `pymupdf` but imported as `fitz`. This is
@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.models.resume import Resume
 from app.schemas.resume import ResumeResponse, ResumeTextResponse, ResumeUploadResponse
+from app.ai.gemini_client import AIError, GeminiClient
 
 logger = logging.getLogger(__name__)
 
@@ -113,10 +114,14 @@ class ResumeService:
             filename,
         )
 
-        # ── Step 4: persist (delete old, insert new) ───────────────────────
+        # ── Step 4: extract skills via Gemini (graceful degradation) ────────
+        skills = self._extract_skills_safe(extraction.raw_text)
+
+        # ── Step 5: persist (delete old, insert new) ───────────────────────
         resume = self._persist(
             filename=filename,
             raw_text=extraction.raw_text,
+            skills=skills,
         )
         logger.info(
             "ResumeService.upload_resume: saved resume id=%s filename='%s'",
@@ -346,12 +351,12 @@ class ResumeService:
 
     # ── Private: persistence ───────────────────────────────────────────────
 
-    def _persist(self, *, filename: str, raw_text: str) -> Resume:
+    def _persist(self, *, filename: str, raw_text: str, skills: list) -> Resume:
         """
         Delete any existing resume and insert a new one.
 
         Single-resume invariant: only one row in `resumes` at a time.
-        Phase 1D: skills stored as empty list []; populated in Phase 2B.
+        Skills come from Gemini (Phase 2B); empty list on extraction failure.
 
         Returns the newly inserted Resume ORM instance.
         """
@@ -367,13 +372,45 @@ class ResumeService:
         resume = Resume(
             filename=filename,
             raw_text=raw_text,
-            skills=[],  # Phase 2B: replace with gemini_client.extract_skills(raw_text)
+            skills=skills,
         )
         self._db.add(resume)
         self._db.commit()
         self._db.refresh(resume)
 
         return resume
+
+    def _extract_skills_safe(self, raw_text: str) -> list[str]:
+        """
+        Call Gemini to extract skills. Returns [] on any failure.
+
+        Graceful degradation: resume storage is always higher priority
+        than AI enrichment. If Gemini is unavailable, the resume is
+        stored with an empty skills list and can be re-extracted later.
+        """
+        logger.info("ResumeService: starting Gemini skill extraction")
+        try:
+            client = GeminiClient()
+            skills = client.extract_skills(raw_text)
+            logger.info(
+                "ResumeService: Gemini extracted %d skills", len(skills)
+            )
+            return skills
+        except AIError as exc:
+            logger.error(
+                "ResumeService: Gemini skill extraction failed after retries — "
+                "storing resume with skills=[]. Error: %s",
+                exc,
+            )
+            return []
+        except Exception as exc:
+            logger.error(
+                "ResumeService: unexpected error during skill extraction — "
+                "storing resume with skills=[]. Error: %s",
+                exc,
+                exc_info=True,
+            )
+            return []
 
     def _query_latest(self) -> Resume | None:
         """
