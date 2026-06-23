@@ -22,7 +22,7 @@ Why /api/resume/upload instead of /api/resume (POST)?
 
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from app.dependencies import DbSession
 from app.schemas.job import ApiResponse
@@ -134,4 +134,93 @@ def get_resume_by_id(
     except LookupError as exc:
         raise _not_found(str(exc)) from exc
 
+    return ApiResponse(data=resume)
+
+# ---------------------------------------------------------------------------
+# POST /api/resume  — upload PDF
+# ---------------------------------------------------------------------------
+ 
+@router.post(
+    "",
+    response_model=ApiResponse[ResumeUploadResponse],
+    summary="Upload resume PDF",
+    description=(
+        "Upload a PDF resume. Extracts text via PyMuPDF, extracts skills via Gemini. "
+        "Replaces any existing resume — only one active resume exists at a time."
+    ),
+    status_code=status.HTTP_200_OK,
+)
+async def upload_resume(
+    db: DbSession,
+    file: UploadFile = File(...),
+) -> ApiResponse[ResumeUploadResponse]:
+    try:
+        result = await ResumeService(db).upload(file)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "INVALID_FILE", "message": str(exc)},
+        ) from exc
+ 
+    return ApiResponse(data=result)
+ 
+ 
+# ---------------------------------------------------------------------------
+# GET /api/resume  — fetch active resume
+# ---------------------------------------------------------------------------
+ 
+@router.get(
+    "",
+    response_model=ApiResponse[ResumeResponse],
+    summary="Get active resume",
+    description="Return the currently active resume and its extracted skills.",
+)
+def get_resume(db: DbSession) -> ApiResponse[ResumeResponse]:
+    resume = ResumeService(db).get_latest()
+    if resume is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NO_RESUME", "message": "No resume uploaded"},
+        )
+    return ApiResponse(data=resume)
+ 
+ 
+# ---------------------------------------------------------------------------
+# DELETE /api/resume  — remove active resume
+# ---------------------------------------------------------------------------
+ 
+@router.delete(
+    "",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete active resume",
+    description="Permanently removes the active resume. Scores already stored on jobs are not affected.",
+)
+def delete_resume(db: DbSession) -> None:
+    deleted = ResumeService(db).delete_latest()
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NO_RESUME", "message": "No resume uploaded"},
+        )
+ 
+ 
+# ---------------------------------------------------------------------------
+# GET /api/resume/{resume_id}  — fetch by ID
+# ---------------------------------------------------------------------------
+ 
+@router.get(
+    "/{resume_id}",
+    response_model=ApiResponse[ResumeResponse],
+    summary="Get resume by ID",
+)
+def get_resume_by_id(
+    resume_id: str,
+    db: DbSession,
+) -> ApiResponse[ResumeResponse]:
+    resume = ResumeService(db).get_by_id(resume_id)
+    if resume is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"Resume {resume_id} not found"},
+        )
     return ApiResponse(data=resume)

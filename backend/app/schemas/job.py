@@ -297,3 +297,16 @@ class ScoreResult(BaseModel):
     matched_at: datetime
     cached: bool
     needs_rescore: bool = False
+
+
+class ScoreResponse(BaseModel):
+    """Response shape for POST /api/jobs/{id}/score."""
+ 
+    match_score: int
+    missing_skills: list[str]
+    match_summary: str
+    matched_at: datetime
+    cached: bool
+    needs_rescore: bool
+ 
+    model_config = {"from_attributes": True}

@@ -16,6 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 
+ 
+from app.database import get_db
+from app.models.resume import Resume
 
 # ── Database session ───────────────────────────────────────────────────────
 def get_db_session() -> Generator[Session, None, None]:
@@ -49,16 +52,24 @@ from typing import Annotated  # noqa: E402
 DbSession = Annotated[Session, Depends(get_db_session)]
 
 
-# ── Placeholder: active resume dependency ─────────────────────────────────
-# Added in Phase 2. Documented here so routers know where to import from.
-#
-# def get_active_resume(db: DbSession) -> Resume:
-#     """Return active resume or raise 422 NO_RESUME."""
-#     from app.services.resume_service import ResumeService
-#     resume = ResumeService(db).get_resume()
-#     if resume is None:
-#         raise HTTPException(
-#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#             detail={"code": "NO_RESUME", "message": "Upload a resume before scoring jobs"},
-#         )
-#     return resume
+def get_active_resume(db: Session = Depends(get_db)) -> Resume:
+    """
+    FastAPI dependency — resolves to the most recently uploaded resume.
+ 
+    Raises HTTP 422 NO_RESUME when no resume exists.
+    Declared as Depends in any endpoint that requires a resume.
+    """
+    resume = (
+        db.query(Resume)
+        .order_by(Resume.uploaded_at.desc())
+        .first()
+    )
+    if resume is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "NO_RESUME",
+                "message": "Upload a resume before scoring jobs",
+            },
+        )
+    return resume
