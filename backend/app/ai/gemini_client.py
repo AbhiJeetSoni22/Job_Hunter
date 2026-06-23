@@ -102,7 +102,8 @@ class GeminiClient:
             temperature=0.1,        # Low temperature → deterministic JSON output
             top_p=0.95,
             top_k=40,
-            max_output_tokens=2048,
+            max_output_tokens=8192, # raised from 2048 — skill JSON ~300-600 tokens;
+                                    # 2048 was causing MAX_TOKENS truncation mid-response
         )
         logger.debug("GeminiClient: initialised with model '%s'", self._model_name)
 
@@ -139,6 +140,11 @@ class GeminiClient:
         )
 
         raw_response = self._call_with_retry(prompt, operation="extract_skills")
+
+        logger.debug(
+            "GeminiClient.extract_skills: received response length=%d chars",
+            len(raw_response),
+        )
 
         try:
             skills = self._parse_skills(raw_response)
@@ -245,13 +251,58 @@ class GeminiClient:
                     operation, attempt, len(_BACKOFF_SECONDS),
                 )
                 response = model.generate_content(prompt)
+
+                # ── Diagnostic: finish reason + token metadata ────────
+                try:
+                    candidate = (
+                        response.candidates[0]
+                        if response.candidates else None
+                    )
+                    finish_reason = (
+                        candidate.finish_reason if candidate else "NO_CANDIDATE"
+                    )
+                    part_count = (
+                        len(candidate.content.parts)
+                        if candidate and candidate.content else 0
+                    )
+                    logger.info(
+                        "GeminiClient.%s: finish_reason=%s "
+                        "candidates=%d parts=%d",
+                        operation,
+                        finish_reason,
+                        len(response.candidates) if response.candidates else 0,
+                        part_count,
+                    )
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        um = response.usage_metadata
+                        logger.info(
+                            "GeminiClient.%s: tokens prompt=%s output=%s total=%s",
+                            operation,
+                            getattr(um, "prompt_token_count", "?"),
+                            getattr(um, "candidates_token_count", "?"),
+                            getattr(um, "total_token_count", "?"),
+                        )
+                    finish_str = str(finish_reason)
+                    if "MAX_TOKEN" in finish_str or finish_str == "2":
+                        logger.warning(
+                            "GeminiClient.%s: finish_reason=MAX_TOKENS — "
+                            "response was cut before completion. "
+                            "max_output_tokens may still be too low.",
+                            operation,
+                        )
+                except Exception as diag_exc:
+                    logger.debug(
+                        "GeminiClient.%s: could not read response metadata: %s",
+                        operation, diag_exc,
+                    )
+
                 text = response.text
 
                 if not text or not text.strip():
                     raise ValueError("Gemini returned an empty response")
 
                 logger.debug(
-                    "GeminiClient.%s: attempt %d succeeded (%d chars)",
+                    "GeminiClient.%s: attempt %d succeeded, response=%d chars",
                     operation, attempt, len(text),
                 )
                 return text
@@ -324,31 +375,102 @@ class GeminiClient:
     # ── Private: response parsing ──────────────────────────────────────────
 
     @staticmethod
-    def _clean_json(raw: str) -> str:
+    @staticmethod
+    def _extract_json_str(raw: str) -> str:
         """
-        Strip markdown code fences and leading/trailing whitespace.
+        Extract the first JSON object or array from a raw string.
 
-        Gemini sometimes wraps JSON in ```json ... ``` despite being told
-        not to. This strips those fences before parsing.
+        Strategy (in order):
+          1. Look for a fenced code block (```json ... ``` or ``` ... ```)
+             and extract its contents. This handles Gemini responses that
+             wrap JSON in markdown despite being told not to.
+          2. Find the first '{' or '[' in the string and slice from there
+             to the matching closing brace/bracket. This handles responses
+             with leading prose like "Here are the extracted skills:\n{...}".
+          3. Fall back to the full stripped string and let json.loads decide.
+
+        Returns the extracted substring ready for json.loads().
         """
-        cleaned = re.sub(r"```(?:json)?", "", raw, flags=re.IGNORECASE)
-        cleaned = cleaned.replace("```", "")
-        return cleaned.strip()
+        stripped = raw.strip()
+
+        # ── Strategy 1: fenced code block ─────────────────────────────────
+        # Matches: ```json\n{...}\n``` or ```\n[...]\n```
+        fence_match = re.search(
+            r"```(?:json)?\s*([\s\S]*?)```",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        if fence_match:
+            candidate = fence_match.group(1).strip()
+            if candidate:
+                logger.debug(
+                    "_extract_json_str: extracted %d chars from fenced block "
+                    "(raw=%d chars)",
+                    len(candidate),
+                    len(raw),
+                )
+                return candidate
+
+        # ── Strategy 2: find first JSON structure delimiter ────────────────
+        # Handles "Here are the skills:\n{...}" or any leading prose.
+        first_brace = stripped.find("{")
+        first_bracket = stripped.find("[")
+
+        # Pick whichever delimiter appears first (ignore -1 = not found)
+        candidates = [i for i in (first_brace, first_bracket) if i != -1]
+        if candidates:
+            start = min(candidates)
+            opener = stripped[start]
+            closer = "}" if opener == "{" else "]"
+
+            # Walk from the end to find the matching closer
+            end = stripped.rfind(closer)
+            if end != -1 and end > start:
+                candidate = stripped[start : end + 1]
+                logger.debug(
+                    "_extract_json_str: extracted %d chars via delimiter scan "
+                    "(raw=%d chars, opener=%r)",
+                    len(candidate),
+                    len(raw),
+                    opener,
+                )
+                return candidate
+
+        # ── Strategy 3: full string fallback ──────────────────────────────
+        logger.debug(
+            "_extract_json_str: no structure found — using full string "
+            "(%d chars)",
+            len(stripped),
+        )
+        return stripped
 
     @staticmethod
-    def _parse_json(raw: str) -> dict[str, Any]:
-        """Parse cleaned text into a dict. Raises ValueError on failure."""
-        cleaned = GeminiClient._clean_json(raw)
+    def _parse_json(raw: str) -> dict[str, Any] | list[Any]:
+        """
+        Extract and parse the first JSON value from a raw Gemini response.
+
+        Returns either a dict or a list — callers must handle both.
+        Raises ValueError with a safe (length-limited) snippet on failure.
+        """
+        logger.debug(
+            "_parse_json: raw response length=%d chars", len(raw)
+        )
+        candidate = GeminiClient._extract_json_str(raw)
+        logger.debug(
+            "_parse_json: candidate length=%d chars", len(candidate)
+        )
         try:
-            parsed = json.loads(cleaned)
+            parsed = json.loads(candidate)
         except json.JSONDecodeError as exc:
+            # Log a safe snippet — never the full response
+            snippet = candidate[:200].replace("\n", " ")
             raise ValueError(
-                f"Response is not valid JSON: {exc}. "
-                f"Cleaned input (first 300 chars): {cleaned[:300]}"
+                f"Could not parse JSON from Gemini response: {exc}. "
+                f"Candidate snippet (first 200 chars): {snippet!r}"
             ) from exc
-        if not isinstance(parsed, dict):
+        if not isinstance(parsed, (dict, list)):
             raise ValueError(
-                f"Expected a JSON object, got {type(parsed).__name__}"
+                f"Expected a JSON object or array, got {type(parsed).__name__}"
             )
         return parsed
 
@@ -356,35 +478,51 @@ class GeminiClient:
         """
         Parse the extract_skills response into a list of skill strings.
 
-        Expected input: { "skills": ["Skill1", "Skill2", ...] }
+        Accepts two formats:
+          Format A — wrapped object: { "skills": ["Skill1", "Skill2", ...] }
+          Format B — bare array:     ["Skill1", "Skill2", ...]
 
         Validation:
-          - "skills" key must exist and be a list
           - Each item must be a non-empty string
           - Truncated to _MAX_SKILLS items
 
-        Raises:
-            ValueError: if the response does not match the expected schema.
+        Returns an empty list rather than raising on schema mismatch,
+        so that resume upload always succeeds even on unexpected output.
         """
-        data = self._parse_json(raw)
+        parsed = self._parse_json(raw)
 
-        if "skills" not in data:
-            raise ValueError(
-                f"Response missing 'skills' key. Keys found: {list(data.keys())}"
+        # ── Resolve to a list regardless of wrapping format ────────────────
+        if isinstance(parsed, list):
+            # Format B: bare array
+            raw_skills = parsed
+        elif isinstance(parsed, dict):
+            # Format A: { "skills": [...] }
+            # Also accept common Gemini variations: "skill_list", "extracted_skills"
+            for key in ("skills", "skill_list", "extracted_skills", "technologies"):
+                if key in parsed and isinstance(parsed[key], list):
+                    raw_skills = parsed[key]
+                    break
+            else:
+                logger.warning(
+                    "_parse_skills: dict has no recognised skills key. "
+                    "Keys found: %s — returning []",
+                    list(parsed.keys()),
+                )
+                return []
+        else:
+            logger.warning(
+                "_parse_skills: unexpected top-level type %s — returning []",
+                type(parsed).__name__,
             )
+            return []
 
-        raw_skills = data["skills"]
-        if not isinstance(raw_skills, list):
-            raise ValueError(
-                f"'skills' must be a list, got {type(raw_skills).__name__}"
-            )
-
-        # Filter to non-empty strings only; truncate to maximum
+        # ── Filter to non-empty strings only; truncate to maximum ──────────
         skills: list[str] = []
         for item in raw_skills[:_MAX_SKILLS]:
             if isinstance(item, str) and item.strip():
                 skills.append(item.strip())
 
+        logger.debug("_parse_skills: returning %d skills", len(skills))
         return skills
 
     def _parse_match_result(self, raw: str) -> MatchResult:
@@ -406,7 +544,13 @@ class GeminiClient:
         Raises:
             ValueError: if any required field is missing or invalid.
         """
-        data = self._parse_json(raw)
+        parsed = self._parse_json(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                f"match_job response must be a JSON object, "
+                f"got {type(parsed).__name__}"
+            )
+        data: dict[str, Any] = parsed
 
         # ── match_score ────────────────────────────────────────────────────
         if "match_score" not in data:
