@@ -138,6 +138,30 @@ class ResumeService:
             char_count=extraction.char_count,
         )
 
+    def delete_latest(self) -> bool:
+        """
+        Delete the currently active resume.
+
+        Returns:
+            True  -> resume deleted
+            False -> no resume exists
+        """
+        resume = self._query_latest()
+
+        if resume is None:
+            return False
+
+        self._db.delete(resume)
+        self._db.commit()
+
+        logger.info(
+            "ResumeService: deleted resume id=%s filename='%s'",
+            resume.id,
+            resume.filename,
+        )
+
+        return True
+
     # ── Read — latest ──────────────────────────────────────────────────────
 
     def get_latest(self) -> ResumeResponse:

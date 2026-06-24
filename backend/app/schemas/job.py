@@ -273,30 +273,6 @@ class ScraperRunSummary(BaseModel):
     total_new: int = Field(..., description="Sum of jobs_new across all sources")
 
 
-# ---------------------------------------------------------------------------
-# Score result (Phase 2 — defined here so the schema package is complete)
-# Returned by POST /api/jobs/{id}/score.
-# Fields are populated by match_service in Phase 2; router returns this shape.
-# ---------------------------------------------------------------------------
-
-class ScoreResult(BaseModel):
-    """
-    Result of a Gemini job match analysis.
-
-    Returned immediately if cached. Otherwise triggers a Gemini call
-    and returns the fresh result. The `cached` flag tells the client
-    which path was taken. The `needs_rescore` flag tells the client
-    that a newer resume exists and a re-score is recommended.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    match_score: int = Field(..., ge=0, le=100)
-    missing_skills: list[str] = Field(default_factory=list)
-    match_summary: str
-    matched_at: datetime
-    cached: bool
-    needs_rescore: bool = False
 
 
 class ScoreResponse(BaseModel):

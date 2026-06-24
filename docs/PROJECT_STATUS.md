@@ -77,10 +77,10 @@ ai-internship-hunter/
     │   └── versions/
     │       └── cc9c2e74a08d_initial_schema.py
     └── app/
-        ├── main.py
+        ├── main.py                 ← global HTTPException → ApiResponse handler (Phase 2D)
         ├── config.py
         ├── database.py
-        ├── dependencies.py         ← get_active_resume activated (Phase 2C)
+        ├── dependencies.py         ← get_active_resume active (Phase 2C)
         ├── models/
         │   ├── __init__.py
         │   ├── job.py
@@ -88,20 +88,20 @@ ai-internship-hunter/
         │   └── scrape_run.py
         ├── schemas/
         │   ├── __init__.py
-        │   ├── job.py              ← ScoreResponse added (Phase 2C)
+        │   ├── job.py              ← needs_rescore on list+detail; ScoreResult removed (Phase 2D)
         │   └── resume.py
         ├── routers/
         │   ├── __init__.py
         │   ├── health.py
-        │   ├── jobs.py             ← score endpoint live (Phase 2C)
+        │   ├── jobs.py             ← passes resume uploaded_at into service (Phase 2D)
         │   ├── scraper.py
-        │   └── resume.py
+        │   └── resume.py           ← paths aligned to spec; DELETE added (Phase 2D)
         ├── services/
         │   ├── __init__.py
-        │   ├── job_service.py
+        │   ├── job_service.py      ← needs_rescore computed on list+detail (Phase 2D)
         │   ├── scraper_service.py
         │   ├── resume_service.py
-        │   └── match_service.py    ← new (Phase 2C)
+        │   └── match_service.py
         ├── scrapers/
         │   ├── __init__.py
         │   ├── base.py
@@ -135,8 +135,8 @@ ai-internship-hunter/
 - Initial migration `cc9c2e74a08d_initial_schema.py` applied and verified
 
 ### ✅ Phase 1B — Service and Router Layer
-- `schemas/job.py`: `JobListItem`, `JobResponse`, `JobUpdateRequest`, `JobUpdateResponse`, `JobUpsertData`, `PaginatedJobList`, `ScrapeRunResponse`, `ScraperRunSummary`, `ScoreResult`, `ApiResponse[T]`, `ApiError`
-- `services/job_service.py`: `list_jobs()`, `get_job()`, `update_job()`, `delete_job()`, `upsert_jobs()` — all with deduplication, sort whitelist, stale-score detection
+- `schemas/job.py`: `JobListItem`, `JobResponse`, `JobUpdateRequest`, `JobUpdateResponse`, `JobUpsertData`, `PaginatedJobList`, `ScrapeRunResponse`, `ScraperRunSummary`, `ApiResponse[T]`, `ApiError`
+- `services/job_service.py`: `list_jobs()`, `get_job()`, `update_job()`, `delete_job()`, `upsert_jobs()` — all with deduplication, sort whitelist
 - `services/scraper_service.py`: `run_all()`, `get_status()`, per-source error isolation, `ScrapeRun` persistence
 - `scrapers/base.py`: `BaseScraper` abstract class
 - `scrapers/remoteok.py`: stub returning `[]` (real impl in Phase 1C)
@@ -157,8 +157,8 @@ ai-internship-hunter/
 
 ### ✅ Phase 1D — Resume Upload and PDF Extraction
 - `schemas/resume.py`: `ResumeResponse`, `ResumeUploadResponse`, `ResumeTextResponse`
-- `services/resume_service.py`: upload validation, PyMuPDF text extraction, DB upsert (delete-then-insert), `get_latest()`, `get_by_id()`
-- `routers/resume.py`: `POST /api/resume/upload`, `GET /api/resume/latest`, `GET /api/resume/{resume_id}`
+- `services/resume_service.py`: upload validation, PyMuPDF text extraction, DB upsert (delete-then-insert), `get_latest()`, `get_by_id()`, `delete_latest()`
+- `routers/resume.py`: `POST /api/resume`, `GET /api/resume`, `GET /api/resume/{resume_id}`, `DELETE /api/resume`
 - `main.py` updated to register resume router
 - No schema changes needed; `Resume` model already has all required columns
 - No new migration needed; `resumes` table created in Phase 1A initial migration
@@ -191,6 +191,21 @@ ai-internship-hunter/
 - No database migration required — all score columns existed from Phase 1A
 - Bug fix: JSON parsing hardened; `match_summary` persistence corrected
 
+### ✅ Phase 2D — Backend Hardening and API Cleanup
+- `main.py`: global `HTTPException` handler — all errors return `{"data": null, "error": {"code": "...", "message": "..."}}` envelope consistently
+- `main.py`: catch-all `Exception` handler — unhandled errors return `INTERNAL_ERROR`, never leak stack traces
+- `main.py`: `_status_to_code()` maps FastAPI built-in HTTP codes to API error code strings
+- `schemas/job.py`: `needs_rescore: bool` added to `JobListItem` and `JobResponse`
+- `schemas/job.py`: dead `ScoreResult` class removed — `ScoreResponse` is the single authoritative score schema
+- `services/job_service.py`: `list_jobs()` and `get_job()` accept optional `current_resume_uploaded_at: datetime | None`
+- `services/job_service.py`: `_compute_needs_rescore()` static helper — True only when score exists AND resume changed
+- `services/job_service.py`: `_to_list_item()` and `_to_response()` private helpers replace inline field mapping
+- `routers/jobs.py`: `_get_resume_uploaded_at()` helper fetches active resume non-blocking (no 422 on read endpoints)
+- `routers/jobs.py`: `list_jobs()` and `get_job()` pass `current_resume_uploaded_at` through to service
+- `routers/resume.py`: paths aligned to `api_spec.md` — `POST /api/resume`, `GET /api/resume`, `DELETE /api/resume`
+- `routers/resume.py`: `DELETE /api/resume` endpoint added; returns 404 `NO_RESUME` when nothing to delete
+- No database migration required — no new columns
+
 ---
 
 ## Pending Phases
@@ -201,28 +216,26 @@ ai-internship-hunter/
 - Extract and normalise job fields to `JobUpsertData`
 - Handle browser timeout gracefully in finally block
 
-### 🔲 Phase 2D — Frontend Integration
-- Build Next.js 15 frontend (App Router)
+### 🔲 Phase 3 — Frontend (Next.js 15)
 - Pages: `/jobs`, `/jobs/[id]`, `/resume`
 - Components: `JobCard`, `JobList`, `MatchResult`, `StatusDropdown`, `ResumeUploader`
 - API layer: `lib/api.ts` — all fetch calls centralised
-- Score badge, missing skills list, summary on job detail
+- Score badge, `needs_rescore` warning badge, missing skills list, summary on job detail
 - Sortable job list by score
 
-### 🔲 Phase 3 — Polish and Hardening
+### 🔲 Phase 4 — Polish and Hardening
 - Empty state handling (no jobs, no resume, no scores)
-- Loading states in frontend
-- Error toasts for sync, score, upload failures
+- Loading states and error toasts in frontend
 - Pytest service tests with mocked Gemini and DB
 
-### 🔲 Phase 4 — Application Tracking Workflows
+### 🔲 Phase 5 — Application Tracking Workflows
 - Status dropdown per job: `saved → applied → interview → offer / rejected`
 - Notes field per job
-- Kanban or list view filtered by status
+- List view filtered by status
 
-### 🔲 Phase 5 — Recommendation Engine
+### 🔲 Phase 6 — Recommendation Engine
 - Auto-score after sync
-- Surfaced top-N jobs by score on dashboard
+- Surface top-N jobs by score on dashboard
 - Configurable threshold alerts
 
 ---
@@ -234,14 +247,15 @@ ai-internship-hunter/
 | GET | `/api/health` | ✅ Live | DB connectivity check |
 | POST | `/api/scraper/run` | ✅ Live | Trigger all scrapers |
 | GET | `/api/scraper/status` | ✅ Live | Latest run per source |
-| GET | `/api/jobs` | ✅ Live | Paginated, filtered, sorted job list |
-| GET | `/api/jobs/{id}` | ✅ Live | Full job detail |
+| GET | `/api/jobs` | ✅ Live | Paginated, filtered, sorted list with `needs_rescore` |
+| GET | `/api/jobs/{id}` | ✅ Live | Full job detail with `needs_rescore` |
 | POST | `/api/jobs/{id}/score` | ✅ Live | AI match scoring with cache |
 | PATCH | `/api/jobs/{id}` | ✅ Live | Update status and notes |
 | DELETE | `/api/jobs/{id}` | ✅ Live | Remove job |
-| POST | `/api/resume/upload` | ✅ Live | Upload PDF, extract skills |
-| GET | `/api/resume/latest` | ✅ Live | Fetch active resume |
+| POST | `/api/resume` | ✅ Live | Upload PDF, extract skills |
+| GET | `/api/resume` | ✅ Live | Fetch active resume |
 | GET | `/api/resume/{id}` | ✅ Live | Fetch resume by ID |
+| DELETE | `/api/resume` | ✅ Live | Delete active resume |
 
 ---
 
@@ -264,14 +278,17 @@ ai-internship-hunter/
 | Job storage and deduplication | ✅ Working |
 | Job listing (paginated, filtered, sorted) | ✅ Working |
 | Job detail view | ✅ Working |
+| Stale score flag (`needs_rescore`) on list and detail | ✅ Working |
 | Job status update | ✅ Working |
 | Job delete | ✅ Working |
 | Resume upload (PDF) | ✅ Working |
+| Resume delete | ✅ Working |
 | PDF text extraction | ✅ Working |
 | Gemini skill extraction | ✅ Working |
 | AI job match scoring | ✅ Working |
 | Score caching (cache hit) | ✅ Working |
 | Stale score detection | ✅ Working |
+| Consistent API error envelope | ✅ Working |
 | YC Jobs scraping | 🔲 Stub |
 | Frontend UI | 🔲 Not started |
 
@@ -290,16 +307,32 @@ ai-internship-hunter/
 
 ---
 
+## Project Completion
+
+| Layer | % Complete |
+|---|---|
+| Database schema + migrations | 100% |
+| AI / Gemini integration | 100% |
+| RemoteOK scraper | 100% |
+| YC Jobs scraper | 10% (stub only) |
+| Backend services | 100% |
+| Backend routers + API contract | 100% |
+| Frontend | 0% |
+| Tests | 0% |
+| **Overall MVP** | **~72%** |
+
+---
+
 ## Next Recommended Phase
 
-**Phase 2D — Frontend Integration**
+**Phase 3 — Frontend (Next.js 15)**
 
-The backend API is feature-complete for MVP. All endpoints are live, tested, and returning correct JSON. The natural next step is the Next.js 15 frontend so the tool is usable without Swagger UI.
+Backend API is feature-complete and contract-clean. Every endpoint returns consistent JSON envelopes, `needs_rescore` is surfaced on reads, and error responses are uniform. The tool is fully functional via Swagger UI but has no browser interface.
 
 Minimum viable frontend:
 1. `/resume` — upload PDF, view extracted skills
-2. `/jobs` — list jobs, trigger sync, sort by score
-3. `/jobs/[id]` — full detail, score badge, missing skills, status dropdown
+2. `/jobs` — list jobs, trigger sync, sort by score, `needs_rescore` badge
+3. `/jobs/[id]` — full detail, score result, missing skills, status dropdown, notes
 
 ---
 
@@ -307,11 +340,11 @@ Minimum viable frontend:
 
 | Phase | Feature | Priority |
 |---|---|---|
-| 2D | Frontend (Next.js 15) | High |
+| 3 | Frontend (Next.js 15) | High |
 | 1E | YC Jobs Playwright scraper | High |
-| 3 | Service-layer tests + error polish | Medium |
-| 4 | Application tracking workflows | Medium |
-| 5 | Recommendation engine | Low |
+| 4 | Service-layer tests + error polish | Medium |
+| 5 | Application tracking workflows | Medium |
+| 6 | Recommendation engine | Low |
 | Post-MVP | Auto-score after sync | Low |
 | Post-MVP | Resume versioning | Low |
 | Post-MVP | Cover letter generation | Low |
@@ -323,7 +356,7 @@ Minimum viable frontend:
 
 ## Last Updated
 
-**Phase:** 2C complete
-**Date:** 2026-06-23
+**Phase:** 2D complete
+**Date:** 2026-06-24
 **Updated by:** Implementation engineer
-**Next update due:** After Phase 2D completion
+**Next update due:** After Phase 3 (frontend) completion
