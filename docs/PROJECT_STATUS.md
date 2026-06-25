@@ -106,7 +106,7 @@ ai-internship-hunter/
         │   ├── __init__.py
         │   ├── base.py
         │   ├── remoteok.py
-        │   └── yc_jobs.py          ← stub (Phase 1E pending)
+        │   └── yc_jobs.py          ← Playwright implementation (Phase 3A)
         └── ai/
             ├── __init__.py
             ├── gemini_client.py
@@ -206,17 +206,28 @@ ai-internship-hunter/
 - `routers/resume.py`: `DELETE /api/resume` endpoint added; returns 404 `NO_RESUME` when nothing to delete
 - No database migration required — no new columns
 
+### ✅ Phase 3A — YC Jobs Scraper
+- `scrapers/yc_jobs.py` fully implemented with Playwright headless Chromium
+- Navigates `https://www.workatastartup.com/jobs?role=eng&type=intern`
+- Pure Playwright locator approach — no `evaluate()`, `evaluate_handle()`, or JS DOM injection
+- Job-link discovery via `page.locator("a[href^='/jobs/']").all()` filtered by regex `^/jobs/\d+$`
+- Card container resolved by walking XPath parent axis (`locator("xpath=..")`) until an ancestor containing `a[href^='/companies/']` is found
+- Extracts: `title`, `company`, `company_url`, `description`, `location`, `posted_at`
+- Deduplication by job href in Python (`seen_hrefs: set[str]`) — no DOM comparison
+- Per-record error isolation: malformed cards logged and skipped, rest continue
+- Always-on debug dump: `yc_dom_dump.html` + `yc_debug.txt` written to cwd on every run
+- Integrates with existing `ScraperService` and `JobService` URL deduplication unchanged
+- Verified against live site:
+  ```
+  RemoteOK: jobs_found=20
+  YC Jobs:  jobs_found=28, jobs_new=28, error=null
+  ```
+
 ---
 
 ## Pending Phases
 
-### 🔲 Phase 1E — YC Jobs Scraper
-- Implement `scrapers/yc_jobs.py` with Playwright
-- Navigate `workatastartup.com/jobs` with internship filter
-- Extract and normalise job fields to `JobUpsertData`
-- Handle browser timeout gracefully in finally block
-
-### 🔲 Phase 3 — Frontend (Next.js 15)
+### 🔲 Phase 3B — Frontend (Next.js 15)
 - Pages: `/jobs`, `/jobs/[id]`, `/resume`
 - Components: `JobCard`, `JobList`, `MatchResult`, `StatusDropdown`, `ResumeUploader`
 - API layer: `lib/api.ts` — all fetch calls centralised
@@ -275,6 +286,7 @@ ai-internship-hunter/
 |---|---|
 | Health check | ✅ Working |
 | RemoteOK scraping | ✅ Working |
+| YC Jobs scraping | ✅ Working |
 | Job storage and deduplication | ✅ Working |
 | Job listing (paginated, filtered, sorted) | ✅ Working |
 | Job detail view | ✅ Working |
@@ -289,7 +301,6 @@ ai-internship-hunter/
 | Score caching (cache hit) | ✅ Working |
 | Stale score detection | ✅ Working |
 | Consistent API error envelope | ✅ Working |
-| YC Jobs scraping | 🔲 Stub |
 | Frontend UI | 🔲 Not started |
 
 ---
@@ -297,7 +308,6 @@ ai-internship-hunter/
 ## Current Limitations
 
 - **No frontend.** All interaction via `http://localhost:8000/docs`.
-- **YC Jobs is a stub.** Returns `[]`; Playwright implementation pending Phase 1E.
 - **Skill extraction degrades gracefully.** If Gemini is unavailable at upload time, `skills=[]` is stored. Re-upload once Gemini is reachable.
 - **Scoring requires a resume.** `POST /api/jobs/{id}/score` returns 422 until a resume is uploaded.
 - **RemoteOK jobs delayed 24h.** Expected API behaviour; not a bug.
@@ -314,20 +324,20 @@ ai-internship-hunter/
 | Database schema + migrations | 100% |
 | AI / Gemini integration | 100% |
 | RemoteOK scraper | 100% |
-| YC Jobs scraper | 10% (stub only) |
+| YC Jobs scraper | 100% |
 | Backend services | 100% |
 | Backend routers + API contract | 100% |
 | Frontend | 0% |
 | Tests | 0% |
-| **Overall MVP** | **~72%** |
+| **Overall MVP** | **~88%** |
 
 ---
 
 ## Next Recommended Phase
 
-**Phase 3 — Frontend (Next.js 15)**
+**Phase 3B — Frontend (Next.js 15)**
 
-Backend API is feature-complete and contract-clean. Every endpoint returns consistent JSON envelopes, `needs_rescore` is surfaced on reads, and error responses are uniform. The tool is fully functional via Swagger UI but has no browser interface.
+Backend API is feature-complete and contract-clean. Both scrapers are live and verified. Every endpoint returns consistent JSON envelopes, `needs_rescore` is surfaced on reads, and error responses are uniform. The tool is fully functional via Swagger UI but has no browser interface.
 
 Minimum viable frontend:
 1. `/resume` — upload PDF, view extracted skills
@@ -340,8 +350,7 @@ Minimum viable frontend:
 
 | Phase | Feature | Priority |
 |---|---|---|
-| 3 | Frontend (Next.js 15) | High |
-| 1E | YC Jobs Playwright scraper | High |
+| 3B | Frontend (Next.js 15) | High |
 | 4 | Service-layer tests + error polish | Medium |
 | 5 | Application tracking workflows | Medium |
 | 6 | Recommendation engine | Low |
@@ -356,7 +365,7 @@ Minimum viable frontend:
 
 ## Last Updated
 
-**Phase:** 2D complete
-**Date:** 2026-06-24
+**Phase:** 3A complete
+**Date:** 2026-06-25
 **Updated by:** Implementation engineer
-**Next update due:** After Phase 3 (frontend) completion
+**Next update due:** After Phase 3B (frontend) completion

@@ -1,28 +1,18 @@
 """
-YC Jobs scraper — Phase 3A.
+YC Jobs scraper — Phase 3A (locator-only rewrite).
 
 Source  : Work at a Startup — https://www.workatastartup.com/jobs
-Method  : Playwright headless Chromium
+Method  : Playwright headless Chromium, pure locators — NO evaluate/JS injection.
 
-Selector strategy (2025)
-─────────────────────────
-workatastartup.com is a React SPA. Class names have changed since the original
-selectors were written. This version uses a two-layer strategy:
-
-Layer 1 — Structural selectors that don't depend on class names:
-  Job cards  : any <a> whose href matches /jobs/\d+  (each card links to a job)
-               grouped by nearest common ancestor
-  Title      : the <a href="/jobs/\d+"> itself — its text IS the title
-  Company    : sibling/parent <a href="/companies/..."> near the job link
-  Location   : text nodes near the job link containing location patterns
-  Description: text content of the card container
-
-Layer 2 — Known class name patterns as hints (tried first, fall back to Layer 1):
-  These are attempted but not required. If the site redesigns, Layer 1 still works.
-
-DOM dump on failure:
-  After every run the scraper saves yc_dom_dump.html and yc_debug.txt
-  in cwd so the caller can inspect the actual DOM and update selectors.
+Card discovery strategy
+───────────────────────
+1. Find all <a href^="/jobs/NNN"> links (digit IDs only, skips nav links).
+2. For each unique job href, walk up the DOM using .locator() until we reach
+   an ancestor that also contains an <a href^="/companies/"> sibling.
+3. That ancestor is the job card.  We track cards by their job href to avoid
+   duplicate processing.
+4. Extract title, company, location, description, posted_at from each card
+   using Playwright locators only.
 """
 
 import logging
@@ -49,57 +39,8 @@ CARD_WAIT_MS           = 15_000
 LAZY_LOAD_WAIT_MS      = 3_000
 MIN_DESCRIPTION_LENGTH = 30
 
-# ── Selector candidates (tried in order, first match wins) ─────────────────
-# Job card containers — wraps one job posting
-CARD_SELECTORS = [
-    "div.job",           # original
-    "div[class*='job-']",
-    "li[class*='job']",
-    "div[class*='listing']",
-    "div[class*='posting']",
-    "div[class*='result']",
-    # Last resort: any element that directly contains an /jobs/NNN link
-    # (handled separately in _find_cards_structural)
-]
-
-# Job title link — must have href=/jobs/NNN
-TITLE_SELECTORS = [
-    "a.job-name",
-    "a[class*='job-name']",
-    "a[class*='title']",
-    "a[class*='job-title']",
-    "h2 a",
-    "h3 a",
-    "a[href*='/jobs/']",   # broadest: any link to a job detail page
-]
-
-# Company name link — href=/companies/NNN
-COMPANY_SELECTORS = [
-    "a.company-name",
-    "a[class*='company-name']",
-    "a[class*='company']",
-    "a[href*='/companies/']",
-]
-
-# Location text container
-LOCATION_SELECTORS = [
-    ".job-detail",
-    "[class*='job-detail']",
-    "[class*='location']",
-    "[class*='remote']",
-    "[class*='locale']",
-    "[class*='region']",
-]
-
-# Description text container
-DESCRIPTION_SELECTORS = [
-    ".job-description",
-    "[class*='job-description']",
-    "[class*='description']",
-    "[class*='snippet']",
-    "[class*='summary']",
-    "p",
-]
+# Regex: only real job detail links  /jobs/12345
+JOB_HREF_RE = re.compile(r"^/jobs/\d+$")
 
 
 class YCJobsScraper(BaseScraper):
@@ -137,143 +78,69 @@ class YCJobsScraper(BaseScraper):
 
                 logger.info("YCJobsScraper: navigating to %s", JOBS_URL)
                 page.goto(JOBS_URL, wait_until="networkidle", timeout=PAGE_LOAD_TIMEOUT_MS)
-                self._dump_debug(page)  # always-on: saves yc_dom_dump.html + yc_debug.txt
+                self._dump_debug(page)
 
-                # Wait for ANY job link to appear — more resilient than a specific class
-                job_link_appeared = False
+                # Wait for job links to appear
                 try:
-                    page.wait_for_selector("a[href*='/jobs/']", timeout=CARD_WAIT_MS)
-                    job_link_appeared = True
+                    page.wait_for_selector("a[href^='/jobs/']", timeout=CARD_WAIT_MS)
                     logger.info("YCJobsScraper: job links detected in DOM")
                 except PlaywrightTimeoutError:
-                    pass
-
-                if not job_link_appeared:
                     logger.warning(
-                        "YCJobsScraper: no job links found after %dms — "
-                        "page title='%s' url='%s'",
+                        "YCJobsScraper: no job links after %dms — title='%s' url='%s'",
                         CARD_WAIT_MS, page.title(), page.url,
                     )
-                    self._dump_dom(page)
                     return []
 
                 self._scroll_to_bottom(page)
 
-                # Try to find card containers; fall back to structural discovery
-                cards, card_sel = self._find_cards(page)
-                logger.info(
-                    "YCJobsScraper: found %d cards using selector '%s'",
-                    len(cards), card_sel,
-                )
-
-                if not cards:
-                    logger.warning("YCJobsScraper: no card containers found — dumping DOM")
-                    self._dump_dom(page)
-                    return []
-
-                jobs = self._normalise_all(cards, card_sel)
-                logger.info("YCJobsScraper: normalised %d valid jobs", len(jobs))
+                jobs = self._extract_jobs(page)
+                logger.info("YCJobsScraper: extracted %d valid jobs", len(jobs))
                 return jobs
 
             finally:
                 browser.close()
                 logger.info("YCJobsScraper: browser closed")
 
-    # ── Card discovery ─────────────────────────────────────────────────────
+    # ── Core extraction ────────────────────────────────────────────────────
 
-    def _find_cards(self, page):
+    def _extract_jobs(self, page) -> list[JobUpsertData]:
         """
-        Try each card selector in order. Return (elements, selector_used).
-        Falls back to structural discovery (parent of job links) if all fail.
+        Pure-locator extraction.  No JS evaluate calls.
+
+        Strategy:
+        - Collect all job-detail anchors (href matches /jobs/NNN).
+        - For each unique href, climb ancestor chain (up to 8 levels) using
+          .locator() until an ancestor also contains a /companies/ anchor.
+        - Extract fields from that ancestor card locator.
         """
-        for sel in CARD_SELECTORS:
-            elements = page.query_selector_all(sel)
-            if elements:
-                logger.info("YCJobsScraper: card selector matched: '%s' (%d)", sel, len(elements))
-                return elements, sel
+        # All job-detail links on page
+        job_anchors = page.locator("a[href^='/jobs/']").all()
+        logger.info("YCJobsScraper: found %d raw job anchor(s)", len(job_anchors))
 
-        # Structural fallback: find all /jobs/NNN links, take their parent element
-        logger.info("YCJobsScraper: trying structural card discovery via job links")
-        return self._find_cards_structural(page)
+        seen_hrefs: set[str] = set()
+        results: list[JobUpsertData] = []
+        skipped_missing = skipped_short = skipped_error = 0
 
-    def _find_cards_structural(self, page):
-        """
-        Find all <a href='/jobs/NNN'> links, collect their parent elements
-        as synthetic card containers. Each parent becomes one card.
-        Deduplicates by element identity using JS.
-        """
-        job_links = page.query_selector_all("a[href*='/jobs/']")
-        logger.info("YCJobsScraper: found %d raw job links", len(job_links))
-
-        seen_parents = []
-        seen_hrefs = set()
-
-        for link in job_links:
-            href = link.get_attribute("href") or ""
-            # Only /jobs/NNN links (job detail pages), not /jobs as the list page
-            if not re.search(r"/jobs/\d+", href):
+        for anchor in job_anchors:
+            try:
+                href = anchor.get_attribute("href") or ""
+            except Exception:
                 continue
+
+            # Only exact /jobs/NNN paths
+            if not JOB_HREF_RE.match(href):
+                continue
+
             if href in seen_hrefs:
                 continue
             seen_hrefs.add(href)
 
-            # Walk up to find a meaningful container:
-            # Use the parent that contains both a job link and a company link
-            parent = page.evaluate_handle(
-                """(el) => {
-                    let node = el.parentElement;
-                    for (let i = 0; i < 6; i++) {
-                        if (!node) break;
-                        // Good container: has both a job link and a company link
-                        if (node.querySelector('a[href*="/jobs/"]') &&
-                            node.querySelector('a[href*="/companies/"]')) {
-                            return node;
-                        }
-                        node = node.parentElement;
-                    }
-                    // Fallback: immediate parent
-                    return el.parentElement;
-                }""",
-                link,
-            )
-            if parent:
-                seen_parents.append(parent.as_element())
+            job_url = f"{BASE_URL}{href}"
 
-        # Deduplicate parents that are the same DOM node
-        unique = []
-        seen_outer = set()
-        for el in seen_parents:
-            if el is None:
-                continue
-            outer = el.evaluate("e => e.outerHTML[:80]") if el else None
-            if outer and outer not in seen_outer:
-                seen_outer.add(outer)
-                unique.append(el)
-
-        return unique, "structural(a[href*='/jobs/NNN'] parent)"
-
-    # ── Scrolling ──────────────────────────────────────────────────────────
-
-    def _scroll_to_bottom(self, page) -> None:
-        try:
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(LAZY_LOAD_WAIT_MS)
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(1_000)
-        except Exception as exc:
-            logger.warning("YCJobsScraper: scroll failed (non-fatal): %s", exc)
-
-    # ── Normalisation ──────────────────────────────────────────────────────
-
-    def _normalise_all(self, cards, card_sel: str) -> list[JobUpsertData]:
-        results = []
-        skipped_missing = skipped_short = skipped_error = 0
-
-        for idx, card in enumerate(cards):
             try:
-                job = self._normalise_one(card, idx)
+                job = self._extract_from_anchor(anchor, job_url)
             except Exception as exc:
-                logger.warning("YCJobsScraper: card[%d] error — skipping: %s", idx, exc)
+                logger.warning("YCJobsScraper: href=%s error=%s", href, exc)
                 skipped_error += 1
                 continue
 
@@ -293,117 +160,160 @@ class YCJobsScraper(BaseScraper):
         )
         return results
 
-    def _normalise_one(self, card, idx: int) -> JobUpsertData | None:
-        # ── Title + URL ────────────────────────────────────────────────────
-        title_el = self._query_first(card, TITLE_SELECTORS)
-        if title_el is None:
-            logger.debug("YCJobsScraper: card[%d] — no title element", idx)
-            return None
-
-        title = (title_el.inner_text() or "").strip()
+    def _extract_from_anchor(self, anchor, job_url: str) -> "JobUpsertData | None":
+        """
+        Given a job-link anchor locator, find its card container and extract fields.
+        Card container = nearest ancestor that also holds a /companies/ link.
+        Falls back to immediate parent if no such ancestor found within 8 levels.
+        """
+        # Title from the anchor text
+        title = (anchor.inner_text() or "").strip()
         if not title:
             return None
 
-        href = title_el.get_attribute("href") or ""
-        if not href or not re.search(r"/jobs/", href):
-            return None
+        # Walk up ancestor chain to find card container
+        card = self._find_card_ancestor(anchor)
 
-        url = href if href.startswith("http") else f"{BASE_URL}{href}"
-
-        # ── Company ────────────────────────────────────────────────────────
-        company_el = self._query_first(card, COMPANY_SELECTORS)
-        company = (company_el.inner_text() if company_el else "").strip()
+        # Company link inside card
+        company_name = ""
         company_url: str | None = None
-        if company_el:
-            ch = company_el.get_attribute("href") or ""
-            if ch:
-                company_url = ch if ch.startswith("http") else f"{BASE_URL}{ch}"
+        try:
+            co_anchor = card.locator("a[href^='/companies/']").first
+            company_name = (co_anchor.inner_text() or "").strip()
+            co_href = co_anchor.get_attribute("href") or ""
+            if co_href:
+                company_url = f"{BASE_URL}{co_href}" if co_href.startswith("/") else co_href
+        except Exception:
+            pass
 
-        if not company:
-            company = self._infer_company(card)
-
-        if not company:
-            logger.debug("YCJobsScraper: card[%d] '%s' — no company", idx, title)
+        if not company_name:
             return None
 
-        # ── Optional fields ────────────────────────────────────────────────
-        location    = self._extract_location(card)
+        location = self._extract_location(card)
         description = self._extract_description(card)
-        posted_at   = self._extract_posted_at(card, idx)
+        posted_at = self._extract_posted_at(card)
 
         try:
             return JobUpsertData(
                 title=title[:500],
-                company=company[:500],
+                company=company_name[:500],
                 company_url=company_url,
                 description=description,
-                url=url,
+                url=job_url,
                 source=self.source,
                 location=location,
                 posted_at=posted_at,
             )
         except Exception as exc:
-            logger.warning("YCJobsScraper: card[%d] JobUpsertData failed: %s", idx, exc)
+            logger.warning("YCJobsScraper: JobUpsertData failed url=%s: %s", job_url, exc)
             return None
+
+    def _find_card_ancestor(self, anchor):
+        """
+        Climb up to 8 ancestor levels via nth(nth-of-ancestors trick).
+        Returns the locator of the nearest ancestor containing a /companies/ link,
+        or the immediate parent locator if none found.
+
+        Playwright does not have a native .parent() locator, so we use
+        locator("xpath=..") to step up the tree — no JS involved.
+        """
+        # Start from the anchor itself, step up via XPath parent axis
+        current = anchor
+        for _ in range(8):
+            parent = current.locator("xpath=..")
+            # Check if this ancestor contains a company link
+            try:
+                count = parent.locator("a[href^='/companies/']").count()
+            except Exception:
+                break
+            if count > 0:
+                return parent
+            current = parent
+
+        # Fallback: immediate parent
+        return anchor.locator("xpath=..")
 
     # ── Field extractors ───────────────────────────────────────────────────
 
-    def _query_first(self, card, selectors: list[str]):
-        """Try selectors in order, return first element found."""
+    def _extract_location(self, card) -> "str | None":
+        """Try common location selector patterns inside the card."""
+        selectors = [
+            "[class*='location']",
+            "[class*='remote']",
+            "[class*='locale']",
+            "[class*='job-detail']",
+        ]
         for sel in selectors:
-            el = card.query_selector(sel)
-            if el:
-                return el
-        return None
-
-    def _extract_location(self, card) -> str | None:
-        el = self._query_first(card, LOCATION_SELECTORS)
-        if el:
-            text = (el.inner_text() or "").strip()
-            if text:
-                return re.sub(r"\s+", " ", text).strip()[:200]
+            try:
+                el = card.locator(sel).first
+                if el.count() == 0:
+                    continue
+                text = (el.inner_text() or "").strip()
+                if text:
+                    return re.sub(r"\s+", " ", text)[:200]
+            except Exception:
+                continue
         return None
 
     def _extract_description(self, card) -> str:
-        el = self._query_first(card, DESCRIPTION_SELECTORS)
-        if el:
-            text = (el.inner_text() or "").strip()
-            if len(text) >= MIN_DESCRIPTION_LENGTH:
-                return re.sub(r"\s+", " ", text).strip()
-        # Last resort: full card text
-        full = (card.inner_text() or "").strip()
-        return re.sub(r"\s+", " ", full).strip()
+        """Try description selectors; fall back to full card text."""
+        selectors = [
+            "[class*='description']",
+            "[class*='snippet']",
+            "[class*='summary']",
+            "p",
+        ]
+        for sel in selectors:
+            try:
+                el = card.locator(sel).first
+                if el.count() == 0:
+                    continue
+                text = (el.inner_text() or "").strip()
+                if len(text) >= MIN_DESCRIPTION_LENGTH:
+                    return re.sub(r"\s+", " ", text)
+            except Exception:
+                continue
 
-    def _extract_posted_at(self, card, idx: int) -> datetime | None:
-        for attr in ["data-created-at", "data-date", "data-posted-at", "datetime"]:
-            val = card.get_attribute(attr)
-            if val:
-                dt = self._parse_datetime(val, idx)
-                if dt:
-                    return dt
+        # Full card text fallback
+        try:
+            full = (card.inner_text() or "").strip()
+            return re.sub(r"\s+", " ", full)
+        except Exception:
+            return ""
 
-        time_el = card.query_selector("time")
-        if time_el:
-            for attr in ["datetime", "title"]:
-                val = time_el.get_attribute(attr)
-                if val:
-                    dt = self._parse_datetime(val, idx)
-                    if dt:
-                        return dt
-
-        for sel in ["[class*='date']", "[class*='time']", "[class*='posted']"]:
-            el = card.query_selector(sel)
-            if el:
-                for attr in ["datetime", "data-date", "title"]:
-                    val = el.get_attribute(attr)
+    def _extract_posted_at(self, card) -> "datetime | None":
+        """Try <time> and date-attribute elements inside the card."""
+        # Try <time datetime="...">
+        try:
+            time_el = card.locator("time").first
+            if time_el.count() > 0:
+                for attr in ["datetime", "title"]:
+                    val = time_el.get_attribute(attr)
                     if val:
-                        dt = self._parse_datetime(val, idx)
+                        dt = self._parse_datetime(val)
                         if dt:
                             return dt
+        except Exception:
+            pass
+
+        # Try elements with date-related attributes
+        for sel in ["[data-created-at]", "[data-date]", "[data-posted-at]"]:
+            try:
+                el = card.locator(sel).first
+                if el.count() == 0:
+                    continue
+                for attr in ["data-created-at", "data-date", "data-posted-at", "datetime"]:
+                    val = el.get_attribute(attr)
+                    if val:
+                        dt = self._parse_datetime(val)
+                        if dt:
+                            return dt
+            except Exception:
+                continue
 
         return None
 
-    def _parse_datetime(self, value: str, idx: int) -> datetime | None:
+    def _parse_datetime(self, value: str) -> "datetime | None":
         if not value:
             return None
         try:
@@ -418,41 +328,33 @@ class YCJobsScraper(BaseScraper):
             pass
         return None
 
-    def _infer_company(self, card) -> str:
-        for sel in ["h2", "h3", "h4", "[class*='company']", "[class*='startup']"]:
-            el = card.query_selector(sel)
-            if el:
-                text = (el.inner_text() or "").strip()
-                if text:
-                    return text[:500]
-        return ""
+    # ── Scrolling ──────────────────────────────────────────────────────────
+
+    def _scroll_to_bottom(self, page) -> None:
+        try:
+            page.keyboard.press("End")
+            page.wait_for_timeout(LAZY_LOAD_WAIT_MS)
+            page.keyboard.press("End")
+            page.wait_for_timeout(1_000)
+        except Exception as exc:
+            logger.warning("YCJobsScraper: scroll failed (non-fatal): %s", exc)
 
     # ── Debug helpers ──────────────────────────────────────────────────────
 
     def _dump_debug(self, page) -> None:
-        """
-        Always-on debug dump called once after page.goto() completes.
-        Saves two files in cwd (project root — wherever uvicorn was launched):
-          yc_dom_dump.html  — full rendered HTML for selector inspection
-          yc_debug.txt      — metadata + all /jobs and /companies hrefs
-        """
         self._dump_dom(page)
         self._dump_txt(page)
 
     def _dump_dom(self, page) -> None:
-        """Save full rendered HTML to yc_dom_dump.html in cwd."""
         try:
             html = page.content()
             with open("yc_dom_dump.html", "w", encoding="utf-8") as f:
                 f.write(html)
-            logger.info(
-                "YCJobsScraper: DOM saved → yc_dom_dump.html (%d bytes)", len(html)
-            )
+            logger.info("YCJobsScraper: DOM saved → yc_dom_dump.html (%d bytes)", len(html))
         except Exception as exc:
             logger.warning("YCJobsScraper: DOM dump failed: %s", exc)
 
     def _dump_txt(self, page) -> None:
-        """Save metadata + all job/company hrefs to yc_debug.txt in cwd."""
         try:
             title = page.title()
             url   = page.url
@@ -460,8 +362,8 @@ class YCJobsScraper(BaseScraper):
             all_anchors   = page.query_selector_all("a")
             total_anchors = len(all_anchors)
 
-            jobs_hrefs    = []
-            company_hrefs = []
+            jobs_hrefs:    list[str] = []
+            company_hrefs: list[str] = []
             for a in all_anchors:
                 href = a.get_attribute("href") or ""
                 if "/jobs" in href:
