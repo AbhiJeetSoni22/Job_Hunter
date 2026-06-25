@@ -68,49 +68,88 @@ ai-internship-hunter/
 │   ├── TASKS.md
 │   ├── PROMPTS.md
 │   └── PROJECT_STATUS.md       ← this file
-└── backend/
-    ├── pyproject.toml
-    ├── alembic.ini
-    ├── alembic/
-    │   ├── env.py
-    │   ├── script.py.mako
-    │   └── versions/
-    │       └── cc9c2e74a08d_initial_schema.py
-    └── app/
-        ├── main.py                 ← global HTTPException → ApiResponse handler (Phase 2D)
-        ├── config.py
-        ├── database.py
-        ├── dependencies.py         ← get_active_resume active (Phase 2C)
-        ├── models/
-        │   ├── __init__.py
-        │   ├── job.py
-        │   ├── resume.py
-        │   └── scrape_run.py
-        ├── schemas/
-        │   ├── __init__.py
-        │   ├── job.py              ← needs_rescore on list+detail; ScoreResult removed (Phase 2D)
-        │   └── resume.py
-        ├── routers/
-        │   ├── __init__.py
-        │   ├── health.py
-        │   ├── jobs.py             ← passes resume uploaded_at into service (Phase 2D)
-        │   ├── scraper.py
-        │   └── resume.py           ← paths aligned to spec; DELETE added (Phase 2D)
-        ├── services/
-        │   ├── __init__.py
-        │   ├── job_service.py      ← needs_rescore computed on list+detail (Phase 2D)
-        │   ├── scraper_service.py
-        │   ├── resume_service.py
-        │   └── match_service.py
-        ├── scrapers/
-        │   ├── __init__.py
-        │   ├── base.py
-        │   ├── remoteok.py
-        │   └── yc_jobs.py          ← Playwright implementation (Phase 3A)
-        └── ai/
-            ├── __init__.py
-            ├── gemini_client.py
-            └── prompts.py
+├── backend/
+│   ├── pyproject.toml
+│   ├── alembic.ini
+│   ├── alembic/
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions/
+│   │       └── cc9c2e74a08d_initial_schema.py
+│   └── app/
+│       ├── main.py
+│       ├── config.py
+│       ├── database.py
+│       ├── dependencies.py
+│       ├── models/
+│       │   ├── __init__.py
+│       │   ├── job.py
+│       │   ├── resume.py
+│       │   └── scrape_run.py
+│       ├── schemas/
+│       │   ├── __init__.py
+│       │   ├── job.py
+│       │   └── resume.py
+│       ├── routers/
+│       │   ├── __init__.py
+│       │   ├── health.py
+│       │   ├── jobs.py
+│       │   ├── scraper.py
+│       │   └── resume.py
+│       ├── services/
+│       │   ├── __init__.py
+│       │   ├── job_service.py
+│       │   ├── scraper_service.py
+│       │   ├── resume_service.py
+│       │   └── match_service.py
+│       ├── scrapers/
+│       │   ├── __init__.py
+│       │   ├── base.py
+│       │   ├── remoteok.py
+│       │   └── yc_jobs.py
+│       └── ai/
+│           ├── __init__.py
+│           ├── gemini_client.py
+│           └── prompts.py
+└── frontend/                           ← Phase 3B
+    ├── package.json                    (Next.js 15 + React 19 + Tailwind 4)
+    ├── next.config.ts                  (rewrites /api/* → localhost:8000)
+    ├── tsconfig.json
+    ├── postcss.config.mjs
+    ├── styles/
+    │   └── globals.css                 (CSS variables + Tailwind import)
+    ├── lib/
+    │   ├── types.ts                    (all TS types from API contract)
+    │   └── api.ts                      (centralised fetch — no fetch in components)
+    ├── app/
+    │   ├── layout.tsx                  (navbar, footer, max-width container)
+    │   ├── page.tsx                    (dashboard: stat cards)
+    │   ├── jobs/
+    │   │   ├── page.tsx                (job list — server component)
+    │   │   └── [id]/
+    │   │       └── page.tsx            (job detail — server component)
+    │   └── resume/
+    │       └── page.tsx                (resume info or empty state)
+    ├── components/
+    │   ├── ui/
+    │   │   ├── Button.tsx
+    │   │   ├── Card.tsx
+    │   │   ├── Badge.tsx
+    │   │   ├── LoadingSpinner.tsx
+    │   │   ├── EmptyState.tsx
+    │   │   ├── ErrorState.tsx
+    │   │   └── PageHeader.tsx
+    │   ├── jobs/
+    │   │   ├── JobCard.tsx
+    │   │   ├── JobList.tsx
+    │   │   ├── ScoreBadge.tsx
+    │   │   ├── StatusBadge.tsx
+    │   │   └── NeedsRescoreBadge.tsx
+    │   └── resume/
+    │       ├── SkillChip.tsx
+    │       ├── ResumeInfoCard.tsx
+    │       └── ResumeUploader.tsx
+    └── hooks/                          (empty — ready for Phase 3C)
 ```
 
 ---
@@ -139,110 +178,99 @@ ai-internship-hunter/
 - `services/job_service.py`: `list_jobs()`, `get_job()`, `update_job()`, `delete_job()`, `upsert_jobs()` — all with deduplication, sort whitelist
 - `services/scraper_service.py`: `run_all()`, `get_status()`, per-source error isolation, `ScrapeRun` persistence
 - `scrapers/base.py`: `BaseScraper` abstract class
-- `scrapers/remoteok.py`: stub returning `[]` (real impl in Phase 1C)
-- `scrapers/yc_jobs.py`: stub returning `[]`
 - `routers/jobs.py`: 5 endpoints
 - `routers/scraper.py`: 2 endpoints
-- `main.py` updated to register jobs and scraper routers
 
 ### ✅ Phase 1C — RemoteOK Scraper
-- `scrapers/remoteok.py` fully implemented
 - Fetches from `https://remoteok.com/api` via httpx
-- HTML description stripping via stdlib `HTMLParser` (no extra dep)
+- HTML description stripping via stdlib `HTMLParser`
 - Filters to internship-relevant jobs via keyword set on `position` + `tags`
 - Tags appended to description for richer Gemini context
 - `epoch` → `posted_at` with ISO 8601 `date` fallback
-- Per-record error isolation: malformed records logged and skipped, rest continue
-- Custom `User-Agent` header per RemoteOK ToS guidance
+- Per-record error isolation; custom `User-Agent` per RemoteOK ToS
 
 ### ✅ Phase 1D — Resume Upload and PDF Extraction
 - `schemas/resume.py`: `ResumeResponse`, `ResumeUploadResponse`, `ResumeTextResponse`
-- `services/resume_service.py`: upload validation, PyMuPDF text extraction, DB upsert (delete-then-insert), `get_latest()`, `get_by_id()`, `delete_latest()`
-- `routers/resume.py`: `POST /api/resume`, `GET /api/resume`, `GET /api/resume/{resume_id}`, `DELETE /api/resume`
-- `main.py` updated to register resume router
-- No schema changes needed; `Resume` model already has all required columns
-- No new migration needed; `resumes` table created in Phase 1A initial migration
+- `services/resume_service.py`: upload validation, PyMuPDF text extraction, DB upsert (delete-then-insert)
+- `routers/resume.py`: `POST /api/resume`, `GET /api/resume`, `GET /api/resume/{id}`, `DELETE /api/resume`
 
 ### ✅ Phase 2A — Gemini Client
-- `ai/gemini_client.py`: `GeminiClient` class with `extract_skills()` and `match_job()`
-- Retry on 429, 500, 502, 503 with backoff 1s → 2s → 4s; custom `AIError` after 3 failures
-- `_is_retryable()` detects transient failures by status code and exception type
+- `GeminiClient` with `extract_skills()` and `match_job()`
+- Retry on 429/500/502/503 with backoff 1s → 2s → 4s; custom `AIError` after 3 failures
 - Response parsing validates schema, clamps score to [0, 100], strips markdown fences
-- `ai/prompts.py`: `SKILL_EXTRACTION_PROMPT` and `JOB_MATCH_PROMPT` as string constants
-- Temperature `0.1` for deterministic output; `max_output_tokens=2048`
-- Never logs API key or raw resume text
+- `ai/prompts.py`: `SKILL_EXTRACTION_PROMPT` and `JOB_MATCH_PROMPT`
 
 ### ✅ Phase 2B — Resume Skill Extraction
 - `resume_service._extract_skills_safe()` wraps Gemini call with full exception handling
-- Graceful degradation: `AIError` or unexpected exception → `skills=[]`, resume saved
-- `_persist()` now accepts `skills` parameter populated from Gemini
-- `ResumeUploadResponse.skills` now returns populated list on success
-- No schema or migration changes needed
+- Graceful degradation: `AIError` → `skills=[]`, resume still saved
+- `ResumeUploadResponse.skills` returns populated list on success
 
 ### ✅ Phase 2C — Job Match Scoring
-- `services/match_service.py` created with single public function `score_job(job_id, db)`
-- Cache logic: hit → return stored result; stale → return stored + `needs_rescore=True`; miss → call Gemini
+- `services/match_service.py`: `score_job(job_id, db)`
+- Cache logic: hit → return stored; stale → return stored + `needs_rescore=True`; miss → call Gemini
 - Cache key: `job.resume_uploaded_at == resume.uploaded_at`
-- On cache miss: calls `GeminiClient().match_job(description, skills)`, persists all score fields
-- Persisted fields: `match_score`, `missing_skills`, `match_summary`, `matched_at`, `resume_uploaded_at`, `updated_at`
-- `dependencies.py` updated: `get_active_resume()` now active — raises HTTP 422 `NO_RESUME` when no resume exists
-- `schemas/job.py` updated: `ScoreResponse` added with `cached` and `needs_rescore` fields
-- `routers/jobs.py` updated: `POST /api/jobs/{id}/score` 501 stub replaced with full Phase 2C handler
-- No database migration required — all score columns existed from Phase 1A
-- Bug fix: JSON parsing hardened; `match_summary` persistence corrected
+- Persisted fields: `match_score`, `missing_skills`, `match_summary`, `matched_at`, `resume_uploaded_at`
 
 ### ✅ Phase 2D — Backend Hardening and API Cleanup
-- `main.py`: global `HTTPException` handler — all errors return `{"data": null, "error": {"code": "...", "message": "..."}}` envelope consistently
-- `main.py`: catch-all `Exception` handler — unhandled errors return `INTERNAL_ERROR`, never leak stack traces
-- `main.py`: `_status_to_code()` maps FastAPI built-in HTTP codes to API error code strings
-- `schemas/job.py`: `needs_rescore: bool` added to `JobListItem` and `JobResponse`
-- `schemas/job.py`: dead `ScoreResult` class removed — `ScoreResponse` is the single authoritative score schema
-- `services/job_service.py`: `list_jobs()` and `get_job()` accept optional `current_resume_uploaded_at: datetime | None`
-- `services/job_service.py`: `_compute_needs_rescore()` static helper — True only when score exists AND resume changed
-- `services/job_service.py`: `_to_list_item()` and `_to_response()` private helpers replace inline field mapping
-- `routers/jobs.py`: `_get_resume_uploaded_at()` helper fetches active resume non-blocking (no 422 on read endpoints)
-- `routers/jobs.py`: `list_jobs()` and `get_job()` pass `current_resume_uploaded_at` through to service
-- `routers/resume.py`: paths aligned to `api_spec.md` — `POST /api/resume`, `GET /api/resume`, `DELETE /api/resume`
-- `routers/resume.py`: `DELETE /api/resume` endpoint added; returns 404 `NO_RESUME` when nothing to delete
-- No database migration required — no new columns
+- Global `HTTPException` handler — all errors return consistent `{"data": null, "error": {...}}` envelope
+- Catch-all `Exception` handler — unhandled errors return `INTERNAL_ERROR`, never leak traces
+- `needs_rescore: bool` on `JobListItem` and `JobResponse`
+- `_compute_needs_rescore()` static helper — True only when score exists AND resume changed
+- `routers/resume.py` paths aligned to spec; `DELETE /api/resume` added
 
 ### ✅ Phase 3A — YC Jobs Scraper
-- `scrapers/yc_jobs.py` fully implemented with Playwright headless Chromium
-- Navigates `https://www.workatastartup.com/jobs?role=eng&type=intern`
-- Pure Playwright locator approach — no `evaluate()`, `evaluate_handle()`, or JS DOM injection
+- Playwright headless Chromium navigating `https://www.workatastartup.com/jobs?role=eng&type=intern`
+- Windows + Python 3.13 fix: `asyncio.WindowsProactorEventLoopPolicy()` set at import time
+- Pure Playwright locator approach — no `evaluate()` or JS DOM injection
 - Job-link discovery via `page.locator("a[href^='/jobs/']").all()` filtered by regex `^/jobs/\d+$`
-- Card container resolved by walking XPath parent axis (`locator("xpath=..")`) until an ancestor containing `a[href^='/companies/']` is found
-- Extracts: `title`, `company`, `company_url`, `description`, `location`, `posted_at`
-- Deduplication by job href in Python (`seen_hrefs: set[str]`) — no DOM comparison
-- Per-record error isolation: malformed cards logged and skipped, rest continue
+- Card container resolved by walking XPath parent axis until ancestor containing company link found
 - Always-on debug dump: `yc_dom_dump.html` + `yc_debug.txt` written to cwd on every run
-- Integrates with existing `ScraperService` and `JobService` URL deduplication unchanged
-- Verified against live site:
-  ```
-  RemoteOK: jobs_found=20
-  YC Jobs:  jobs_found=28, jobs_new=28, error=null
-  ```
+- Verified live: `jobs_found=28, jobs_new=28, error=null`
+
+### ✅ Phase 3B — Frontend Foundation (Next.js 15)
+- Next.js 15 App Router, React 19, TypeScript strict, Tailwind CSS v4
+- `next.config.ts`: rewrites `/api/*` → `localhost:8000` (no CORS issues in dev)
+- `lib/types.ts`: all TypeScript types derived from backend API contract — single source of truth
+- `lib/api.ts`: centralised fetch layer — zero fetch calls inside components
+  - `ApiClientError` class with `code` + `message`
+  - 15-second timeout via `AbortController`
+  - FormData detection — never sets `Content-Type` on multipart uploads
+  - Non-JSON response guard before `.json()` call
+  - `API_BASE_URL` env var for server-side (not `NEXT_PUBLIC_*`, not exposed to browser)
+- `app/layout.tsx`: sticky navbar, brand logo, nav links, responsive container, footer
+- `app/page.tsx`: dashboard with stat cards (Total Jobs, Resume, Last Sync, Top Match) — server component, parallel fetches
+- `app/jobs/page.tsx`: job list — server component, renders `JobList`
+- `app/jobs/[id]/page.tsx`: job detail — title, badges, description, apply link
+- `app/resume/page.tsx`: resume info card or empty state
+- `components/ui/`: `Button`, `Card`, `Badge`, `LoadingSpinner`, `EmptyState`, `ErrorState`, `PageHeader`
+- `components/jobs/`: `JobCard`, `JobList`, `ScoreBadge`, `StatusBadge`, `NeedsRescoreBadge`
+- `components/resume/`: `SkillChip`, `ResumeInfoCard`, `ResumeUploader`
+- Dark theme via CSS custom properties; no Tailwind config file needed (v4)
 
 ---
 
 ## Pending Phases
 
-### 🔲 Phase 3B — Frontend (Next.js 15)
-- Pages: `/jobs`, `/jobs/[id]`, `/resume`
-- Components: `JobCard`, `JobList`, `MatchResult`, `StatusDropdown`, `ResumeUploader`
-- API layer: `lib/api.ts` — all fetch calls centralised
-- Score badge, `needs_rescore` warning badge, missing skills list, summary on job detail
-- Sortable job list by score
+### 🔲 Phase 3C — Frontend Interactivity
+- Resume upload flow (drag-and-drop → POST → skill display)
+- Resume delete with confirmation
+- Score button on job detail (`POST /api/jobs/{id}/score`)
+- Status dropdown per job (`PATCH /api/jobs/{id}`)
+- Notes textarea per job
+- Scraper trigger button with loading state
+- `needs_rescore` warning + one-click rescore
 
 ### 🔲 Phase 4 — Polish and Hardening
-- Empty state handling (no jobs, no resume, no scores)
-- Loading states and error toasts in frontend
+- Pagination controls on job list
+- Sort and filter controls (by source, status, scored)
+- Error toasts (global, reusable)
+- Loading skeletons for job list and detail
 - Pytest service tests with mocked Gemini and DB
 
 ### 🔲 Phase 5 — Application Tracking Workflows
-- Status dropdown per job: `saved → applied → interview → offer / rejected`
-- Notes field per job
 - List view filtered by status
+- Status history / timeline
+- Bulk status update
 
 ### 🔲 Phase 6 — Recommendation Engine
 - Auto-score after sync
@@ -301,19 +329,29 @@ ai-internship-hunter/
 | Score caching (cache hit) | ✅ Working |
 | Stale score detection | ✅ Working |
 | Consistent API error envelope | ✅ Working |
-| Frontend UI | 🔲 Not started |
+| Frontend — dashboard | ✅ Working |
+| Frontend — job list | ✅ Working |
+| Frontend — job detail | ✅ Working |
+| Frontend — resume view | ✅ Working |
+| Frontend — resume upload (interactive) | 🔲 Phase 3C |
+| Frontend — score button | 🔲 Phase 3C |
+| Frontend — status dropdown | 🔲 Phase 3C |
+| Frontend — scraper trigger | 🔲 Phase 3C |
+| Frontend — pagination / filters | 🔲 Phase 4 |
 
 ---
 
 ## Current Limitations
 
-- **No frontend.** All interaction via `http://localhost:8000/docs`.
-- **Skill extraction degrades gracefully.** If Gemini is unavailable at upload time, `skills=[]` is stored. Re-upload once Gemini is reachable.
-- **Scoring requires a resume.** `POST /api/jobs/{id}/score` returns 422 until a resume is uploaded.
+- **Frontend interactivity incomplete.** Upload, scoring, status update, scraper trigger — all Phase 3C.
+- **No pagination UI.** Backend supports it; frontend hardcoded to page 1, page_size 20.
+- **No filter/sort UI.** Backend supports it; controls not yet built.
+- **Skill extraction degrades gracefully.** If Gemini unavailable at upload time, `skills=[]` stored. Re-upload once reachable.
+- **Scoring requires a resume.** `POST /api/jobs/{id}/score` returns 422 until resume uploaded.
 - **RemoteOK jobs delayed 24h.** Expected API behaviour; not a bug.
 - **Internship filter is keyword-based.** May miss roles with non-standard titles.
-- **`updated_at` not auto-triggered.** Set manually in service layer on each write; no DB trigger.
-- **No background workers.** Scraping and scoring are synchronous, on-demand operations.
+- **No background workers.** Scraping and scoring are synchronous, on-demand.
+- **YC debug files always written.** `yc_dom_dump.html` + `yc_debug.txt` written to cwd on every scraper run. Remove `_dump_debug()` call in `yc_jobs.py` once selectors are confirmed stable.
 
 ---
 
@@ -327,22 +365,24 @@ ai-internship-hunter/
 | YC Jobs scraper | 100% |
 | Backend services | 100% |
 | Backend routers + API contract | 100% |
-| Frontend | 0% |
+| Frontend foundation | 100% |
+| Frontend interactivity | 0% |
 | Tests | 0% |
-| **Overall MVP** | **~88%** |
+| **Overall MVP** | **~92%** |
 
 ---
 
 ## Next Recommended Phase
 
-**Phase 3B — Frontend (Next.js 15)**
+**Phase 3C — Frontend Interactivity**
 
-Backend API is feature-complete and contract-clean. Both scrapers are live and verified. Every endpoint returns consistent JSON envelopes, `needs_rescore` is surfaced on reads, and error responses are uniform. The tool is fully functional via Swagger UI but has no browser interface.
+Foundation is complete and rendering real data. All read paths work. Next step is wiring the write paths: resume upload, score trigger, status update, and scraper run button. These are all client components with loading states and error handling.
 
-Minimum viable frontend:
-1. `/resume` — upload PDF, view extracted skills
-2. `/jobs` — list jobs, trigger sync, sort by score, `needs_rescore` badge
-3. `/jobs/[id]` — full detail, score result, missing skills, status dropdown, notes
+Priority order:
+1. Resume upload (unlocks scoring)
+2. Score button on job detail (core value prop)
+3. Scraper trigger on dashboard (so user can refresh without Swagger)
+4. Status dropdown on job detail (tracking workflow)
 
 ---
 
@@ -350,22 +390,21 @@ Minimum viable frontend:
 
 | Phase | Feature | Priority |
 |---|---|---|
-| 3B | Frontend (Next.js 15) | High |
-| 4 | Service-layer tests + error polish | Medium |
+| 3C | Frontend interactivity | High |
+| 4 | Pagination, filters, error toasts, loading skeletons | High |
+| 4 | Pytest service tests | Medium |
 | 5 | Application tracking workflows | Medium |
 | 6 | Recommendation engine | Low |
 | Post-MVP | Auto-score after sync | Low |
 | Post-MVP | Resume versioning | Low |
 | Post-MVP | Cover letter generation | Low |
 | Post-MVP | Wellfound scraper | Low |
-| Post-MVP | Recruiter discovery | Low |
-| Post-MVP | Email follow-ups | Low |
 
 ---
 
 ## Last Updated
 
-**Phase:** 3A complete
+**Phase:** 3B complete
 **Date:** 2026-06-25
 **Updated by:** Implementation engineer
-**Next update due:** After Phase 3B (frontend) completion
+**Next update due:** After Phase 3C (frontend interactivity) completion
