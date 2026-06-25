@@ -173,15 +173,19 @@ async def upload_resume(
     "",
     response_model=ApiResponse[ResumeResponse],
     summary="Get active resume",
-    description="Return the currently active resume and its extracted skills.",
 )
 def get_resume(db: DbSession) -> ApiResponse[ResumeResponse]:
-    resume = ResumeService(db).get_latest()
-    if resume is None:
+    try:
+        resume = ResumeService(db).get_latest()
+    except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "NO_RESUME", "message": "No resume uploaded"},
-        )
+            detail={
+                "code": "NO_RESUME",
+                "message": str(exc),
+            },
+        ) from exc
+
     return ApiResponse(data=resume)
  
  
