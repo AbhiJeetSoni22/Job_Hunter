@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-internship-hunter"
@@ -43,6 +43,9 @@ dev = [
     "pytest-asyncio==0.24.0",
     "ruff==0.8.3",
     "mypy==1.13.0",
+    # Test utilities
+    "pytest-cov>=5.0",        # coverage reports
+    "httpx>=0.27",             # async HTTP client used in some scrapers; handy for test stubs
 ]
 
 [tool.setuptools.packages.find]
@@ -70,4 +73,5 @@ ignore_missing_imports = true
 # ── Pytest ─────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
