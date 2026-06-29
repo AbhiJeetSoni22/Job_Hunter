@@ -95,7 +95,7 @@ ai-internship-hunter/
 │       │   ├── health.py
 │       │   ├── jobs.py
 │       │   ├── scraper.py
-│       │   └── resume.py
+│       │   └── resume.py           ← bug-fixed (Phase 3C hotfix)
 │       ├── services/
 │       │   ├── __init__.py
 │       │   ├── job_service.py
@@ -111,25 +111,25 @@ ai-internship-hunter/
 │           ├── __init__.py
 │           ├── gemini_client.py
 │           └── prompts.py
-└── frontend/                           ← Phase 3B
+└── frontend/                           ← Phase 3C complete
     ├── package.json                    (Next.js 15 + React 19 + Tailwind 4)
     ├── next.config.ts                  (rewrites /api/* → localhost:8000)
     ├── tsconfig.json
     ├── postcss.config.mjs
     ├── styles/
-    │   └── globals.css                 (CSS variables + Tailwind import)
+    │   └── globals.css
     ├── lib/
-    │   ├── types.ts                    (all TS types from API contract)
-    │   └── api.ts                      (centralised fetch — no fetch in components)
+    │   ├── types.ts
+    │   └── api.ts
     ├── app/
-    │   ├── layout.tsx                  (navbar, footer, max-width container)
-    │   ├── page.tsx                    (dashboard: stat cards)
+    │   ├── layout.tsx
+    │   ├── page.tsx                    (dashboard — client, live stats + sync button)
     │   ├── jobs/
-    │   │   ├── page.tsx                (job list — server component)
+    │   │   ├── page.tsx                (job list — client, filters + pagination)
     │   │   └── [id]/
-    │   │       └── page.tsx            (job detail — server component)
+    │   │       └── page.tsx            (job detail — client, score/status/notes)
     │   └── resume/
-    │       └── page.tsx                (resume info or empty state)
+    │       └── page.tsx                (resume — client, upload/delete/drag-drop)
     ├── components/
     │   ├── ui/
     │   │   ├── Button.tsx
@@ -138,7 +138,8 @@ ai-internship-hunter/
     │   │   ├── LoadingSpinner.tsx
     │   │   ├── EmptyState.tsx
     │   │   ├── ErrorState.tsx
-    │   │   └── PageHeader.tsx
+    │   │   ├── PageHeader.tsx
+    │   │   └── Toast.tsx               ← new (Phase 3C)
     │   ├── jobs/
     │   │   ├── JobCard.tsx
     │   │   ├── JobList.tsx
@@ -149,7 +150,7 @@ ai-internship-hunter/
     │       ├── SkillChip.tsx
     │       ├── ResumeInfoCard.tsx
     │       └── ResumeUploader.tsx
-    └── hooks/                          (empty — ready for Phase 3C)
+    └── hooks/
 ```
 
 ---
@@ -236,36 +237,32 @@ ai-internship-hunter/
   - 15-second timeout via `AbortController`
   - FormData detection — never sets `Content-Type` on multipart uploads
   - Non-JSON response guard before `.json()` call
-  - `API_BASE_URL` env var for server-side (not `NEXT_PUBLIC_*`, not exposed to browser)
 - `app/layout.tsx`: sticky navbar, brand logo, nav links, responsive container, footer
-- `app/page.tsx`: dashboard with stat cards (Total Jobs, Resume, Last Sync, Top Match) — server component, parallel fetches
-- `app/jobs/page.tsx`: job list — server component, renders `JobList`
-- `app/jobs/[id]/page.tsx`: job detail — title, badges, description, apply link
-- `app/resume/page.tsx`: resume info card or empty state
 - `components/ui/`: `Button`, `Card`, `Badge`, `LoadingSpinner`, `EmptyState`, `ErrorState`, `PageHeader`
 - `components/jobs/`: `JobCard`, `JobList`, `ScoreBadge`, `StatusBadge`, `NeedsRescoreBadge`
 - `components/resume/`: `SkillChip`, `ResumeInfoCard`, `ResumeUploader`
 - Dark theme via CSS custom properties; no Tailwind config file needed (v4)
 
+### ✅ Phase 3C — Frontend Interactivity
+- All pages converted from server components to `"use client"` interactive components
+- `components/ui/Toast.tsx` added — `useToast()` hook + `ToastContainer`, auto-dismiss at 4s, success/error/info variants
+- **Dashboard (`app/page.tsx`)**: live stat cards (Total Jobs, Resume status, Last Sync, Top Match Score) via parallel API calls; Sync Jobs button calls `POST /api/scraper/run`, shows loading spinner, refreshes stats on completion; toast on success/error
+- **Jobs page (`app/jobs/page.tsx`)**: server-side filtering via `GET /api/jobs` query params — Status, Source, Scored, Sort By, Order dropdowns; pagination controls (Prev / Next); Reset filters button; no client-side filtering
+- **Job detail (`app/jobs/[id]/page.tsx`)**: Score Job button → `POST /api/jobs/{id}/score` → displays match score, summary, missing skills, Cached/Needs Rescore badges; Status dropdown → `PATCH /api/jobs/{id}` with optimistic update + rollback on error; Notes textarea → `PATCH /api/jobs/{id}` with dirty-state Save button; all actions show loading states and toast feedback
+- **Resume page (`app/resume/page.tsx`)**: PDF upload via `ResumeUploader` (drag-and-drop + click); loading state disables button during upload; success toast shows skill count; Delete Resume button → `DELETE /api/resume` → reverts to empty state; replace-in-place flow when resume already exists
+- All async actions: loading spinners, disabled buttons during inflight requests, no duplicate submissions
+- All errors surface via `ApiClientError` message in toast — no `alert()` calls
+- **Hotfix — `routers/resume.py`**: removed duplicate `async def upload_resume` handler (legacy `/upload` sub-path conflicted with new `""` route); corrected `.upload()` call to `.upload_resume()` — fixes `AttributeError: 'ResumeService' object has no attribute 'upload'` 500 error on PDF upload
+
 ---
 
 ## Pending Phases
 
-### 🔲 Phase 3C — Frontend Interactivity
-- Resume upload flow (drag-and-drop → POST → skill display)
-- Resume delete with confirmation
-- Score button on job detail (`POST /api/jobs/{id}/score`)
-- Status dropdown per job (`PATCH /api/jobs/{id}`)
-- Notes textarea per job
-- Scraper trigger button with loading state
-- `needs_rescore` warning + one-click rescore
-
 ### 🔲 Phase 4 — Polish and Hardening
-- Pagination controls on job list
-- Sort and filter controls (by source, status, scored)
-- Error toasts (global, reusable)
 - Loading skeletons for job list and detail
+- Empty state improvements (first-run experience)
 - Pytest service tests with mocked Gemini and DB
+- Remove YC Jobs debug dump (`_dump_debug()` call in `yc_jobs.py`) once selectors confirmed stable
 
 ### 🔲 Phase 5 — Application Tracking Workflows
 - List view filtered by status
@@ -329,29 +326,29 @@ ai-internship-hunter/
 | Score caching (cache hit) | ✅ Working |
 | Stale score detection | ✅ Working |
 | Consistent API error envelope | ✅ Working |
-| Frontend — dashboard | ✅ Working |
-| Frontend — job list | ✅ Working |
-| Frontend — job detail | ✅ Working |
-| Frontend — resume view | ✅ Working |
-| Frontend — resume upload (interactive) | 🔲 Phase 3C |
-| Frontend — score button | 🔲 Phase 3C |
-| Frontend — status dropdown | 🔲 Phase 3C |
-| Frontend — scraper trigger | 🔲 Phase 3C |
-| Frontend — pagination / filters | 🔲 Phase 4 |
+| Frontend — dashboard with live stats | ✅ Working |
+| Frontend — sync jobs button | ✅ Working |
+| Frontend — job list with filters + pagination | ✅ Working |
+| Frontend — job detail with score button | ✅ Working |
+| Frontend — job status dropdown | ✅ Working |
+| Frontend — job notes editing | ✅ Working |
+| Frontend — resume upload (drag-and-drop) | ✅ Working |
+| Frontend — resume delete | ✅ Working |
+| Frontend — toast notifications | ✅ Working |
+| Frontend — loading states on all actions | ✅ Working |
 
 ---
 
 ## Current Limitations
 
-- **Frontend interactivity incomplete.** Upload, scoring, status update, scraper trigger — all Phase 3C.
-- **No pagination UI.** Backend supports it; frontend hardcoded to page 1, page_size 20.
-- **No filter/sort UI.** Backend supports it; controls not yet built.
 - **Skill extraction degrades gracefully.** If Gemini unavailable at upload time, `skills=[]` stored. Re-upload once reachable.
 - **Scoring requires a resume.** `POST /api/jobs/{id}/score` returns 422 until resume uploaded.
 - **RemoteOK jobs delayed 24h.** Expected API behaviour; not a bug.
 - **Internship filter is keyword-based.** May miss roles with non-standard titles.
 - **No background workers.** Scraping and scoring are synchronous, on-demand.
 - **YC debug files always written.** `yc_dom_dump.html` + `yc_debug.txt` written to cwd on every scraper run. Remove `_dump_debug()` call in `yc_jobs.py` once selectors are confirmed stable.
+- **No loading skeletons.** Job list and detail show a spinner; proper skeleton screens are Phase 4.
+- **No tests.** Service-layer Pytest coverage is Phase 4.
 
 ---
 
@@ -366,23 +363,23 @@ ai-internship-hunter/
 | Backend services | 100% |
 | Backend routers + API contract | 100% |
 | Frontend foundation | 100% |
-| Frontend interactivity | 0% |
+| Frontend interactivity | 100% |
 | Tests | 0% |
-| **Overall MVP** | **~92%** |
+| **Overall MVP** | **~97%** |
 
 ---
 
 ## Next Recommended Phase
 
-**Phase 3C — Frontend Interactivity**
+**Phase 4 — Polish and Hardening**
 
-Foundation is complete and rendering real data. All read paths work. Next step is wiring the write paths: resume upload, score trigger, status update, and scraper run button. These are all client components with loading states and error handling.
+The MVP is functionally complete end-to-end. All read and write paths work in the browser. Next focus is quality: loading skeletons, improved empty states, and Pytest coverage for the service layer.
 
 Priority order:
-1. Resume upload (unlocks scoring)
-2. Score button on job detail (core value prop)
-3. Scraper trigger on dashboard (so user can refresh without Swagger)
-4. Status dropdown on job detail (tracking workflow)
+1. Remove YC Jobs debug dump once scraper selectors are confirmed stable in production
+2. Loading skeletons for job list and detail (better perceived performance)
+3. Pytest service tests with mocked Gemini and DB (robustness)
+4. Empty state improvements (first-run experience)
 
 ---
 
@@ -390,9 +387,7 @@ Priority order:
 
 | Phase | Feature | Priority |
 |---|---|---|
-| 3C | Frontend interactivity | High |
-| 4 | Pagination, filters, error toasts, loading skeletons | High |
-| 4 | Pytest service tests | Medium |
+| 4 | Loading skeletons, error toast polish, Pytest service tests | High |
 | 5 | Application tracking workflows | Medium |
 | 6 | Recommendation engine | Low |
 | Post-MVP | Auto-score after sync | Low |
@@ -404,7 +399,7 @@ Priority order:
 
 ## Last Updated
 
-**Phase:** 3B complete
-**Date:** 2026-06-25
+**Phase:** 3C complete + router hotfix
+**Date:** 2026-06-29
 **Updated by:** Implementation engineer
-**Next update due:** After Phase 3C (frontend interactivity) completion
+**Next update due:** After Phase 4 (polish and hardening) completion

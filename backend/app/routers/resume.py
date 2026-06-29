@@ -48,68 +48,56 @@ def _not_found(message: str) -> HTTPException:
     )
 
 
-# ── POST /api/resume/upload ────────────────────────────────────────────────
-
+# ── POST /api/resume ───────────────────────────────────────────────────────
+ 
 @router.post(
-    "/upload",
+    "",
     response_model=ApiResponse[ResumeUploadResponse],
     status_code=status.HTTP_200_OK,
     summary="Upload resume PDF",
     description=(
-        "Upload a PDF resume. Extracts text via PyMuPDF and stores it. "
-        "Replaces any previously uploaded resume — only one active resume "
-        "exists at any time. Skills extraction (Gemini) is wired in Phase 2. "
-        "Maximum file size: 5 MB."
+        "Upload a PDF resume. Extracts text via PyMuPDF and skills via Gemini. "
+        "Replaces any existing resume — only one active resume exists at a time."
     ),
 )
 async def upload_resume(
     db: DbSession,
-    file: UploadFile = File(
-        ...,
-        description="PDF file to upload. Must be a valid PDF under 5 MB.",
-    ),
+    file: UploadFile = File(...),
 ) -> ApiResponse[ResumeUploadResponse]:
-    """
-    Upload a PDF resume.
-
-    Validates the file, extracts text with PyMuPDF, and persists the resume.
-    Previous resume is replaced.
-
-    Returns extraction statistics (page_count, char_count) alongside
-    the standard resume fields.
-    """
     try:
         result = await ResumeService(db).upload_resume(file)
     except ValueError as exc:
-        raise _validation_error(str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "INVALID_FILE", "message": str(exc)},
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "EXTRACTION_ERROR", "message": str(exc)},
         ) from exc
-
+ 
     return ApiResponse(data=result)
 
 
-# ── GET /api/resume/latest ─────────────────────────────────────────────────
-
+# ── GET /api/resume ────────────────────────────────────────────────────────
+ 
 @router.get(
-    "/latest",
+    "",
     response_model=ApiResponse[ResumeResponse],
-    summary="Get latest resume",
-    description=(
-        "Return the most recently uploaded resume. "
-        "Returns 404 if no resume has been uploaded yet."
-    ),
+    summary="Get active resume",
 )
-def get_latest_resume(db: DbSession) -> ApiResponse[ResumeResponse]:
-    """Return the current active resume."""
+def get_resume(db: DbSession) -> ApiResponse[ResumeResponse]:
     try:
         resume = ResumeService(db).get_latest()
     except LookupError as exc:
-        raise _not_found(str(exc)) from exc
-
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NO_RESUME", "message": str(exc)},
+        ) from exc
+ 
     return ApiResponse(data=resume)
+
 
 
 # ── GET /api/resume/{resume_id} ────────────────────────────────────────────
@@ -189,15 +177,13 @@ def get_resume(db: DbSession) -> ApiResponse[ResumeResponse]:
     return ApiResponse(data=resume)
  
  
-# ---------------------------------------------------------------------------
-# DELETE /api/resume  — remove active resume
-# ---------------------------------------------------------------------------
+# ── DELETE /api/resume ─────────────────────────────────────────────────────
  
 @router.delete(
     "",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete active resume",
-    description="Permanently removes the active resume. Scores already stored on jobs are not affected.",
+    description="Permanently removes the active resume.",
 )
 def delete_resume(db: DbSession) -> None:
     deleted = ResumeService(db).delete_latest()
@@ -207,10 +193,7 @@ def delete_resume(db: DbSession) -> None:
             detail={"code": "NO_RESUME", "message": "No resume uploaded"},
         )
  
- 
-# ---------------------------------------------------------------------------
-# GET /api/resume/{resume_id}  — fetch by ID
-# ---------------------------------------------------------------------------
+# ── GET /api/resume/{resume_id} ────────────────────────────────────────────
  
 @router.get(
     "/{resume_id}",
@@ -218,13 +201,15 @@ def delete_resume(db: DbSession) -> None:
     summary="Get resume by ID",
 )
 def get_resume_by_id(
-    resume_id: str,
+    resume_id: uuid.UUID,
     db: DbSession,
 ) -> ApiResponse[ResumeResponse]:
-    resume = ResumeService(db).get_by_id(resume_id)
-    if resume is None:
+    try:
+        resume = ResumeService(db).get_by_id(resume_id)
+    except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "NOT_FOUND", "message": f"Resume {resume_id} not found"},
-        )
+            detail={"code": "NOT_FOUND", "message": str(exc)},
+        ) from exc
+ 
     return ApiResponse(data=resume)
