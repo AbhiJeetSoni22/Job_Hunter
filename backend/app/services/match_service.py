@@ -18,6 +18,30 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Recommendation labels (Phase 5 — Feature 5)
+# ---------------------------------------------------------------------------
+
+def recommendation_label(score: int | None) -> str | None:
+    """
+    Map a match score to a human-readable recommendation label.
+
+    95-100  -> "Excellent Match"
+    80-94   -> "Strong Match"
+    65-79   -> "Potential Match"
+    < 65    -> "Low Match"
+    None    -> None (not yet scored)
+    """
+    if score is None:
+        return None
+    if score >= 95:
+        return "Excellent Match"
+    if score >= 80:
+        return "Strong Match"
+    if score >= 65:
+        return "Potential Match"
+    return "Low Match"
+
+# ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
 

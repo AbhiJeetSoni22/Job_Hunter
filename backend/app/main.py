@@ -11,7 +11,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import health, jobs, resume, scraper
+from app.routers import dashboard, health, jobs, resume, scraper
+
 
 
 # ---------------------------------------------------------------------------
@@ -138,3 +139,4 @@ app.include_router(health.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(scraper.router, prefix="/api")
 app.include_router(resume.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")

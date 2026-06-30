@@ -255,6 +255,21 @@ ai-internship-hunter/
 
 ---
 
+### ✅ Phase 5 — AI Recommendation Dashboard
+- **Backend — `schemas/dashboard.py`**: `DashboardStats`, `MatchQualityBreakdown`, `TopMatchItem`
+- **Backend — `services/dashboard_service.py`**: `DashboardService.get_stats()` — total/scored jobs, average + best match score, applications submitted, match-quality breakdown, and top 5 matches; one aggregate SQL query (COUNT/AVG/MAX + CASE WHEN) plus one indexed top-N query, no N+1
+- **Backend — `routers/dashboard.py`**: `GET /api/dashboard/stats`
+- **Backend — `services/match_service.py`**: `recommendation_label(score)` helper — 95-100 "Excellent Match", 80-94 "Strong Match", 65-79 "Potential Match", < 65 "Low Match"; exposed on `JobListItem`, `JobResponse`, and `ScoreResponse`
+- **Backend — `services/job_service.py`**: `upsert_jobs()` gained an optional `new_job_ids` out-parameter (backward compatible — existing `int` return value and all 85 pre-Phase-5 tests untouched) so callers can identify newly inserted rows without a second query
+- **Backend — `services/scraper_service.py`**: auto-scores newly inserted jobs against the active resume immediately after a sync (`_auto_score_new_jobs()`), reusing `match_service.score_job()` so cache behaviour and Gemini retry/backoff logic are unchanged; pre-existing jobs are never rescored; skipped cleanly (no error) when no resume is uploaded; one job's `AIError` does not abort scoring of the rest. `ScraperRunSummary.total_scored` reports the count.
+- **Frontend — `components/dashboard/TopMatches.tsx`**: top 5 scored jobs, sorted desc, with title/company/score/source/status/recommendation label
+- **Frontend — `components/dashboard/MatchQualityBreakdown.tsx`**: Excellent/Good/Possible/Weak counts
+- **Frontend — `components/jobs/RecommendationBadge.tsx`**: shared badge, also surfaced on `JobCard` and the job detail page
+- **Frontend — `app/page.tsx`**: dashboard now fetches `getDashboardStats()` alongside existing stats; adds Scored Jobs / Average Match / Best Match Score / Applications Submitted cards plus the Top Matches and Match Quality sections; sync toast now reports how many new jobs were auto-scored
+- **Tests**: `backend/tests/test_dashboard_service.py` (new), plus auto-score and `recommendation_label()` coverage added to `test_scraper_service.py` and `test_match_service.py` — 104 tests passing (85 pre-existing + 19 new), all run against a live PostgreSQL instance
+
+---
+
 ## Pending Phases
 
 ### 🔲 Phase 4 — Polish and Hardening
@@ -291,6 +306,7 @@ ai-internship-hunter/
 | GET | `/api/resume` | ✅ Live | Fetch active resume |
 | GET | `/api/resume/{id}` | ✅ Live | Fetch resume by ID |
 | DELETE | `/api/resume` | ✅ Live | Delete active resume |
+| GET | `/api/dashboard/stats` | ✅ Live | Top Matches, match-quality breakdown, summary metrics (Phase 5) |
 
 ---
 

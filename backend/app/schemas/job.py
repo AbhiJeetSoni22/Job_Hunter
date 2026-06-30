@@ -100,6 +100,9 @@ class JobListItem(BaseModel):
     # Stale-score flag — computed by service, not stored as a column
     needs_rescore: bool = False
 
+    # Human-readable label derived from match_score (Phase 5 — Feature 5)
+    recommendation_label: str | None = None
+
     posted_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -141,6 +144,9 @@ class JobResponse(BaseModel):
 
     # Stale-score flag — computed by service
     needs_rescore: bool = False
+
+    # Human-readable label derived from match_score (Phase 5 — Feature 5)
+    recommendation_label: str | None = None
 
     posted_at: datetime | None
     created_at: datetime
@@ -271,18 +277,27 @@ class ScraperRunSummary(BaseModel):
 
     runs: list[ScrapeRunResponse]
     total_new: int = Field(..., description="Sum of jobs_new across all sources")
+    total_scored: int = Field(
+        default=0,
+        description=(
+            "Number of newly inserted jobs that were auto-scored against the "
+            "active resume (Phase 5 — Feature 4). 0 when no resume is uploaded."
+        ),
+    )
+
 
 
 
 
 class ScoreResponse(BaseModel):
     """Response shape for POST /api/jobs/{id}/score."""
- 
+
     match_score: int
     missing_skills: list[str]
     match_summary: str
     matched_at: datetime
     cached: bool
     needs_rescore: bool
- 
+    recommendation_label: str | None = None
+
     model_config = {"from_attributes": True}

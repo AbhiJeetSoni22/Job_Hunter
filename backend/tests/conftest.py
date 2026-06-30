@@ -64,6 +64,11 @@ def db_engine():
     import app.models.resume     # noqa: F401
     import app.models.scrape_run # noqa: F401
 
+    if "test" not in _DB_URL.lower():
+        raise RuntimeError(
+    "Refusing to run tests against non-test database"
+    )
+
     engine = create_engine(_DB_URL, pool_pre_ping=True)
 
     # Ensure gen_random_uuid() is available (pgcrypto or pg >= 13 built-in)
@@ -72,7 +77,6 @@ def db_engine():
 
     Base.metadata.create_all(engine)
     yield engine
-    Base.metadata.drop_all(engine)
     engine.dispose()
 
 

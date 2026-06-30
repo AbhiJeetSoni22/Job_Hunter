@@ -93,13 +93,20 @@ Sources:
         "completed_at": "2026-06-17T10:00:03Z"
       }
     ],
-    "total_new": 12
+    "total_new": 12,
+    "total_scored": 12
   },
   "error": null
 }
 ```
 
 One source failing must not stop other sources.
+
+Newly inserted jobs are automatically scored against the active resume
+(Phase 5 — Feature 4). `total_scored` reports how many of the newly
+inserted jobs were scored. Pre-existing jobs are never rescored by a
+sync. If no resume is uploaded, `total_scored` is `0` and the sync
+still succeeds — auto-scoring is simply skipped.
 
 ---
 
@@ -248,7 +255,8 @@ Requires an active resume.
     "matched_at": "2026-06-17T10:00:00Z",
 
     "cached": true,
-    "needs_rescore": false
+    "needs_rescore": false,
+    "recommendation_label": "Strong Match"
   },
   "error": null
 }
@@ -346,6 +354,59 @@ rejected
   }
 }
 ```
+
+---
+
+# Dashboard
+
+## GET /api/dashboard/stats
+
+Returns aggregate statistics for the AI-powered recommendation dashboard
+(Phase 5). Computed with a single aggregate SQL query plus one indexed
+top-N query — no N+1 queries regardless of job count.
+
+### Response 200
+
+```json
+{
+  "data": {
+    "total_jobs": 120,
+    "scored_jobs": 48,
+    "average_match_score": 71.4,
+    "best_match_score": 96,
+    "applications_submitted": 5,
+    "quality_breakdown": {
+      "excellent": 6,
+      "good": 14,
+      "possible": 18,
+      "weak": 10
+    },
+    "top_matches": [
+      {
+        "id": "uuid",
+        "title": "Frontend Engineer",
+        "company": "Acme",
+        "match_score": 95,
+        "source": "remoteok",
+        "status": "saved",
+        "recommendation_label": "Excellent Match"
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+### Notes
+
+* `quality_breakdown` buckets every **scored** job: Excellent (>= 90),
+  Good (75-89), Possible (60-74), Weak (< 60). Unscored jobs are excluded.
+* `top_matches` returns the top 5 scored jobs sorted descending by
+  `match_score`. Unscored jobs are excluded.
+* `recommendation_label` is derived from `match_score`: 95-100
+  "Excellent Match", 80-94 "Strong Match", 65-79 "Potential Match",
+  below 65 "Low Match". It is also returned on `JobListItem`,
+  `JobResponse`, and the score endpoint response below.
 
 ---
 

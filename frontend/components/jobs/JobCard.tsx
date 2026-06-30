@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/Card";
 import { ScoreBadge } from "./ScoreBadge";
 import { StatusBadge } from "./StatusBadge";
 import { NeedsRescoreBadge } from "./NeedsRescoreBadge";
+import { RecommendationBadge } from "./RecommendationBadge";
 import type { JobListItem } from "@/lib/types";
 
 interface JobCardProps {
@@ -11,13 +12,15 @@ interface JobCardProps {
 
 const SOURCE_LABEL: Record<string, string> = {
   remoteok: "RemoteOK",
-  yc_jobs:  "YC Jobs",
+  yc_jobs: "YC Jobs",
 };
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-US", {
-    month: "short", day: "numeric", year: "numeric",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
@@ -46,7 +49,10 @@ export function JobCard({ job }: JobCardProps) {
             >
               {job.company}
               {job.location && (
-                <span style={{ color: "var(--color-muted)" }}> · {job.location}</span>
+                <span style={{ color: "var(--color-muted)" }}>
+                  {" "}
+                  · {job.location}
+                </span>
               )}
             </p>
 
@@ -54,6 +60,7 @@ export function JobCard({ job }: JobCardProps) {
             <div className="flex flex-wrap gap-1.5 mt-2">
               <StatusBadge status={job.status} />
               <ScoreBadge score={job.match_score} />
+              <RecommendationBadge label={job.recommendation_label} />
               <NeedsRescoreBadge needs={job.needs_rescore} />
             </div>
           </div>
@@ -63,7 +70,13 @@ export function JobCard({ job }: JobCardProps) {
             <p style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>
               {SOURCE_LABEL[job.source] ?? job.source}
             </p>
-            <p style={{ color: "var(--color-muted)", fontSize: "0.75rem", marginTop: "0.25rem" }}>
+            <p
+              style={{
+                color: "var(--color-muted)",
+                fontSize: "0.75rem",
+                marginTop: "0.25rem",
+              }}
+            >
               {formatDate(job.posted_at ?? job.created_at)}
             </p>
           </div>

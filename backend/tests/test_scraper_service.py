@@ -216,3 +216,124 @@ class TestGetStatus:
 
         status = scraper_service.get_status()
         assert len(status) == 2
+
+    
+# ---------------------------------------------------------------------------
+# Auto-score new jobs — Phase 5, Feature 4
+# ---------------------------------------------------------------------------
+
+class TestAutoScoreNewJobs:
+
+    def test_no_resume_skips_scoring_without_error(self, scraper_service):
+        from app.schemas.job import JobUpsertData
+
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(
+                title="A", company="Co", description="desc",
+                url="https://scraper-autoscore.example.com/1",
+                source="remoteok",
+            ),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        result = _run_with_fakes(scraper_service, remoteok, yc)
+
+        assert result.total_new == 1
+        assert result.total_scored == 0
+
+    def test_new_jobs_scored_when_resume_present(self, scraper_service, sample_resume):
+        from app.schemas.job import JobUpsertData
+
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(
+                title="A", company="Co", description="desc",
+                url="https://scraper-autoscore.example.com/2",
+                source="remoteok",
+            ),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        with patch("app.services.match_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.match_job.return_value = {
+                "match_score": 88,
+                "missing_skills": [],
+                "match_summary": "Good fit.",
+            }
+            result = _run_with_fakes(scraper_service, remoteok, yc)
+
+            assert result.total_new == 1
+            assert result.total_scored == 1
+
+    def test_existing_jobs_are_never_rescored(self, scraper_service, sample_resume, db):
+        from app.schemas.job import JobUpsertData
+        from app.models.job import Job
+        from sqlalchemy import select
+
+        url = "https://scraper-autoscore.example.com/3"
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(title="A", company="Co", description="desc", url=url, source="remoteok"),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        with patch("app.services.match_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.match_job.return_value = {
+                "match_score": 80, "missing_skills": [], "match_summary": "fit",
+            }
+            _run_with_fakes(scraper_service, remoteok, yc)
+
+            # Second sync run finds the same URL again — already exists, so it's
+            # not new, and must not be passed through auto-scoring again.
+            remoteok2 = FakeScraper("remoteok")
+            remoteok2.set_jobs([
+                JobUpsertData(title="A", company="Co", description="desc", url=url, source="remoteok"),
+            ])
+            yc2 = FakeScraper("yc_jobs")
+            yc2.set_jobs([])
+
+            with patch("app.services.match_service.GeminiClient") as MockGemini2:
+                MockGemini2.return_value.match_job.return_value = {
+                    "match_score": 10, "missing_skills": [], "match_summary": "should not run",
+                }
+                result = _run_with_fakes(scraper_service, remoteok2, yc2)
+
+                assert result.total_new == 0
+                assert result.total_scored == 0
+
+                row = db.scalar(select(Job).where(Job.url == url))
+                assert row.match_score == 80  # untouched by the second sync
+
+    def test_gemini_failure_on_one_job_does_not_abort_others(self, scraper_service, sample_resume):
+        from app.schemas.job import JobUpsertData
+        from app.ai.gemini_client import AIError
+
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(
+                title="A", company="Co", description="desc",
+                url="https://scraper-autoscore.example.com/4",
+                source="remoteok",
+            ),
+            JobUpsertData(
+                title="B", company="Co", description="desc",
+                url="https://scraper-autoscore.example.com/5",
+                source="remoteok",
+            ),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        with patch("app.services.match_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.match_job.side_effect = [
+                AIError("gemini down"),
+                {"match_score": 70, "missing_skills": [], "match_summary": "fit"},
+            ]
+            result = _run_with_fakes(scraper_service, remoteok, yc)
+
+            assert result.total_new == 2
+            assert result.total_scored == 1

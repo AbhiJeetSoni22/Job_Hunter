@@ -148,10 +148,20 @@ class JobService:
 
     # ── Upsert (called by scraper_service) ────────────────────────────────
 
-    def upsert_jobs(self, jobs: list[JobUpsertData]) -> int:
+    def upsert_jobs(
+    self,
+    jobs: list[JobUpsertData],
+    new_job_ids: list[str] | None = None,
+    ) -> int:
         """
         Insert new jobs; skip duplicates by URL.
         Returns count of newly inserted rows.
+
+        If `new_job_ids` is provided, the id of every newly inserted job
+        is appended to it. This lets callers (e.g. scraper_service, for
+        Phase 5 auto-scoring) know exactly which jobs are new without a
+        second query, while leaving the existing int return contract
+        untouched for all current callers and tests.
         """
         new_count = 0
         for data in jobs:
@@ -178,11 +188,13 @@ class JobService:
             )
             self.db.add(job)
             new_count += 1
-            logger.debug("upsert new job url=%s", data.url)
+            if new_job_ids is not None:
+                new_job_ids.append(job.id)
+                logger.debug("upsert new job url=%s", data.url)
 
-        self.db.commit()
-        logger.info("upsert complete new=%d", new_count)
-        return new_count
+                self.db.commit()
+                logger.info("upsert complete new=%d", new_count)
+                return new_count
 
     # ── Private helpers ───────────────────────────────────────────────────
 

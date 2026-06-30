@@ -17,6 +17,7 @@
 
 import type {
   ApiResponse,
+  DashboardStats,
   HealthStatus,
   Job,
   JobListParams,
@@ -65,7 +66,10 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
   const headers: HeadersInit = isFormData
     ? { ...(init?.headers as Record<string, string>) }
-    : { "Content-Type": "application/json", ...(init?.headers as Record<string, string>) };
+    : {
+        "Content-Type": "application/json",
+        ...(init?.headers as Record<string, string>),
+      };
 
   // 15-second timeout via AbortController
   const controller = new AbortController();
@@ -80,7 +84,10 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiClientError("TIMEOUT", "Request timed out after 15 seconds.");
+      throw new ApiClientError(
+        "TIMEOUT",
+        "Request timed out after 120 seconds.",
+      );
     }
     throw new ApiClientError("NETWORK_ERROR", "Could not reach the server.");
   } finally {
@@ -133,7 +140,10 @@ export async function getResume(): Promise<Resume | null> {
 export async function uploadResume(file: File): Promise<ResumeUploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  return apiFetch<ResumeUploadResponse>("/api/resume", { method: "POST", body: form });
+  return apiFetch<ResumeUploadResponse>("/api/resume", {
+    method: "POST",
+    body: form,
+  });
 }
 
 export async function deleteResume(): Promise<void> {
@@ -142,15 +152,18 @@ export async function deleteResume(): Promise<void> {
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 
-export async function getJobs(params: JobListParams = {}): Promise<PaginatedJobList> {
+export async function getJobs(
+  params: JobListParams = {},
+): Promise<PaginatedJobList> {
   const qs = new URLSearchParams();
-  if (params.page !== undefined)      qs.set("page",      String(params.page));
-  if (params.page_size !== undefined) qs.set("page_size", String(params.page_size));
-  if (params.sort_by)                 qs.set("sort_by",   params.sort_by);
-  if (params.order)                   qs.set("order",     params.order);
-  if (params.status)                  qs.set("status",    params.status);
-  if (params.source)                  qs.set("source",    params.source);
-  if (params.scored !== undefined)    qs.set("scored",    String(params.scored));
+  if (params.page !== undefined) qs.set("page", String(params.page));
+  if (params.page_size !== undefined)
+    qs.set("page_size", String(params.page_size));
+  if (params.sort_by) qs.set("sort_by", params.sort_by);
+  if (params.order) qs.set("order", params.order);
+  if (params.status) qs.set("status", params.status);
+  if (params.source) qs.set("source", params.source);
+  if (params.scored !== undefined) qs.set("scored", String(params.scored));
 
   const query = qs.toString() ? `?${qs}` : "";
   return apiFetch<PaginatedJobList>(`/api/jobs${query}`);
@@ -160,7 +173,10 @@ export async function getJob(id: string): Promise<Job> {
   return apiFetch<Job>(`/api/jobs/${id}`);
 }
 
-export async function updateJob(id: string, body: JobUpdateRequest): Promise<JobUpdateResponse> {
+export async function updateJob(
+  id: string,
+  body: JobUpdateRequest,
+): Promise<JobUpdateResponse> {
   return apiFetch<JobUpdateResponse>(`/api/jobs/${id}`, {
     method: "PATCH",
     body: JSON.stringify(body),
@@ -183,4 +199,10 @@ export async function runScraper(): Promise<ScraperRunResult> {
 
 export async function getScraperStatus(): Promise<ScraperRun[]> {
   return apiFetch<ScraperRun[]>("/api/scraper/status");
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  return apiFetch<DashboardStats>("/api/dashboard/stats");
 }

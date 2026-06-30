@@ -214,3 +214,47 @@ class TestResponseShape:
             result = score_job(str(sample_job.id), db)
 
         assert isinstance(result["match_summary"], str)
+
+    def test_response_includes_recommendation_label(self, db, sample_job, sample_resume):
+        from app.services.match_service import score_job
+
+        with _patch_gemini({"match_score": 80, "missing_skills": [], "match_summary": "Strong fit."}):
+            result = score_job(str(sample_job.id), db)
+
+            assert result["recommendation_label"] == "Strong Match"
+
+
+# ---------------------------------------------------------------------------
+# recommendation_label() — Phase 5, Feature 5
+# ---------------------------------------------------------------------------
+
+class TestRecommendationLabel:
+
+    def test_excellent_match_boundary(self):
+        from app.services.match_service import recommendation_label
+
+        assert recommendation_label(95) == "Excellent Match"
+        assert recommendation_label(100) == "Excellent Match"
+
+    def test_strong_match_boundary(self):
+        from app.services.match_service import recommendation_label
+
+        assert recommendation_label(80) == "Strong Match"
+        assert recommendation_label(94) == "Strong Match"
+
+    def test_potential_match_boundary(self):
+        from app.services.match_service import recommendation_label
+
+        assert recommendation_label(65) == "Potential Match"
+        assert recommendation_label(79) == "Potential Match"
+
+    def test_low_match_below_threshold(self):
+        from app.services.match_service import recommendation_label
+
+        assert recommendation_label(64) == "Low Match"
+        assert recommendation_label(0) == "Low Match"
+
+    def test_none_when_unscored(self):
+        from app.services.match_service import recommendation_label
+
+        assert recommendation_label(None) is None
