@@ -78,7 +78,6 @@ class YCJobsScraper(BaseScraper):
 
                 logger.info("YCJobsScraper: navigating to %s", JOBS_URL)
                 page.goto(JOBS_URL, wait_until="networkidle", timeout=PAGE_LOAD_TIMEOUT_MS)
-                self._dump_debug(page)
 
                 # Wait for job links to appear
                 try:
@@ -339,55 +338,3 @@ class YCJobsScraper(BaseScraper):
         except Exception as exc:
             logger.warning("YCJobsScraper: scroll failed (non-fatal): %s", exc)
 
-    # ── Debug helpers ──────────────────────────────────────────────────────
-
-    def _dump_debug(self, page) -> None:
-        self._dump_dom(page)
-        self._dump_txt(page)
-
-    def _dump_dom(self, page) -> None:
-        try:
-            html = page.content()
-            with open("yc_dom_dump.html", "w", encoding="utf-8") as f:
-                f.write(html)
-            logger.info("YCJobsScraper: DOM saved → yc_dom_dump.html (%d bytes)", len(html))
-        except Exception as exc:
-            logger.warning("YCJobsScraper: DOM dump failed: %s", exc)
-
-    def _dump_txt(self, page) -> None:
-        try:
-            title = page.title()
-            url   = page.url
-
-            all_anchors   = page.query_selector_all("a")
-            total_anchors = len(all_anchors)
-
-            jobs_hrefs:    list[str] = []
-            company_hrefs: list[str] = []
-            for a in all_anchors:
-                href = a.get_attribute("href") or ""
-                if "/jobs" in href:
-                    jobs_hrefs.append(href)
-                if "/companies" in href:
-                    company_hrefs.append(href)
-
-            lines = [
-                f"url:            {url}",
-                f"title:          {title}",
-                f"total <a> tags: {total_anchors}",
-                f"hrefs with /jobs ({len(jobs_hrefs)}):",
-                *[f"  {h}" for h in jobs_hrefs],
-                f"hrefs with /companies ({len(company_hrefs)}):",
-                *[f"  {h}" for h in company_hrefs],
-            ]
-
-            with open("yc_debug.txt", "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-
-            logger.info(
-                "YCJobsScraper: debug saved → yc_debug.txt "
-                "(anchors=%d jobs_links=%d company_links=%d)",
-                total_anchors, len(jobs_hrefs), len(company_hrefs),
-            )
-        except Exception as exc:
-            logger.warning("YCJobsScraper: debug txt dump failed: %s", exc)

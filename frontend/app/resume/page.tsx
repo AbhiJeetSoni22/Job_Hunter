@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ResumeInfoCard } from "@/components/resume/ResumeInfoCard";
 import { ResumeUploader } from "@/components/resume/ResumeUploader";
@@ -50,7 +50,7 @@ export default function ResumePage() {
   }, [setResume]);
 
   // Run once on mount
-  useState(() => { loadResume(); });
+  useEffect(() => { loadResume(); }, [loadResume]);
 
   // ── Upload ───────────────────────────────────────────────────────────────────
 

@@ -44,7 +44,7 @@ export class ApiClientError extends Error {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 120_000;
 
 function baseUrl(): string {
   if (typeof window === "undefined") {

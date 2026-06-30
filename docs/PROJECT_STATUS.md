@@ -225,7 +225,6 @@ ai-internship-hunter/
 - Pure Playwright locator approach — no `evaluate()` or JS DOM injection
 - Job-link discovery via `page.locator("a[href^='/jobs/']").all()` filtered by regex `^/jobs/\d+$`
 - Card container resolved by walking XPath parent axis until ancestor containing company link found
-- Always-on debug dump: `yc_dom_dump.html` + `yc_debug.txt` written to cwd on every run
 - Verified live: `jobs_found=28, jobs_new=28, error=null`
 
 ### ✅ Phase 3B — Frontend Foundation (Next.js 15)
@@ -346,7 +345,6 @@ ai-internship-hunter/
 - **RemoteOK jobs delayed 24h.** Expected API behaviour; not a bug.
 - **Internship filter is keyword-based.** May miss roles with non-standard titles.
 - **No background workers.** Scraping and scoring are synchronous, on-demand.
-- **YC debug files always written.** `yc_dom_dump.html` + `yc_debug.txt` written to cwd on every scraper run. Remove `_dump_debug()` call in `yc_jobs.py` once selectors are confirmed stable.
 - **No loading skeletons.** Job list and detail show a spinner; proper skeleton screens are Phase 4.
 - **No tests.** Service-layer Pytest coverage is Phase 4.
 
