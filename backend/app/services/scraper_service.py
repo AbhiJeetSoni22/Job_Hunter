@@ -44,7 +44,7 @@ class ScraperService:
 
         # ── Public API ─────────────────────────────────────────────────────────
 
-    def run_all(self) -> ScraperRunSummary:
+    def run_all(self) ->tuple[ScraperRunSummary, list[str]]:
         """
         Run every configured scraper source sequentially.
 
