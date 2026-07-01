@@ -43,11 +43,13 @@ def _patch_scrapers(remoteok_instance, yc_instance):
 
 
 def _run_with_fakes(scraper_service, remoteok: FakeScraper, yc: FakeScraper):
-    """Run run_all() with both scrapers patched."""
+    """Run run_all() with both scrapers patched. Unpacks the (summary, ids) tuple
+    and returns only the ScraperRunSummary — the ids are only needed by the router."""
     p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
     p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
     with p1, p2:
-        return scraper_service.run_all()
+       summary, _new_ids = scraper_service.run_all()
+       return summary
 
 
 def _empty_scrapers():
@@ -263,10 +265,16 @@ class TestAutoScoreNewJobs:
                 "missing_skills": [],
                 "match_summary": "Good fit.",
             }
-            result = _run_with_fakes(scraper_service, remoteok, yc)
+            # Mirror router: run_all() returns (summary, ids); router schedules
+            # run_auto_score(ids) as a background task — call it directly here.
+            p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
+            p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
+            with p1, p2:
+                summary, new_ids = scraper_service.run_all()
+            scored = scraper_service._auto_score_new_jobs(new_ids)
 
-            assert result.total_new == 1
-            assert result.total_scored == 1
+        assert summary.total_new == 1
+        assert scored == 1
 
     def test_existing_jobs_are_never_rescored(self, scraper_service, sample_resume, db):
         from app.schemas.job import JobUpsertData
@@ -285,29 +293,35 @@ class TestAutoScoreNewJobs:
             MockGemini.return_value.match_job.return_value = {
                 "match_score": 80, "missing_skills": [], "match_summary": "fit",
             }
-            _run_with_fakes(scraper_service, remoteok, yc)
-
+            p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
+            p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
+            with p1, p2:
+                _, new_ids = scraper_service.run_all()
+                scraper_service._auto_score_new_jobs(new_ids)
             # Second sync run finds the same URL again — already exists, so it's
             # not new, and must not be passed through auto-scoring again.
-            remoteok2 = FakeScraper("remoteok")
-            remoteok2.set_jobs([
-                JobUpsertData(title="A", company="Co", description="desc", url=url, source="remoteok"),
-            ])
-            yc2 = FakeScraper("yc_jobs")
-            yc2.set_jobs([])
+        remoteok2 = FakeScraper("remoteok")
+        remoteok2.set_jobs([
+            JobUpsertData(title="A", company="Co", description="desc", url=url, source="remoteok"),
+        ])
+        yc2 = FakeScraper("yc_jobs")
+        yc2.set_jobs([])
 
-            with patch("app.services.match_service.GeminiClient") as MockGemini2:
-                MockGemini2.return_value.match_job.return_value = {
-                    "match_score": 10, "missing_skills": [], "match_summary": "should not run",
-                }
-                result = _run_with_fakes(scraper_service, remoteok2, yc2)
+        with patch("app.services.match_service.GeminiClient") as MockGemini2:
+            MockGemini2.return_value.match_job.return_value = {
+                "match_score": 10, "missing_skills": [], "match_summary": "should not run",
+            }
+            p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok2)
+            p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc2)
+            with p1, p2:
+               summary2, new_ids2 = scraper_service.run_all()
+            scored2 = scraper_service._auto_score_new_jobs(new_ids2)
 
-                assert result.total_new == 0
-                assert result.total_scored == 0
-
-                row = db.scalar(select(Job).where(Job.url == url))
-                assert row.match_score == 80  # untouched by the second sync
-
+        assert summary2.total_new == 0
+        assert scored2 == 0
+        row = db.scalar(select(Job).where(Job.url == url))
+        assert row.match_score == 80
+    
     def test_gemini_failure_on_one_job_does_not_abort_others(self, scraper_service, sample_resume):
         from app.schemas.job import JobUpsertData
         from app.ai.gemini_client import AIError
@@ -333,7 +347,11 @@ class TestAutoScoreNewJobs:
                 AIError("gemini down"),
                 {"match_score": 70, "missing_skills": [], "match_summary": "fit"},
             ]
-            result = _run_with_fakes(scraper_service, remoteok, yc)
+            p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
+            p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
+            with p1, p2:
+             summary, new_ids = scraper_service.run_all()
+            scored = scraper_service._auto_score_new_jobs(new_ids)
 
-            assert result.total_new == 2
-            assert result.total_scored == 1
+        assert summary.total_new == 2
+        assert scored == 1

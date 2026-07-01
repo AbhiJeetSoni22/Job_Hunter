@@ -190,11 +190,11 @@ class JobService:
             new_count += 1
             if new_job_ids is not None:
                 new_job_ids.append(job.id)
-                logger.debug("upsert new job url=%s", data.url)
+            logger.debug("upsert new job url=%s", data.url)
 
-                self.db.commit()
-                logger.info("upsert complete new=%d", new_count)
-                return new_count
+        self.db.commit()
+        logger.info("upsert complete new=%d", new_count)
+        return new_count
 
     # ── Private helpers ───────────────────────────────────────────────────
 

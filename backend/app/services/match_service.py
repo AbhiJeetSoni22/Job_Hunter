@@ -175,4 +175,5 @@ def _build_response(job: Job, *, cached: bool, needs_rescore: bool) -> dict:
         "matched_at": job.matched_at,
         "cached": cached,
         "needs_rescore": needs_rescore,
+        "recommendation_label": recommendation_label(job.match_score),
     }
