@@ -111,76 +111,76 @@ class YCJobsScraper(BaseScraper):
                 # ── Core extraction ────────────────────────────────────────────────────
 
     def _extract_jobs(self, page) -> list[JobUpsertData]:
-            """
-            Pure-locator extraction.  No JS evaluate calls.
+        """
+        Pure-locator extraction.  No JS evaluate calls.
 
-            Strategy:
-                - Collect all job-detail anchors (href matches /jobs/NNN).
-                - For each unique href, use a single evaluate_handle() call to find
-                the nearest ancestor containing a /companies/ link (replaces the
-                old 8-level XPath loop that caused ~8-12s of IPC overhead).
-                - Extract fields from that ancestor card element.
-            """
+        Strategy:
+            - Collect all job-detail anchors (href matches /jobs/NNN).
+            - For each unique href, use a single evaluate_handle() call to find
+            the nearest ancestor containing a /companies/ link (replaces the
+            old 8-level XPath loop that caused ~8-12s of IPC overhead).
+            - Extract fields from that ancestor card element.
+        """
             # All job-detail links on page
-            job_anchors = page.locator("a[href^='/jobs/']").all()
-            logger.info("YCJobsScraper: found %d raw job anchor(s)", len(job_anchors))
+        job_anchors = page.locator("a[href^='/jobs/']").all()
+        logger.info("YCJobsScraper: found %d raw job anchor(s)", len(job_anchors))
 
-            seen_hrefs: set[str] = set()
-            results: list[JobUpsertData] = []
-            skipped_missing = skipped_short = skipped_error = 0
+        seen_hrefs: set[str] = set()
+        results: list[JobUpsertData] = []
+        skipped_missing = skipped_short = skipped_error = 0
 
-            for anchor in job_anchors:
-                try:
-                    href = anchor.get_attribute("href") or ""
-                except Exception:
-                    continue
+        for anchor in job_anchors:
+            try:
+                href = anchor.get_attribute("href") or ""
+            except Exception:
+                continue
 
                 # Only exact /jobs/NNN paths
-                if not JOB_HREF_RE.match(href):
-                    continue
+            if not JOB_HREF_RE.match(href):
+                continue
 
-                if href in seen_hrefs:
-                    continue
-                seen_hrefs.add(href)
+            if href in seen_hrefs:
+                continue
+            seen_hrefs.add(href)
 
-                job_url = f"{BASE_URL}{href}"
+            job_url = f"{BASE_URL}{href}"
 
-                try:
-                    job = self._extract_from_anchor(anchor, job_url)
-                except Exception as exc:
-                    logger.warning("YCJobsScraper: href=%s error=%s", href, exc)
-                    skipped_error += 1
-                    continue
+            try:
+                job = self._extract_from_anchor(anchor, job_url)
+            except Exception as exc:
+                logger.warning("YCJobsScraper: href=%s error=%s", href, exc)
+                skipped_error += 1
+                continue
 
-                if job is None:
-                    logger.info("Rejected %s because _extract_from_anchor returned None", href)
-                    skipped_missing += 1
-                    continue
+            if job is None:
+                logger.info("Rejected %s because _extract_from_anchor returned None", href)
+                skipped_missing += 1
+                continue
 
-                if len(job.description) < MIN_DESCRIPTION_LENGTH:
-                    logger.info(
-                        "Rejected %s because description length=%d",
-                        href,
-                        len(job.description),
-                    )
-                    skipped_short += 1
-                    continue
-
-                results.append(job)
-
+            if len(job.description) < MIN_DESCRIPTION_LENGTH:
                 logger.info(
+                    "Rejected %s because description length=%d",
+                    href,
+                    len(job.description),
+                )
+                skipped_short += 1
+                continue
+
+            results.append(job)
+
+            logger.info(
                     "YCJobsScraper: kept=%d missing=%d short=%d error=%d",
                     len(results), skipped_missing, skipped_short, skipped_error,
                 )
-            logger.info(
-                "SUMMARY -> kept=%d missing=%d short=%d error=%d totalAnchors=%d",
-                len(results),
-                skipped_missing,
-                skipped_short,
-                skipped_error,
-                len(job_anchors),
-            )
-            return results
+        logger.info(
+                    "SUMMARY -> kept=%d missing=%d short=%d error=%d totalAnchors=%d",
+                    len(results),
+                    skipped_missing,
+                    skipped_short,
+                    skipped_error,
+                    len(job_anchors),
+                )
+        return results
 
     def _extract_from_anchor(self, anchor, job_url: str) -> "JobUpsertData | None":
         """
@@ -197,14 +197,17 @@ class YCJobsScraper(BaseScraper):
         card = self._find_card_ancestor(anchor)
 
         # Company link inside card
+        # NOTE: `card` is a Playwright ElementHandle (see _find_card_ancestor),
+        # not a Locator — must use query_selector(), not locator().
         company_name = ""
         company_url: str | None = None
         try:
-            co_anchor = card.locator("a[href^='/companies/']").first
-            company_name = (co_anchor.inner_text() or "").strip()
-            co_href = co_anchor.get_attribute("href") or ""
-            if co_href:
-                company_url = f"{BASE_URL}{co_href}" if co_href.startswith("/") else co_href
+            co_anchor = card.query_selector("a[href^='/companies/']")
+            if co_anchor is not None:
+                company_name = (co_anchor.inner_text() or "").strip()
+                co_href = co_anchor.get_attribute("href") or ""
+                if co_href:
+                    company_url = f"{BASE_URL}{co_href}" if co_href.startswith("/") else co_href
         except Exception:
             pass
 
@@ -256,8 +259,11 @@ class YCJobsScraper(BaseScraper):
                 return el
         except Exception:
             pass
-        # Safe fallback: immediate parent via XPath
-        return anchor.locator("xpath=..")
+        # Safe fallback: immediate parent, as an ElementHandle for API
+        # consistency with the success path above (both callers use
+        # query_selector(), not locator()).
+        fallback = anchor.evaluate_handle("el => el.parentElement")
+        return fallback.as_element()
 
         # ── Field extractors ───────────────────────────────────────────────────
 
@@ -271,15 +277,15 @@ class YCJobsScraper(BaseScraper):
         ]
         for sel in selectors:
             try:
-                el = card.locator(sel).first
-                if el.count() == 0:
+                el = card.query_selector(sel)
+                if el is None:
                     continue
                 text = (el.inner_text() or "").strip()
                 if text:
                     return re.sub(r"\s+", " ", text)[:200]
             except Exception:
                 continue
-        return None
+            return None
 
     def _extract_description(self, card) -> str:
         """Try description selectors; fall back to full card text."""
@@ -291,8 +297,8 @@ class YCJobsScraper(BaseScraper):
         ]
         for sel in selectors:
             try:
-                el = card.locator(sel).first
-                if el.count() == 0:
+                el = card.query_selector(sel)
+                if el is None:
                     continue
                 text = (el.inner_text() or "").strip()
                 if len(text) >= MIN_DESCRIPTION_LENGTH:
@@ -301,18 +307,18 @@ class YCJobsScraper(BaseScraper):
                 continue
 
             # Full card text fallback
-        try:
-            full = (card.inner_text() or "").strip()
-            return re.sub(r"\s+", " ", full)
-        except Exception:
-            return ""
+            try:
+                full = (card.inner_text() or "").strip()
+                return re.sub(r"\s+", " ", full)
+            except Exception:
+                return ""
 
     def _extract_posted_at(self, card) -> "datetime | None":
         """Try <time> and date-attribute elements inside the card."""
         # Try <time datetime="...">
         try:
-            time_el = card.locator("time").first
-            if time_el.count() > 0:
+            time_el = card.query_selector("time")
+            if time_el is not None:
                 for attr in ["datetime", "title"]:
                     val = time_el.get_attribute(attr)
                     if val:
@@ -325,8 +331,8 @@ class YCJobsScraper(BaseScraper):
         # Try elements with date-related attributes
         for sel in ["[data-created-at]", "[data-date]", "[data-posted-at]"]:
             try:
-                el = card.locator(sel).first
-                if el.count() == 0:
+                el = card.query_selector(sel)
+                if el is None:
                     continue
                 for attr in ["data-created-at", "data-date", "data-posted-at", "datetime"]:
                     val = el.get_attribute(attr)
@@ -337,7 +343,7 @@ class YCJobsScraper(BaseScraper):
             except Exception:
                 continue
 
-        return None
+            return None
 
     def _parse_datetime(self, value: str) -> "datetime | None":
         if not value:
