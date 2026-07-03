@@ -153,10 +153,16 @@ class YCJobsScraper(BaseScraper):
                     continue
 
                 if job is None:
+                    logger.info("Rejected %s because _extract_from_anchor returned None", href)
                     skipped_missing += 1
                     continue
 
                 if len(job.description) < MIN_DESCRIPTION_LENGTH:
+                    logger.info(
+                        "Rejected %s because description length=%d",
+                        href,
+                        len(job.description),
+                    )
                     skipped_short += 1
                     continue
 
@@ -166,7 +172,15 @@ class YCJobsScraper(BaseScraper):
                     "YCJobsScraper: kept=%d missing=%d short=%d error=%d",
                     len(results), skipped_missing, skipped_short, skipped_error,
                 )
-                return results
+            logger.info(
+                "SUMMARY -> kept=%d missing=%d short=%d error=%d totalAnchors=%d",
+                len(results),
+                skipped_missing,
+                skipped_short,
+                skipped_error,
+                len(job_anchors),
+            )
+            return results
 
     def _extract_from_anchor(self, anchor, job_url: str) -> "JobUpsertData | None":
         """
@@ -265,7 +279,7 @@ class YCJobsScraper(BaseScraper):
                     return re.sub(r"\s+", " ", text)[:200]
             except Exception:
                 continue
-            return None
+        return None
 
     def _extract_description(self, card) -> str:
         """Try description selectors; fall back to full card text."""
@@ -287,11 +301,11 @@ class YCJobsScraper(BaseScraper):
                 continue
 
             # Full card text fallback
-            try:
-                full = (card.inner_text() or "").strip()
-                return re.sub(r"\s+", " ", full)
-            except Exception:
-                return ""
+        try:
+            full = (card.inner_text() or "").strip()
+            return re.sub(r"\s+", " ", full)
+        except Exception:
+            return ""
 
     def _extract_posted_at(self, card) -> "datetime | None":
         """Try <time> and date-attribute elements inside the card."""
@@ -323,7 +337,7 @@ class YCJobsScraper(BaseScraper):
             except Exception:
                 continue
 
-            return None
+        return None
 
     def _parse_datetime(self, value: str) -> "datetime | None":
         if not value:
