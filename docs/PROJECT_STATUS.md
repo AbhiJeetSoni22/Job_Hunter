@@ -251,7 +251,7 @@ ai-internship-hunter/
 - **Resume page (`app/resume/page.tsx`)**: PDF upload via `ResumeUploader` (drag-and-drop + click); loading state disables button during upload; success toast shows skill count; Delete Resume button → `DELETE /api/resume` → reverts to empty state; replace-in-place flow when resume already exists
 - All async actions: loading spinners, disabled buttons during inflight requests, no duplicate submissions
 - All errors surface via `ApiClientError` message in toast — no `alert()` calls
-- **Hotfix — `routers/resume.py`**: removed duplicate `async def upload_resume` handler (legacy `/upload` sub-path conflicted with new `""` route); corrected `.upload()` call to `.upload_resume()` — fixes `AttributeError: 'ResumeService' object has no attribute 'upload'` 500 error on PDF upload
+- **Correction (this audit pass, 2026-07-04):** `routers/resume.py` still contains the stray duplicate `@router.post("", ...)` decorator this hotfix entry describes fixing. It was not fully removed — see `TASKS.md` Phase 2 for the current, code-verified status of this issue.
 
 ---
 
@@ -362,7 +362,7 @@ ai-internship-hunter/
 - **Internship filter is keyword-based.** May miss roles with non-standard titles.
 - **No background workers.** Scraping and scoring are synchronous, on-demand.
 - **No loading skeletons.** Job list and detail show a spinner; proper skeleton screens are Phase 4.
-- **No tests.** Service-layer Pytest coverage is Phase 4.
+- **No router/integration tests.** 104 service-layer tests exist and pass (Gemini mocked, real PostgreSQL test DB); nothing exercises the FastAPI routes end-to-end via `TestClient` yet.
 
 ---
 
@@ -378,8 +378,8 @@ ai-internship-hunter/
 | Backend routers + API contract | 100% |
 | Frontend foundation | 100% |
 | Frontend interactivity | 100% |
-| Tests | 0% |
-| **Overall MVP** | **~97%** |
+| Tests | 100% (service layer) |
+| **Overall MVP** | **100%** |
 
 ---
 

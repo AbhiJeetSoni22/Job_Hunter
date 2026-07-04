@@ -20,6 +20,8 @@
 
 ### JobStatus
 
+Stored as plain `VARCHAR(20)` — **not** a PostgreSQL enum type. This is a deliberate choice: adding a new status value later is a simple deploy, not a migration that locks the table. Validation happens at the Pydantic schema layer instead.
+
 Allowed values:
 
 * saved
@@ -50,9 +52,9 @@ Stores every collected job listing, plus match results and application tracking 
 | `company_url`        | TEXT           | NULLABLE                      | Company website URL                  |
 | `description`        | TEXT           | NOT NULL                      | Full job description                 |
 | `url`                | TEXT           | NOT NULL, UNIQUE              | Source URL — dedup key               |
-| `source`             | VARCHAR(50)    | NOT NULL                      | `remoteok` or `yc_jobs`              |
+| `source`             | VARCHAR(50)    | NOT NULL                      | `remoteok` or `yc_jobs` — validated against `JOB_SOURCE_VALUES` in `models/job.py`, not a DB-level constraint |
 | `location`           | VARCHAR(200)   | NULLABLE                      | Location string from source          |
-| `status`             | JobStatus Enum | NOT NULL, default `saved`     | Application tracking status          |
+| `status`             | VARCHAR(20)    | NOT NULL, default `saved`     | Application tracking status (see JobStatus values below) |
 | `notes`              | TEXT           | NULLABLE                      | Free-text user notes                 |
 | `match_score`        | INTEGER        | NULLABLE                      | 0–100, null until scored             |
 | `missing_skills`     | JSONB          | NULLABLE                      | Array of skill strings               |

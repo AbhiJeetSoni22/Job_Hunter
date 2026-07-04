@@ -357,6 +357,28 @@ rejected
 
 ---
 
+## DELETE /api/jobs/{id}
+
+Permanently removes a job record.
+
+### Response 204
+
+No response body.
+
+### Response 404
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Job not found"
+  }
+}
+```
+
+---
+
 # Dashboard
 
 ## GET /api/dashboard/stats
@@ -415,6 +437,8 @@ top-N query — no N+1 queries regardless of job count.
 ## POST /api/resume
 
 Uploads a PDF resume.
+
+> **Known issue:** `routers/resume.py` currently has a stray duplicate route decorator left over from a previous edit (see `TASKS.md`, Phase 2). It has not been observed to change actual behavior — `POST /api/resume` still correctly reaches the upload handler in testing — but it's a code smell worth fixing before this file is considered final.
 
 Process:
 
@@ -540,13 +564,41 @@ No response body.
 
 ---
 
+## GET /api/resume/{id}
+
+Returns a specific resume by ID. Since only one resume ever exists at a time, this is mainly useful for confirming a specific upload's ID after the fact — `GET /api/resume` (no ID) is the endpoint the frontend uses day-to-day.
+
+### Response 200
+
+Same shape as `GET /api/resume`.
+
+### Response 404
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Resume {id} not found"
+  }
+}
+```
+
+---
+
 # Error Codes
 
-| Code           | Status |
-| -------------- | ------ |
-| NOT_FOUND      | 404    |
-| NO_RESUME      | 422    |
-| INVALID_FILE   | 422    |
-| INVALID_STATUS | 422    |
-| SCRAPER_ERROR  | 500    |
-| AI_ERROR       | 502    |
+| Code           | Status | Where it's raised                                    |
+| -------------- | ------ | ------------------------------------------------------ |
+| NOT_FOUND      | 404    | Job or job ID not found                                |
+| NO_RESUME      | 404    | `GET/DELETE /api/resume` when no resume is uploaded    |
+| NO_RESUME      | 422    | `POST /api/jobs/{id}/score` when no resume is uploaded — scoring is a write operation that requires a resume as input, so it's treated as a validation failure rather than a missing resource |
+| INVALID_FILE   | 422    | Resume upload — not a PDF, or over 5 MB                |
+| INVALID_STATUS | 422    | `PATCH /api/jobs/{id}` with an invalid status value    |
+| INVALID_PARAM  | 422    | `GET /api/jobs` with an invalid `sort_by`/`order`      |
+| VALIDATION_ERROR | 422  | Request body fails Pydantic validation                 |
+| EXTRACTION_ERROR | 500  | PyMuPDF or Gemini extraction failure during upload      |
+| AI_ERROR       | 502    | Gemini API call failed after all retries                |
+| INTERNAL_ERROR | 500    | Unhandled exception (message never leaks internals)     |
+
+Note: `NO_RESUME` intentionally maps to two different status codes depending on context — this is not a bug. On the resume resource itself, "no resume" is a 404 (the resource doesn't exist). On the scoring endpoint, "no resume" is a 422 (the request can't be validated without one).

@@ -11,6 +11,8 @@ Both prompts live in:
 backend/app/ai/prompts.py
 ```
 
+> **Known issue (cosmetic, not functional):** the source file currently has its docstring and both prompt constants duplicated back-to-back — likely from a bad merge. Python's last-assignment-wins behavior means the correct, final values of `SKILL_EXTRACTION_PROMPT` and `JOB_MATCH_PROMPT` (the ones documented below) are what the rest of the app actually uses; nothing is broken at runtime. The file should still be cleaned up to remove the dead duplicate block.
+
 ---
 
 # Design Principles
@@ -107,6 +109,7 @@ Rules:
     - PostgreSQL (not Postgres)
     - React (not React.js)
     - TypeScript (not TS)
+    - JavaScript (not JS)
 - Remove duplicates.
 - Return at most 30 skills.
 
@@ -303,6 +306,8 @@ Retry on:
 
 ```text
 429
+500
+502
 503
 ```
 
