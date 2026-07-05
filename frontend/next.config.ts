@@ -1,19 +1,17 @@
 import type { NextConfig } from "next";
 
+const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:8000";
+
 const nextConfig: NextConfig = {
-  // Default Next.js rewrite-proxy timeout is ~30s — too short for
-  // POST /api/scraper/run, which runs a synchronous Playwright scrape
-  // (YC Jobs alone can take 40-50s). Without this, Next kills the
-  // socket at 30s ("socket hang up" / ECONNRESET) even though the
-  // FastAPI backend finishes successfully a few seconds later.
   experimental: {
-    proxyTimeout: 120 * 1000, // 2 minutes
+    proxyTimeout: 120 * 1000,
   },
+
   async rewrites() {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:8000/api/:path*",
+        destination: `${API_BASE_URL}/api/:path*`,
       },
     ];
   },
