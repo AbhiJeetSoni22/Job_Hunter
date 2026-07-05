@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { ScoreBadge } from "./ScoreBadge";
-import { StatusBadge } from "./StatusBadge";
+import { StatusSelect } from "./StatusSelect";
 import { NeedsRescoreBadge } from "./NeedsRescoreBadge";
 import { RecommendationBadge } from "./RecommendationBadge";
-import type { JobListItem } from "@/lib/types";
+import type { JobListItem, JobStatus } from "@/lib/types";
 
 interface JobCardProps {
   job: JobListItem;
+  onStatusChanged?: (jobId: string, newStatus: JobStatus) => void;
+  onStatusError?: (message: string) => void;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -24,7 +26,7 @@ function formatDate(iso: string | null): string {
   });
 }
 
-export function JobCard({ job }: JobCardProps) {
+export function JobCard({ job, onStatusChanged, onStatusError }: JobCardProps) {
   return (
     <Link href={`/jobs/${job.id}`} className="block group">
       <Card
@@ -58,7 +60,12 @@ export function JobCard({ job }: JobCardProps) {
 
             {/* Badges row */}
             <div className="flex flex-wrap gap-1.5 mt-2">
-              <StatusBadge status={job.status} />
+              <StatusSelect
+                jobId={job.id}
+                status={job.status}
+                onChanged={onStatusChanged}
+                onError={onStatusError}
+              />
               <ScoreBadge score={job.match_score} />
               <RecommendationBadge label={job.recommendation_label} />
               <NeedsRescoreBadge needs={job.needs_rescore} />
