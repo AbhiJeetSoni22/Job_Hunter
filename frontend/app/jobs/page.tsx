@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback, useTransition } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { JobList } from "@/components/jobs/JobList";
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ToastContainer, useToast } from "@/components/ui/Toast";
-import { getJobs, ApiClientError } from "@/lib/api";
+import { getJobs, getResume, ApiClientError } from "@/lib/api";
 import type {
   JobListItem,
   JobListParams,
@@ -90,6 +91,15 @@ export default function JobsPage() {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const { toasts, addToast, dismiss } = useToast();
+  // Resume presence — fetched once, independent of job filters. Reused to
+  // gate match-score visibility, consistent with the Dashboard's rule.
+  const [hasResume, setHasResume] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    getResume()
+      .then((r) => setHasResume(r !== null))
+      .catch(() => setHasResume(null));
+  }, []);
 
   const load = useCallback(async (f: Filters) => {
     setLoading(true);
@@ -159,6 +169,26 @@ export default function JobsPage() {
             : `${total} internship${total !== 1 ? "s" : ""} in database`
         }
       />
+
+      {/* ── Resume-required banner ──────────────────────────────────── */}
+      {hasResume === false && (
+        <div
+          className="mb-4 px-4 py-2 rounded-lg text-sm"
+          style={{
+            background: "var(--color-surface)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-subtle)",
+          }}
+        >
+          Upload a resume to view personalized AI match scores.{" "}
+          <Link
+            href="/resume"
+            style={{ color: "var(--color-accent)", fontWeight: 600 }}
+          >
+            Upload Resume
+          </Link>
+        </div>
+      )}
 
       {/* ── Filter bar ───────────────────────────────────────────────── */}
       <div
@@ -243,6 +273,7 @@ export default function JobsPage() {
             jobs={jobs}
             onStatusChanged={handleStatusChanged}
             onStatusError={handleStatusError}
+            hasResume={hasResume ?? true}
           />
 
           {/* ── Pagination ─────────────────────────────────────────── */}

@@ -6,12 +6,15 @@ interface JobListProps {
   jobs: JobListItem[];
   onStatusChanged?: (jobId: string, newStatus: JobStatus) => void;
   onStatusError?: (message: string) => void;
+  /** When false, no active resume exists — match badges have no basis. */
+  hasResume?: boolean;
 }
 
 export function JobList({
   jobs,
   onStatusChanged,
   onStatusError,
+  hasResume = true,
 }: JobListProps) {
   if (jobs.length === 0) {
     return (
@@ -31,6 +34,7 @@ export function JobList({
           job={job}
           onStatusChanged={onStatusChanged}
           onStatusError={onStatusError}
+          hasResume={hasResume}
         />
       ))}
     </div>

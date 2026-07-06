@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { use } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -10,10 +11,17 @@ import { ScoreBadge } from "@/components/jobs/ScoreBadge";
 import { StatusBadge } from "@/components/jobs/StatusBadge";
 import { NeedsRescoreBadge } from "@/components/jobs/NeedsRescoreBadge";
 import { RecommendationBadge } from "@/components/jobs/RecommendationBadge";
+import { ResumeRequiredBadge } from "@/components/jobs/ResumeRequiredBadge";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ToastContainer, useToast } from "@/components/ui/Toast";
-import { getJob, updateJob, scoreJob, ApiClientError } from "@/lib/api";
+import {
+  getJob,
+  getResume,
+  updateJob,
+  scoreJob,
+  ApiClientError,
+} from "@/lib/api";
 import type { Job, JobStatus, ScoreResponse } from "@/lib/types";
 
 interface Props {
@@ -37,6 +45,10 @@ export default function JobDetailPage({ params }: Props) {
   const [job, setJob] = useState<Job | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Resume presence — fetched independently, consistent with Dashboard's
+  // and the Jobs list's rule: no active resume, no match-score display.
+  const [hasResume, setHasResume] = useState<boolean | null>(null);
 
   // Score state
   const [scoreResult, setScoreResult] = useState<ScoreResponse | null>(null);
@@ -85,6 +97,12 @@ export default function JobDetailPage({ params }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    getResume()
+      .then((r) => setHasResume(r !== null))
+      .catch(() => setHasResume(null));
+  }, []);
 
   // ── Score ────────────────────────────────────────────────────────────────────
 
@@ -175,13 +193,21 @@ export default function JobDetailPage({ params }: Props) {
       {/* ── Badges ───────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2 mb-6">
         <StatusBadge status={status} />
-        <ScoreBadge score={scoreResult?.match_score ?? job.match_score} />
-        <RecommendationBadge
-          label={scoreResult?.recommendation_label ?? job.recommendation_label}
-        />
-        <NeedsRescoreBadge
-          needs={scoreResult?.needs_rescore ?? job.needs_rescore}
-        />
+        {hasResume === false ? (
+          <ResumeRequiredBadge />
+        ) : (
+          <>
+            <ScoreBadge score={scoreResult?.match_score ?? job.match_score} />
+            <RecommendationBadge
+              label={
+                scoreResult?.recommendation_label ?? job.recommendation_label
+              }
+            />
+            <NeedsRescoreBadge
+              needs={scoreResult?.needs_rescore ?? job.needs_rescore}
+            />
+          </>
+        )}
       </div>
 
       {/* ── Score panel ──────────────────────────────────────────────────── */}
@@ -192,7 +218,22 @@ export default function JobDetailPage({ params }: Props) {
         >
           AI Match Score
         </p>
-        {scoreResult ? (
+        {hasResume === false ? (
+          <div>
+            <p
+              style={{
+                color: "var(--color-subtle)",
+                fontSize: "0.875rem",
+                marginBottom: "0.75rem",
+              }}
+            >
+              Upload a resume to score this job and see how well it fits.
+            </p>
+            <Link href="/resume">
+              <Button size="sm">Upload Resume</Button>
+            </Link>
+          </div>
+        ) : scoreResult ? (
           <div>
             <div className="flex items-center gap-3 mb-3 flex-wrap">
               <span

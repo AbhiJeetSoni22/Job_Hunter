@@ -4,12 +4,15 @@ import { ScoreBadge } from "./ScoreBadge";
 import { StatusSelect } from "./StatusSelect";
 import { NeedsRescoreBadge } from "./NeedsRescoreBadge";
 import { RecommendationBadge } from "./RecommendationBadge";
+import { ResumeRequiredBadge } from "./ResumeRequiredBadge";
 import type { JobListItem, JobStatus } from "@/lib/types";
 
 interface JobCardProps {
   job: JobListItem;
   onStatusChanged?: (jobId: string, newStatus: JobStatus) => void;
   onStatusError?: (message: string) => void;
+  /** When false, no active resume exists — match badges have no basis. */
+  hasResume?: boolean;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -26,7 +29,12 @@ function formatDate(iso: string | null): string {
   });
 }
 
-export function JobCard({ job, onStatusChanged, onStatusError }: JobCardProps) {
+export function JobCard({
+  job,
+  onStatusChanged,
+  onStatusError,
+  hasResume = true,
+}: JobCardProps) {
   return (
     <Link href={`/jobs/${job.id}`} className="block group">
       <Card
@@ -66,9 +74,15 @@ export function JobCard({ job, onStatusChanged, onStatusError }: JobCardProps) {
                 onChanged={onStatusChanged}
                 onError={onStatusError}
               />
-              <ScoreBadge score={job.match_score} />
-              <RecommendationBadge label={job.recommendation_label} />
-              <NeedsRescoreBadge needs={job.needs_rescore} />
+              {hasResume ? (
+                <>
+                  <ScoreBadge score={job.match_score} />
+                  <RecommendationBadge label={job.recommendation_label} />
+                  <NeedsRescoreBadge needs={job.needs_rescore} />
+                </>
+              ) : (
+                <ResumeRequiredBadge />
+              )}
             </div>
           </div>
 
