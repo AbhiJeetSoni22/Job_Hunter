@@ -204,12 +204,28 @@ export default function DashboardPage() {
         <StatCard
           label="Top Match"
           value={
-            loading ? "…" : stats.topScore !== null ? `${stats.topScore}%` : "—"
+            loading
+              ? "…"
+              : !stats.hasResume
+                ? "—"
+                : stats.topScore !== null
+                  ? `${stats.topScore}%`
+                  : "—"
           }
           icon="⭐"
-          href={stats.topJobId ? `/jobs/${stats.topJobId}` : undefined}
+          href={
+            !loading && !stats.hasResume
+              ? "/resume"
+              : stats.topJobId
+                ? `/jobs/${stats.topJobId}`
+                : undefined
+          }
           valueColor="var(--color-green)"
-          sub={stats.topCompany ?? undefined}
+          sub={
+            !loading && !stats.hasResume
+              ? "Upload Resume"
+              : (stats.topCompany ?? undefined)
+          }
         />
       </div>
 
@@ -227,23 +243,31 @@ export default function DashboardPage() {
           value={
             loading
               ? "…"
-              : dashStats?.average_match_score != null
-                ? `${dashStats.average_match_score}%`
-                : "—"
+              : !stats.hasResume
+                ? "—"
+                : dashStats?.average_match_score != null
+                  ? `${dashStats.average_match_score}%`
+                  : "—"
           }
           icon="📊"
+          href={!loading && !stats.hasResume ? "/resume" : undefined}
+          sub={!loading && !stats.hasResume ? "Upload Resume" : undefined}
         />
         <StatCard
           label="Best Match Score"
           value={
             loading
               ? "…"
-              : dashStats?.best_match_score != null
-                ? `${dashStats.best_match_score}%`
-                : "—"
+              : !stats.hasResume
+                ? "—"
+                : dashStats?.best_match_score != null
+                  ? `${dashStats.best_match_score}%`
+                  : "—"
           }
           icon="🏆"
           valueColor="var(--color-green)"
+          href={!loading && !stats.hasResume ? "/resume" : undefined}
+          sub={!loading && !stats.hasResume ? "Upload Resume" : undefined}
         />
         <StatCard
           label="Applications Submitted"
@@ -264,11 +288,13 @@ export default function DashboardPage() {
           <TopMatches
             matches={dashStats?.top_matches ?? []}
             loading={loading}
+            hasResume={stats.hasResume ?? false}
           />
         </div>
         <MatchQualityBreakdown
           breakdown={dashStats?.quality_breakdown ?? null}
           loading={loading}
+          hasResume={stats.hasResume ?? false}
         />
       </div>
 
