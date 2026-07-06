@@ -232,7 +232,7 @@ export default function DashboardPage() {
       {/* ── Recommendation metrics (Phase 5) ────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <StatCard
-          label="Scored Jobs"
+          label="Previously Scored Jobs"
           value={
             loading ? "…" : dashStats ? String(dashStats.scored_jobs) : "—"
           }

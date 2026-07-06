@@ -57,7 +57,7 @@ MIN_TEXT_LENGTH: int = 100
 # Keeps processing cost bounded and rejects mis-uploaded documents
 # (reports, transcripts, etc.) that would otherwise slip under the
 # 5 MB size limit.
-MAX_RESUME_PAGES: int = 20
+MAX_RESUME_PAGES: int = 3
 
 # Common resume section headers used for a lightweight, non-blocking
 # quality check (Optional Improvement #3). Matched case-insensitively
