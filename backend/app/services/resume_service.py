@@ -2,26 +2,26 @@
 Resume service.
 
 Owns all business logic for the `resumes` table:
-  - Validating uploaded PDF files
-  - Extracting text via PyMuPDF
-  - Persisting the resume (delete-then-insert — single active resume)
-  - Retrieving the latest resume or a specific resume by ID
+    - Validating uploaded PDF files
+    - Extracting text via PyMuPDF
+    - Persisting the resume (delete-then-insert — single active resume)
+    - Retrieving the latest resume or a specific resume by ID
 
-Architecture rules (ARCHITECTURE.md):
-  - No HTTP concerns: no Request, no Response, no status codes.
-  - Raise ValueError for validation failures.
-  - Raise LookupError for not-found.
-  - Routers translate these into HTTP responses.
+    Architecture rules (ARCHITECTURE.md):
+        - No HTTP concerns: no Request, no Response, no status codes.
+        - Raise ValueError for validation failures.
+        - Raise LookupError for not-found.
+        - Routers translate these into HTTP responses.
 
-Phase 2B:
-  Gemini skill extraction is now wired. After PDF text extraction, the service
-  calls GeminiClient.extract_skills(). If Gemini fails (AIError or network),
-  the resume is still stored with skills=[] — upload always succeeds.
+        Phase 2B:
+            Gemini skill extraction is now wired. After PDF text extraction, the service
+            calls GeminiClient.extract_skills(). If Gemini fails (AIError or network),
+            the resume is still stored with skills=[] — upload always succeeds.
 
-PyMuPDF import note:
-  The package is installed as `pymupdf` but imported as `fitz`. This is
-  expected — it is the same package. Do not attempt `import pymupdf`.
-"""
+            PyMuPDF import note:
+                The package is installed as `pymupdf` but imported as `fitz`. This is
+                expected — it is the same package. Do not attempt `import pymupdf`.
+                """
 
 import io
 import logging
@@ -53,6 +53,24 @@ ALLOWED_CONTENT_TYPES: frozenset[str] = frozenset({
 # Minimum extracted text length to be considered a valid resume
 MIN_TEXT_LENGTH: int = 100
 
+# Maximum PDF page count — a real resume is rarely longer than this.
+# Keeps processing cost bounded and rejects mis-uploaded documents
+# (reports, transcripts, etc.) that would otherwise slip under the
+# 5 MB size limit.
+MAX_RESUME_PAGES: int = 20
+
+# Common resume section headers used for a lightweight, non-blocking
+# quality check (Optional Improvement #3). Matched case-insensitively
+# as substrings of the extracted text — no NLP, no AI call.
+RESUME_SECTION_KEYWORDS: tuple[str, ...] = (
+    "experience",
+    "work experience",
+    "education",
+    "skills",
+    "projects",
+    "certifications",
+)
+
 
 # ── Internal extraction result ─────────────────────────────────────────────
 
@@ -64,7 +82,7 @@ class _ExtractionResult:
     char_count: int
 
 
-# ── Service class ──────────────────────────────────────────────────────────
+    # ── Service class ──────────────────────────────────────────────────────────
 
 class ResumeService:
     """
@@ -72,12 +90,12 @@ class ResumeService:
 
     Instantiated per request with an injected SQLAlchemy session:
         service = ResumeService(db)
-    """
+        """
 
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    # ── Upload ─────────────────────────────────────────────────────────────
+        # ── Upload ─────────────────────────────────────────────────────────────
 
     async def upload_resume(self, file: UploadFile) -> ResumeUploadResponse:
         """
@@ -88,31 +106,31 @@ class ResumeService:
         Args:
             file: FastAPI UploadFile from multipart/form-data.
 
-        Returns:
-            ResumeUploadResponse with id, filename, skills (empty in Phase 1D),
-            uploaded_at, page_count, and char_count.
+            Returns:
+                ResumeUploadResponse with id, filename, skills (empty in Phase 1D),
+                uploaded_at, page_count, and char_count.
 
-        Raises:
-            ValueError: if the file fails any validation check.
-            RuntimeError: if PyMuPDF fails to process the file.
-        """
+                Raises:
+                    ValueError: if the file fails any validation check.
+                    RuntimeError: if PyMuPDF fails to process the file.
+                    """
         logger.info("ResumeService.upload_resume: started for file '%s'", file.filename)
 
         # ── Step 1: validate ───────────────────────────────────────────────
         filename = self._validate_file(file)
 
-        # ── Step 2: read bytes ─────────────────────────────────────────────
+                    # ── Step 2: read bytes ─────────────────────────────────────────────
         content = await file.read()
         self._validate_size(content, filename)
 
-        # ── Step 3: extract text ───────────────────────────────────────────
+                    # ── Step 3: extract text ───────────────────────────────────────────
         extraction = self._extract_text(content, filename)
         logger.info(
-            "ResumeService.upload_resume: extracted %d chars from %d pages — '%s'",
-            extraction.char_count,
-            extraction.page_count,
-            filename,
-        )
+                        "ResumeService.upload_resume: extracted %d chars from %d pages — '%s'",
+                        extraction.char_count,
+                        extraction.page_count,
+                        filename,
+                    )
 
         # ── Step 4: extract skills via Gemini (graceful degradation) ────────
         skills = self._extract_skills_safe(extraction.raw_text)
@@ -122,7 +140,7 @@ class ResumeService:
             filename=filename,
             raw_text=extraction.raw_text,
             skills=skills,
-        )
+            )
         logger.info(
             "ResumeService.upload_resume: saved resume id=%s filename='%s'",
             resume.id,
@@ -130,13 +148,13 @@ class ResumeService:
         )
 
         return ResumeUploadResponse(
-            id=resume.id,
-            filename=resume.filename,
-            skills=resume.skills,
-            uploaded_at=resume.uploaded_at,
-            page_count=extraction.page_count,
-            char_count=extraction.char_count,
-        )
+    id=resume.id,
+    filename=resume.filename,
+    skills=resume.skills,
+    uploaded_at=resume.uploaded_at,
+    page_count=extraction.page_count,
+    char_count=extraction.char_count,
+)
 
     def delete_latest(self) -> bool:
         """
@@ -149,7 +167,7 @@ class ResumeService:
         resume = self._query_latest()
 
         if resume is None:
-            return False
+                return False
 
         self._db.delete(resume)
         self._db.commit()
@@ -162,7 +180,7 @@ class ResumeService:
 
         return True
 
-    # ── Read — latest ──────────────────────────────────────────────────────
+            # ── Read — latest ──────────────────────────────────────────────────────
 
     def get_latest(self) -> ResumeResponse:
         """
@@ -170,13 +188,13 @@ class ResumeService:
 
         Raises:
             LookupError: if no resume has been uploaded yet.
-        """
+            """
         resume = self._query_latest()
         if resume is None:
             raise LookupError("No resume uploaded")
         return ResumeResponse.model_validate(resume)
 
-    # ── Read — by ID ───────────────────────────────────────────────────────
+            # ── Read — by ID ───────────────────────────────────────────────────────
 
     def get_by_id(self, resume_id: uuid.UUID) -> ResumeResponse:
         """
@@ -185,15 +203,15 @@ class ResumeService:
         Args:
             resume_id: UUID of the resume to retrieve.
 
-        Raises:
-            LookupError: if no resume with that ID exists.
+            Raises:
+                LookupError: if no resume with that ID exists.
         """
         resume = self._db.get(Resume, resume_id)
         if resume is None:
             raise LookupError(f"Resume with id {resume_id} not found")
         return ResumeResponse.model_validate(resume)
 
-    # ── Read — latest with raw text (used by match_service in Phase 2) ────
+                # ── Read — latest with raw text (used by match_service in Phase 2) ────
 
     def get_latest_with_text(self) -> ResumeTextResponse:
         """
@@ -204,13 +222,13 @@ class ResumeService:
 
         Raises:
             LookupError: if no resume has been uploaded.
-        """
+            """
         resume = self._query_latest()
         if resume is None:
             raise LookupError("No resume uploaded")
         return ResumeTextResponse.model_validate(resume)
 
-    # ── Private: validation ────────────────────────────────────────────────
+            # ── Private: validation ────────────────────────────────────────────────
 
     def _validate_file(self, file: UploadFile) -> str:
         """
@@ -218,7 +236,7 @@ class ResumeService:
 
         Raises:
             ValueError: on any validation failure.
-        """
+            """
         if not file.filename:
             raise ValueError("Uploaded file has no filename")
 
@@ -227,10 +245,10 @@ class ResumeService:
         # Content-type check (primary signal)
         content_type = (file.content_type or "").lower().strip()
         if content_type not in ALLOWED_CONTENT_TYPES:
-            # Extension fallback: some clients send application/octet-stream
+                # Extension fallback: some clients send application/octet-stream
             if not filename.lower().endswith(".pdf"):
                 raise ValueError(
-                    f"File must be a PDF. Received content-type: '{content_type}'"
+                 f"File must be a PDF. Received content-type: '{content_type}'"
                 )
             logger.debug(
                 "ResumeService: content-type '%s' not in allowed set but "
@@ -246,34 +264,34 @@ class ResumeService:
 
         Raises:
             ValueError: if the file is empty or exceeds MAX_FILE_SIZE_BYTES.
-        """
+            """
         if len(content) == 0:
             raise ValueError(f"Uploaded file '{filename}' is empty")
 
         if len(content) > MAX_FILE_SIZE_BYTES:
             size_mb = len(content) / (1024 * 1024)
             raise ValueError(
-                f"File '{filename}' is {size_mb:.1f} MB. "
-                f"Maximum allowed size is {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB"
-            )
+            f"File '{filename}' is {size_mb:.1f} MB. "
+            f"Maximum allowed size is {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB"
+        )
 
-    # ── Private: PDF extraction ────────────────────────────────────────────
+        # ── Private: PDF extraction ────────────────────────────────────────────
 
     def _extract_text(self, content: bytes, filename: str) -> _ExtractionResult:
         """
         Extract plain text from PDF bytes using PyMuPDF.
 
         Extraction strategy:
-          - Opens the PDF from bytes (no disk I/O)
-          - Iterates all pages and extracts text with layout preservation
-          - Joins pages with double newline separator
-          - Normalises whitespace (collapse runs of spaces/tabs)
-          - Preserves paragraph breaks (double newlines)
+            - Opens the PDF from bytes (no disk I/O)
+            - Iterates all pages and extracts text with layout preservation
+            - Joins pages with double newline separator
+            - Normalises whitespace (collapse runs of spaces/tabs)
+            - Preserves paragraph breaks (double newlines)
 
-        Raises:
-            ValueError: if the PDF is encrypted, corrupted, or yields no text.
-            RuntimeError: if PyMuPDF raises an unexpected error.
-        """
+            Raises:
+                ValueError: if the PDF is encrypted, corrupted, or yields no text.
+                RuntimeError: if PyMuPDF raises an unexpected error.
+                """
         try:
             import fitz  # PyMuPDF — installed as 'pymupdf', imported as 'fitz'
         except ImportError as exc:
@@ -287,23 +305,33 @@ class ResumeService:
             doc = fitz.open(stream=io.BytesIO(content), filetype="pdf")
         except Exception as exc:
             logger.warning(
-                "ResumeService: PyMuPDF failed to open '%s': %s", filename, exc
-            )
+                    "ResumeService: PyMuPDF failed to open '%s': %s", filename, exc
+                )
             raise ValueError(
-                f"Could not open '{filename}' as a PDF. "
-                "The file may be corrupted or not a valid PDF."
-            ) from exc
+            f"Could not open '{filename}' as a PDF. "
+            "The file may be corrupted or not a valid PDF."
+        ) from exc
 
         # Reject encrypted PDFs that require a password
         if doc.is_encrypted:
             doc.close()
             raise ValueError(
-                f"PDF '{filename}' is password-protected. "
-                "Please upload an unencrypted PDF."
-            )
+              f"PDF '{filename}' is password-protected. "
+              "Please upload an unencrypted PDF."
+          )
 
         page_count = len(doc)
         logger.debug("ResumeService: PDF '%s' has %d pages", filename, page_count)
+
+        # Reject resumes that are unrealistically long. Checked here — after
+        # the PDF opens successfully — and before the per-page text loop, so
+        # an oversized document doesn't pay the extraction cost for nothing.
+        if page_count > MAX_RESUME_PAGES:
+            doc.close()
+            raise ValueError(
+        f"Resume exceeds maximum allowed length ({MAX_RESUME_PAGES} pages). "
+        "Please upload a shorter resume."
+    )
 
         page_texts: list[str] = []
 
@@ -315,7 +343,7 @@ class ResumeService:
                 if page_text.strip():
                     page_texts.append(page_text)
             except Exception as exc:
-                # A single bad page should not abort the whole extraction
+        # A single bad page should not abort the whole extraction
                 logger.warning(
                     "ResumeService: failed to extract page %d from '%s': %s",
                     page_num + 1,
@@ -327,18 +355,17 @@ class ResumeService:
 
         if not page_texts:
             raise ValueError(
-                f"No text could be extracted from '{filename}'. "
-                "The PDF may contain only images or be empty. "
-                "Please upload a text-based PDF resume."
-            )
+        f"This PDF ('{filename}') appears to contain only scanned images "
+        "and no selectable text. Please upload a text-based PDF resume."
+    )
 
         raw_text = self._normalise_text("\n\n".join(page_texts))
 
         if len(raw_text) < MIN_TEXT_LENGTH:
             raise ValueError(
-                f"Extracted text from '{filename}' is too short ({len(raw_text)} chars). "
-                "The PDF appears to contain minimal text content."
-            )
+        f"Extracted text from '{filename}' is too short ({len(raw_text)} chars). "
+        "The PDF appears to contain minimal text content."
+    )
 
         logger.debug(
             "ResumeService: extracted %d chars from %d/%d pages of '%s'",
@@ -347,6 +374,10 @@ class ResumeService:
             page_count,
             filename,
         )
+
+        # Lightweight, non-blocking quality check (Optional Improvement #3).
+        # Never rejects the upload — logging only.
+        self._check_resume_sections(raw_text, filename)
 
         return _ExtractionResult(
             raw_text=raw_text,
@@ -360,11 +391,11 @@ class ResumeService:
         Normalise extracted PDF text.
 
         Steps:
-          1. Collapse horizontal whitespace (spaces/tabs) within lines
-          2. Remove trailing whitespace from each line
-          3. Collapse 3+ consecutive newlines into 2 (preserve paragraph breaks)
-          4. Strip leading/trailing whitespace from the full document
-        """
+            1. Collapse horizontal whitespace (spaces/tabs) within lines
+            2. Remove trailing whitespace from each line
+            3. Collapse 3+ consecutive newlines into 2 (preserve paragraph breaks)
+            4. Strip leading/trailing whitespace from the full document
+            """
         # Collapse horizontal whitespace within lines
         text = re.sub(r"[ \t]+", " ", text)
         # Remove trailing whitespace from each line
@@ -373,7 +404,26 @@ class ResumeService:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    # ── Private: persistence ───────────────────────────────────────────────
+    @staticmethod
+    def _check_resume_sections(raw_text: str, filename: str) -> None:
+        """
+        Lightweight, non-blocking check for common resume section headers.
+
+        Substring match against RESUME_SECTION_KEYWORDS, case-insensitive.
+        Never raises — a document with unusual formatting or headers that
+        don't match the list can still be a legitimate resume. This is a
+        logging signal only, not a validation gate.
+        """
+        lowered = raw_text.lower()
+        if not any(keyword in lowered for keyword in RESUME_SECTION_KEYWORDS):
+            logger.warning(
+                "ResumeService: uploaded document '%s' does not appear to "
+                "contain common resume sections (experience/education/skills/"
+                "projects/certifications)",
+                filename,
+            )
+
+            # ── Private: persistence ───────────────────────────────────────────────
 
     def _persist(self, *, filename: str, raw_text: str, skills: list) -> Resume:
         """
@@ -434,7 +484,7 @@ class ResumeService:
                 exc,
                 exc_info=True,
             )
-            return []
+        return []
 
     def _query_latest(self) -> Resume | None:
         """
