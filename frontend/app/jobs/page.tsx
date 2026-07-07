@@ -5,8 +5,8 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { JobList } from "@/components/jobs/JobList";
 import { Button } from "@/components/ui/Button";
-import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { JobCardSkeleton } from "@/components/ui/Skeleton";
 import { ToastContainer, useToast } from "@/components/ui/Toast";
 import { getJobs, getResume, ApiClientError } from "@/lib/api";
 import type {
@@ -264,7 +264,11 @@ export default function JobsPage() {
 
       {/* ── Content ──────────────────────────────────────────────────── */}
       {loading ? (
-        <LoadingSpinner label="Fetching jobs…" />
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <JobCardSkeleton key={i} />
+          ))}
+        </div>
       ) : error ? (
         <ErrorState message={error} />
       ) : (

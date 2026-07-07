@@ -129,7 +129,7 @@ export default function LandingPage() {
         <div>
           <Badge color="indigo">AI-Powered Job Search</Badge>
           <h1
-            className="mt-4"
+            className="mt-4 fade-up fade-up-1"
             style={{
               fontSize: "2.5rem",
               lineHeight: 1.15,
@@ -141,7 +141,7 @@ export default function LandingPage() {
             Find Better Internships Faster With AI
           </h1>
           <p
-            className="mt-4 max-w-lg"
+            className="mt-4 max-w-lg fade-up fade-up-2"
             style={{
               fontSize: "1.05rem",
               color: "var(--color-subtle)",
@@ -151,7 +151,7 @@ export default function LandingPage() {
             Upload your resume, discover opportunities from multiple sources,
             and instantly see which jobs match your skills.
           </p>
-          <div className="flex flex-wrap items-center gap-3 mt-7">
+          <div className="flex flex-wrap items-center gap-3 mt-7 fade-up fade-up-3">
             <Link href="/dashboard">
               <Button size="lg">Get Started</Button>
             </Link>
@@ -164,7 +164,7 @@ export default function LandingPage() {
         </div>
 
         {/* Hero visual — CSS-only mockup, no stock imagery */}
-        <div className="relative">
+        <div className="relative fade-up fade-up-2">
           <div
             aria-hidden
             className="absolute -inset-8 rounded-full"
@@ -255,8 +255,13 @@ export default function LandingPage() {
           How It Works
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-8">
-          {STEPS.map((step) => (
-            <Card key={step.n} padding="lg" className="relative">
+          {STEPS.map((step, i) => (
+            <Card
+              key={step.n}
+              padding="lg"
+              hoverable
+              className={`relative fade-up fade-up-${i + 1}`}
+            >
               <span
                 className="absolute top-4 right-4"
                 style={{
@@ -303,7 +308,7 @@ export default function LandingPage() {
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-8">
           {FEATURES.map((f) => (
-            <Card key={f.title} padding="lg">
+            <Card key={f.title} padding="lg" hoverable>
               <div style={{ fontSize: "1.4rem" }}>{f.icon}</div>
               <h3
                 className="mt-3"
@@ -345,7 +350,7 @@ export default function LandingPage() {
           One dashboard for match scores, top jobs, and search statistics.
         </p>
 
-        <Card padding="lg" className="mt-8">
+        <Card padding="lg" className="mt-8 fade-up">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
             <PreviewStat label="Total Jobs" value="164" icon="💼" />
             <PreviewStat
@@ -361,7 +366,7 @@ export default function LandingPage() {
             {PREVIEW_JOBS.map((job) => (
               <div
                 key={job.company}
-                className="flex items-center justify-between gap-3 p-3 rounded-lg"
+                className="flex items-center justify-between gap-3 p-3 rounded-lg card-hover"
                 style={{
                   background: "var(--color-bg)",
                   border: "1px solid var(--color-border)",
@@ -467,7 +472,7 @@ export default function LandingPage() {
 
       {/* ── 8. Final CTA ─────────────────────────────────────────────── */}
       <section>
-        <Card padding="lg" className="text-center py-10">
+        <Card padding="lg" className="text-center py-10 fade-up">
           <h2
             style={{
               fontSize: "1.75rem",

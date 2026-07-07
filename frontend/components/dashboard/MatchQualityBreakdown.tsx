@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/Card";
+import { MatchQualityTierSkeleton } from "@/components/ui/Skeleton";
 import type { MatchQualityBreakdown as MatchQualityBreakdownType } from "@/lib/types";
 
 interface MatchQualityBreakdownProps {
@@ -85,33 +86,35 @@ export function MatchQualityBreakdown({
         Match Quality
       </h2>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {TIERS.map((tier) => (
-          <div key={tier.key} className="text-center">
-            <p
-              style={{
-                fontSize: "1.4rem",
-                fontWeight: 700,
-                color: tier.color,
-                lineHeight: 1.2,
-              }}
-            >
-              {loading ? "…" : breakdown ? breakdown[tier.key] : "—"}
-            </p>
-            <p
-              style={{
-                fontSize: "0.75rem",
-                fontWeight: 600,
-                color: "var(--color-text)",
-                marginTop: "0.15rem",
-              }}
-            >
-              {tier.label}
-            </p>
-            <p style={{ fontSize: "0.7rem", color: "var(--color-subtle)" }}>
-              {tier.range}
-            </p>
-          </div>
-        ))}
+        {loading
+          ? TIERS.map((tier) => <MatchQualityTierSkeleton key={tier.key} />)
+          : TIERS.map((tier) => (
+              <div key={tier.key} className="text-center">
+                <p
+                  style={{
+                    fontSize: "1.4rem",
+                    fontWeight: 700,
+                    color: tier.color,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {breakdown ? breakdown[tier.key] : "—"}
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    color: "var(--color-text)",
+                    marginTop: "0.15rem",
+                  }}
+                >
+                  {tier.label}
+                </p>
+                <p style={{ fontSize: "0.7rem", color: "var(--color-subtle)" }}>
+                  {tier.range}
+                </p>
+              </div>
+            ))}
       </div>
     </Card>
   );

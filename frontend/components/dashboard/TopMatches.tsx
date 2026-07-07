@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { ScoreBadge } from "@/components/jobs/ScoreBadge";
 import { StatusBadge } from "@/components/jobs/StatusBadge";
 import { RecommendationBadge } from "@/components/jobs/RecommendationBadge";
+import { TopMatchRowSkeleton } from "@/components/ui/Skeleton";
 import type { TopMatchItem } from "@/lib/types";
 
 interface TopMatchesProps {
@@ -47,12 +48,13 @@ export function TopMatches({ matches, loading, hasResume }: TopMatchesProps) {
       </div>
 
       {loading ? (
-        <div
-          className="px-5 py-8 text-center"
-          style={{ color: "var(--color-subtle)" }}
-        >
-          Loading…
-        </div>
+        <ul>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <li key={i}>
+              <TopMatchRowSkeleton />
+            </li>
+          ))}
+        </ul>
       ) : !hasResume ? (
         <EmptyState
           icon="📄"

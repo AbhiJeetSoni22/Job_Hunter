@@ -2,20 +2,27 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
 import { ResumeInfoCard } from "@/components/resume/ResumeInfoCard";
 import { ResumeUploader } from "@/components/resume/ResumeUploader";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { ToastContainer, useToast } from "@/components/ui/Toast";
-import { getResume, uploadResume, deleteResume, ApiClientError } from "@/lib/api";
+import { Skeleton } from "@/components/ui/Skeleton";
+import {
+  getResume,
+  uploadResume,
+  deleteResume,
+  ApiClientError,
+} from "@/lib/api";
 import type { Resume } from "@/lib/types";
 
 // ── Hook — resume state ────────────────────────────────────────────────────────
 
 function useResume(initial: Resume | null) {
-  const [resume, setResume]       = useState<Resume | null>(initial);
+  const [resume, setResume] = useState<Resume | null>(initial);
   const [uploading, setUploading] = useState(false);
-  const [deleting, setDeleting]   = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   return { resume, setResume, uploading, setUploading, deleting, setDeleting };
 }
@@ -27,9 +34,10 @@ export default function ResumePage() {
 
   // Fetch resume once on mount
   const [initialised, setInitialised] = useState(false);
-  const [fetchError,  setFetchError]  = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const { resume, setResume, uploading, setUploading, deleting, setDeleting } = useResume(null);
+  const { resume, setResume, uploading, setUploading, deleting, setDeleting } =
+    useResume(null);
 
   // Load on mount via useEffect to keep this a pure client component
   // (avoids server/client hydration mismatch from async initial data)
@@ -42,7 +50,9 @@ export default function ResumePage() {
       setResume(r);
       setFetchError(null);
     } catch (err) {
-      setFetchError(err instanceof ApiClientError ? err.message : "Failed to load resume.");
+      setFetchError(
+        err instanceof ApiClientError ? err.message : "Failed to load resume.",
+      );
     } finally {
       setLoading(false);
       setInitialised(true);
@@ -50,7 +60,9 @@ export default function ResumePage() {
   }, [setResume]);
 
   // Run once on mount
-  useEffect(() => { loadResume(); }, [loadResume]);
+  useEffect(() => {
+    loadResume();
+  }, [loadResume]);
 
   // ── Upload ───────────────────────────────────────────────────────────────────
 
@@ -60,9 +72,15 @@ export default function ResumePage() {
     try {
       const result = await uploadResume(file);
       setResume(result);
-      addToast(`Uploaded "${result.filename}" — ${result.skills.length} skill${result.skills.length !== 1 ? "s" : ""} detected.`, "success");
+      addToast(
+        `Uploaded "${result.filename}" — ${result.skills.length} skill${result.skills.length !== 1 ? "s" : ""} detected.`,
+        "success",
+      );
     } catch (err) {
-      addToast(err instanceof ApiClientError ? err.message : "Upload failed.", "error");
+      addToast(
+        err instanceof ApiClientError ? err.message : "Upload failed.",
+        "error",
+      );
     } finally {
       setUploading(false);
     }
@@ -78,7 +96,10 @@ export default function ResumePage() {
       setResume(null);
       addToast("Resume deleted.", "success");
     } catch (err) {
-      addToast(err instanceof ApiClientError ? err.message : "Delete failed.", "error");
+      addToast(
+        err instanceof ApiClientError ? err.message : "Delete failed.",
+        "error",
+      );
     } finally {
       setDeleting(false);
     }
@@ -94,11 +115,34 @@ export default function ResumePage() {
       />
 
       {loading && !initialised ? (
-        <div style={{ color: "var(--color-muted)", fontSize: "0.875rem", padding: "2rem 0" }}>
-          Loading…
-        </div>
+        <Card padding="md">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <Skeleton width="55%" height="1rem" />
+              <div className="mt-2">
+                <Skeleton width="40%" height="0.75rem" />
+              </div>
+            </div>
+            <Skeleton width="2rem" height="2rem" rounded="0.375rem" />
+          </div>
+          <div className="mt-4">
+            <Skeleton width="35%" height="0.7rem" />
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              <Skeleton width="4rem" height="1.5rem" rounded="0.375rem" />
+              <Skeleton width="3.5rem" height="1.5rem" rounded="0.375rem" />
+              <Skeleton width="5rem" height="1.5rem" rounded="0.375rem" />
+              <Skeleton width="3rem" height="1.5rem" rounded="0.375rem" />
+            </div>
+          </div>
+        </Card>
       ) : fetchError ? (
-        <div style={{ color: "var(--color-red)", fontSize: "0.875rem", padding: "1rem 0" }}>
+        <div
+          style={{
+            color: "var(--color-red)",
+            fontSize: "0.875rem",
+            padding: "1rem 0",
+          }}
+        >
           {fetchError}
         </div>
       ) : resume ? (
@@ -119,10 +163,16 @@ export default function ResumePage() {
             </span>
           </div>
           <div className="mt-6">
-            <p className="text-xs mb-3 uppercase tracking-wide" style={{ color: "var(--color-muted)" }}>
+            <p
+              className="text-xs mb-3 uppercase tracking-wide"
+              style={{ color: "var(--color-muted)" }}
+            >
               Replace resume
             </p>
-            <ResumeUploader onFileSelected={handleFileSelected} loading={uploading} />
+            <ResumeUploader
+              onFileSelected={handleFileSelected}
+              loading={uploading}
+            />
           </div>
         </>
       ) : (
@@ -133,7 +183,10 @@ export default function ResumePage() {
             description="Upload a PDF resume to start scoring jobs against your skills."
           />
           <div className="mt-4">
-            <ResumeUploader onFileSelected={handleFileSelected} loading={uploading} />
+            <ResumeUploader
+              onFileSelected={handleFileSelected}
+              loading={uploading}
+            />
           </div>
         </>
       )}

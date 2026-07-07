@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { ToastContainer, useToast } from "@/components/ui/Toast";
 import { TopMatches } from "@/components/dashboard/TopMatches";
 import { MatchQualityBreakdown } from "@/components/dashboard/MatchQualityBreakdown";
+import { StatCardSkeleton } from "@/components/ui/Skeleton";
 import {
   getJobs,
   getResume,
@@ -161,125 +162,119 @@ export default function DashboardPage() {
 
       {/* ── Stat cards ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Total Jobs"
-          value={
-            loading
-              ? "…"
-              : stats.totalJobs !== null
-                ? String(stats.totalJobs)
-                : "—"
-          }
-          icon="💼"
-          href="/jobs"
-        />
-        <StatCard
-          label="Resume"
-          value={
-            loading
-              ? "…"
-              : stats.hasResume === null
-                ? "—"
-                : stats.hasResume
-                  ? "Uploaded"
-                  : "None"
-          }
-          icon="📄"
-          href="/resume"
-          valueColor={
-            stats.hasResume ? "var(--color-green)" : "var(--color-amber)"
-          }
-        />
-        <StatCard
-          label="Last Sync"
-          value={
-            loading
-              ? "…"
-              : stats.lastSync
-                ? formatRelative(stats.lastSync)
-                : "Never"
-          }
-          icon="🔄"
-        />
-        <StatCard
-          label="Top Match"
-          value={
-            loading
-              ? "…"
-              : !stats.hasResume
-                ? "—"
-                : stats.topScore !== null
-                  ? `${stats.topScore}%`
-                  : "—"
-          }
-          icon="⭐"
-          href={
-            !loading && !stats.hasResume
-              ? "/resume"
-              : stats.topJobId
-                ? `/jobs/${stats.topJobId}`
-                : undefined
-          }
-          valueColor="var(--color-green)"
-          sub={
-            !loading && !stats.hasResume
-              ? "Upload Resume"
-              : (stats.topCompany ?? undefined)
-          }
-        />
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard
+              label="Total Jobs"
+              value={stats.totalJobs !== null ? String(stats.totalJobs) : "—"}
+              icon="💼"
+              href="/jobs"
+            />
+            <StatCard
+              label="Resume"
+              value={
+                stats.hasResume === null
+                  ? "—"
+                  : stats.hasResume
+                    ? "Uploaded"
+                    : "None"
+              }
+              icon="📄"
+              href="/resume"
+              valueColor={
+                stats.hasResume ? "var(--color-green)" : "var(--color-amber)"
+              }
+            />
+            <StatCard
+              label="Last Sync"
+              value={stats.lastSync ? formatRelative(stats.lastSync) : "Never"}
+              icon="🔄"
+            />
+            <StatCard
+              label="Top Match"
+              value={
+                !stats.hasResume
+                  ? "—"
+                  : stats.topScore !== null
+                    ? `${stats.topScore}%`
+                    : "—"
+              }
+              icon="⭐"
+              href={
+                !stats.hasResume
+                  ? "/resume"
+                  : stats.topJobId
+                    ? `/jobs/${stats.topJobId}`
+                    : undefined
+              }
+              valueColor="var(--color-green)"
+              sub={
+                !stats.hasResume
+                  ? "Upload Resume"
+                  : (stats.topCompany ?? undefined)
+              }
+            />
+          </>
+        )}
       </div>
 
       {/* ── Recommendation metrics (Phase 5) ────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Previously Scored Jobs"
-          value={
-            loading ? "…" : dashStats ? String(dashStats.scored_jobs) : "—"
-          }
-          icon="🧮"
-        />
-        <StatCard
-          label="Average Match"
-          value={
-            loading
-              ? "…"
-              : !stats.hasResume
-                ? "—"
-                : dashStats?.average_match_score != null
-                  ? `${dashStats.average_match_score}%`
-                  : "—"
-          }
-          icon="📊"
-          href={!loading && !stats.hasResume ? "/resume" : undefined}
-          sub={!loading && !stats.hasResume ? "Upload Resume" : undefined}
-        />
-        <StatCard
-          label="Best Match Score"
-          value={
-            loading
-              ? "…"
-              : !stats.hasResume
-                ? "—"
-                : dashStats?.best_match_score != null
-                  ? `${dashStats.best_match_score}%`
-                  : "—"
-          }
-          icon="🏆"
-          valueColor="var(--color-green)"
-          href={!loading && !stats.hasResume ? "/resume" : undefined}
-          sub={!loading && !stats.hasResume ? "Upload Resume" : undefined}
-        />
-        <StatCard
-          label="Applications Submitted"
-          value={
-            loading
-              ? "…"
-              : dashStats
-                ? String(dashStats.applications_submitted)
-                : "—"
-          }
-          icon="📨"
-        />
+        {loading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatCard
+              label="Previously Scored Jobs"
+              value={dashStats ? String(dashStats.scored_jobs) : "—"}
+              icon="🧮"
+            />
+            <StatCard
+              label="Average Match"
+              value={
+                !stats.hasResume
+                  ? "—"
+                  : dashStats?.average_match_score != null
+                    ? `${dashStats.average_match_score}%`
+                    : "—"
+              }
+              icon="📊"
+              href={!stats.hasResume ? "/resume" : undefined}
+              sub={!stats.hasResume ? "Upload Resume" : undefined}
+            />
+            <StatCard
+              label="Best Match Score"
+              value={
+                !stats.hasResume
+                  ? "—"
+                  : dashStats?.best_match_score != null
+                    ? `${dashStats.best_match_score}%`
+                    : "—"
+              }
+              icon="🏆"
+              valueColor="var(--color-green)"
+              href={!stats.hasResume ? "/resume" : undefined}
+              sub={!stats.hasResume ? "Upload Resume" : undefined}
+            />
+            <StatCard
+              label="Applications Submitted"
+              value={dashStats ? String(dashStats.applications_submitted) : "—"}
+              icon="📨"
+            />
+          </>
+        )}
       </div>
 
       {/* ── Top Matches + Match Quality (Phase 5) ───────────────────── */}
@@ -345,7 +340,7 @@ function StatCard({
   sub?: string;
 }) {
   const inner = (
-    <Card padding="md" className="h-full">
+    <Card padding="md" hoverable={!!href} className="h-full">
       <div className="flex items-start justify-between">
         <div>
           <p
@@ -411,7 +406,8 @@ function QuickAction({
     <Link href={href}>
       <Card
         padding="md"
-        className="flex items-center gap-3 hover:opacity-90 transition-opacity cursor-pointer"
+        hoverable
+        className="flex items-center gap-3 cursor-pointer"
       >
         <span style={{ fontSize: "1.5rem" }}>{icon}</span>
         <div>

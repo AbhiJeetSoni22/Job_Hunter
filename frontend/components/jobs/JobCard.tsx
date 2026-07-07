@@ -39,7 +39,7 @@ export function JobCard({
     <Link href={`/jobs/${job.id}`} className="block group">
       <Card
         padding="md"
-        className="transition-colors"
+        hoverable
         style={{
           borderColor: "var(--color-border)",
         }}
