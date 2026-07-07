@@ -71,7 +71,51 @@ RESUME_SECTION_KEYWORDS: tuple[str, ...] = (
     "certifications",
 )
 
+# ── Document classification heuristic ───────────────────────────────────
+# Lightweight, keyword-only scoring to catch obviously non-resume PDFs
+# (presentations, research papers, reports, meeting notes) that would
+# otherwise slip past the section-keyword check above (which only warns).
+# No AI, no NLP libraries — pure substring matching, same pattern as
+# RESUME_SECTION_KEYWORDS.
 
+POSITIVE_RESUME_KEYWORDS: tuple[str, ...] = (
+    "experience",
+    "work experience",
+    "education",
+    "skills",
+    "projects",
+    "certifications",
+    "internship",
+    "employment",
+    "achievements",
+    "linkedin",
+    "github",
+    "technical skills",
+    "professional summary",
+)
+
+NEGATIVE_NONRESUME_KEYWORDS: tuple[str, ...] = (
+    "slide",
+    "presentation",
+    "agenda",
+    "problem statement",
+    "architecture",
+    "demo",
+    "expected outcome",
+    "thank you",
+    "chapter",
+    "introduction",
+    "conclusion",
+    "research methodology",
+    "literature review",
+)
+
+# A real resume almost always hits several positive keywords. Only reject
+# when positive signal is weak AND negative signal is strong at the same
+# time — this keeps normal resumes (which may casually mention a word like
+# "architecture" once) safely on the accepted side.
+MIN_POSITIVE_SIGNALS: int = 2
+MAX_NEGATIVE_SIGNALS: int = 3
 # ── Internal extraction result ─────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -119,18 +163,18 @@ class ResumeService:
         # ── Step 1: validate ───────────────────────────────────────────────
         filename = self._validate_file(file)
 
-                    # ── Step 2: read bytes ─────────────────────────────────────────────
+        # ── Step 2: read bytes ─────────────────────────────────────────────
         content = await file.read()
         self._validate_size(content, filename)
 
-                    # ── Step 3: extract text ───────────────────────────────────────────
+        # ── Step 3: extract text ───────────────────────────────────────────
         extraction = self._extract_text(content, filename)
         logger.info(
-                        "ResumeService.upload_resume: extracted %d chars from %d pages — '%s'",
-                        extraction.char_count,
-                        extraction.page_count,
-                        filename,
-                    )
+            "ResumeService.upload_resume: extracted %d chars from %d pages — '%s'",
+            extraction.char_count,
+            extraction.page_count,
+            filename,
+        )
 
         # ── Step 4: extract skills via Gemini (graceful degradation) ────────
         skills = self._extract_skills_safe(extraction.raw_text)
@@ -140,7 +184,7 @@ class ResumeService:
             filename=filename,
             raw_text=extraction.raw_text,
             skills=skills,
-            )
+        )
         logger.info(
             "ResumeService.upload_resume: saved resume id=%s filename='%s'",
             resume.id,
@@ -148,13 +192,13 @@ class ResumeService:
         )
 
         return ResumeUploadResponse(
-    id=resume.id,
-    filename=resume.filename,
-    skills=resume.skills,
-    uploaded_at=resume.uploaded_at,
-    page_count=extraction.page_count,
-    char_count=extraction.char_count,
-)
+        id=resume.id,
+        filename=resume.filename,
+        skills=resume.skills,
+        uploaded_at=resume.uploaded_at,
+        page_count=extraction.page_count,
+        char_count=extraction.char_count,
+        )
 
     def delete_latest(self) -> bool:
         """
@@ -375,6 +419,11 @@ class ResumeService:
             filename,
         )
 
+
+        # Blocking check: reject obviously non-resume documents (slides,
+        # papers, reports) before the non-blocking section-quality check.
+        self._classify_as_resume(raw_text, filename)
+
         # Lightweight, non-blocking quality check (Optional Improvement #3).
         # Never rejects the upload — logging only.
         self._check_resume_sections(raw_text, filename)
@@ -403,6 +452,46 @@ class ResumeService:
         # Collapse excessive blank lines (3+ newlines → 2)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
+    
+
+    @staticmethod
+    def _classify_as_resume(raw_text: str, filename: str) -> None:
+        """
+        Lightweight keyword-scoring heuristic to block obviously
+        non-resume PDFs (slide decks, research papers, reports, meeting
+        notes) that would otherwise pass every other check.
+
+        Rule: reject only when positive resume signal is weak
+        (< MIN_POSITIVE_SIGNALS) AND non-resume signal is strong
+        (>= MAX_NEGATIVE_SIGNALS) at the same time. A normal resume with
+        several real sections will always clear MIN_POSITIVE_SIGNALS, so
+        this does not affect legitimate resumes/CVs.
+
+        Raises:
+            ValueError: if the document scores as non-resume.
+            """
+        lowered = raw_text.lower()
+        positive_hits = [kw for kw in POSITIVE_RESUME_KEYWORDS if kw in lowered]
+        negative_hits = [kw for kw in NEGATIVE_NONRESUME_KEYWORDS if kw in lowered]
+
+        if (
+            len(positive_hits) < MIN_POSITIVE_SIGNALS
+            and len(negative_hits) >= MAX_NEGATIVE_SIGNALS
+        ):
+            logger.warning(
+                "ResumeService: rejecting '%s' as non-resume — "
+                "positive=%d %s, negative=%d %s",
+                filename,
+                len(positive_hits),
+                positive_hits,
+                len(negative_hits),
+                negative_hits,
+            )
+            raise ValueError(
+        "The uploaded PDF does not appear to be a resume or CV. "
+        "Please upload a professional resume."
+        )
+
 
     @staticmethod
     def _check_resume_sections(raw_text: str, filename: str) -> None:
