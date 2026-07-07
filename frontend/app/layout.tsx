@@ -7,21 +7,16 @@ export const metadata: Metadata = {
     default: "AI Internship Hunter",
     template: "%s | AI Internship Hunter",
   },
-  description:
-    "Find and score software engineering internships with AI",
+  description: "Find and score software engineering internships with AI",
 };
 
 const NAV_LINKS = [
-  { href: "/",       label: "Dashboard" },
-  { href: "/jobs",   label: "Jobs"      },
-  { href: "/resume", label: "Resume"    },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/jobs", label: "Jobs" },
+  { href: "/resume", label: "Resume" },
 ];
 
-export default function RootLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body>

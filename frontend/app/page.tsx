@@ -1,440 +1,586 @@
-"use client";
-
-import { useState, useEffect, useCallback } from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
-import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { ToastContainer, useToast } from "@/components/ui/Toast";
-import { TopMatches } from "@/components/dashboard/TopMatches";
-import { MatchQualityBreakdown } from "@/components/dashboard/MatchQualityBreakdown";
-import {
-  getJobs,
-  getResume,
-  getScraperStatus,
-  getDashboardStats,
-  runScraper,
-  ApiClientError,
-} from "@/lib/api";
-import type { ScraperRun, DashboardStats } from "@/lib/types";
+import { Badge } from "@/components/ui/Badge";
+import { StatusBadge } from "@/components/jobs/StatusBadge";
+import { ScoreBadge } from "@/components/jobs/ScoreBadge";
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+export const metadata: Metadata = {
+  title: { absolute: "Internship Hunter – AI-Powered Internship Discovery" },
+  description:
+    "Upload your resume, discover opportunities, and find the best internships with AI-powered matching.",
+};
 
-interface DashStats {
-  totalJobs: number | null;
-  hasResume: boolean | null;
-  lastSync: string | null;
-  topScore: number | null;
-  topCompany: string | null;
-  topJobId: string | null;
-}
+// ── Static content ───────────────────────────────────────────────────────────
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+const VALUE_BAR = [
+  { icon: "🤖", label: "AI-Powered Matching" },
+  { icon: "🌐", label: "Multi-Source Job Discovery" },
+  { icon: "📄", label: "Resume Skill Extraction" },
+  { icon: "📊", label: "Application Tracking" },
+];
 
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
+const STEPS = [
+  {
+    n: "1",
+    icon: "📎",
+    title: "Upload Resume",
+    desc: "Automatically extract skills and profile information with AI.",
+  },
+  {
+    n: "2",
+    icon: "🔄",
+    title: "Sync Jobs",
+    desc: "Aggregate internships and jobs from multiple sources in one place.",
+  },
+  {
+    n: "3",
+    icon: "⭐",
+    title: "Get AI Matches",
+    desc: "See personalized match scores and discover relevant opportunities.",
+  },
+];
 
-async function fetchStats(): Promise<DashStats> {
-  const [jobsResult, resumeResult, scraperResult] = await Promise.allSettled([
-    getJobs({ page: 1, page_size: 1 }),
-    getResume(),
-    getScraperStatus(),
-  ]);
+const FEATURES = [
+  {
+    icon: "🧠",
+    title: "AI Resume Analysis",
+    desc: "Extracts skills automatically from your resume — no manual tagging.",
+  },
+  {
+    icon: "🎯",
+    title: "Smart Job Matching",
+    desc: "Find opportunities relevant to your profile, ranked by fit.",
+  },
+  {
+    icon: "📋",
+    title: "Application Tracking",
+    desc: "Track Saved, Applied, Interview, Offer, and Rejected in one workflow.",
+  },
+  {
+    icon: "📈",
+    title: "Dashboard Analytics",
+    desc: "Monitor opportunities and match quality at a glance.",
+  },
+  {
+    icon: "🌐",
+    title: "Multi-Source Discovery",
+    desc: "Jobs collected and de-duplicated from multiple providers.",
+  },
+  {
+    icon: "✅",
+    title: "Resume Validation",
+    desc: "Prevents invalid uploads and improves matching quality.",
+  },
+];
 
-  const totalJobs =
-    jobsResult.status === "fulfilled" ? jobsResult.value.total : null;
-  const hasResume =
-    resumeResult.status === "fulfilled" ? resumeResult.value !== null : null;
-  const lastSync =
-    scraperResult.status === "fulfilled"
-      ? (scraperResult.value[0]?.completed_at ?? null)
-      : null;
+const BENEFITS = [
+  {
+    icon: "⏱️",
+    title: "Save Time",
+    desc: "No manual searching across a dozen job boards.",
+  },
+  {
+    icon: "🎯",
+    title: "Better Opportunities",
+    desc: "AI identifies roles that actually fit your skills.",
+  },
+  {
+    icon: "🗂️",
+    title: "Organized Workflow",
+    desc: "Track every application stage in one dashboard.",
+  },
+  {
+    icon: "🎓",
+    title: "Career Focused",
+    desc: "Built specifically for students and early-career freshers.",
+  },
+];
 
-  // Top-scored job
-  let topScore: number | null = null;
-  let topCompany: string | null = null;
-  let topJobId: string | null = null;
+const PREVIEW_JOBS = [
+  {
+    company: "Nimbus Labs",
+    role: "Frontend Intern",
+    score: 92,
+    status: "applied" as const,
+  },
+  {
+    company: "Vectra AI",
+    role: "ML Intern",
+    score: 87,
+    status: "saved" as const,
+  },
+  {
+    company: "Corelogic",
+    role: "SWE Intern",
+    score: 74,
+    status: "interview" as const,
+  },
+];
 
-  if (jobsResult.status === "fulfilled" && jobsResult.value.total > 0) {
-    try {
-      const scored = await getJobs({
-        sort_by: "match_score",
-        order: "desc",
-        page_size: 1,
-        scored: true,
-      });
-      const top = scored.jobs[0] ?? null;
-      if (top) {
-        topScore = top.match_score;
-        topCompany = top.company;
-        topJobId = top.id;
-      }
-    } catch {
-      /* no scored jobs — leave null */
-    }
-  }
+// ── Page ───────────────────────────────────────────────────────────────────
 
-  return { totalJobs, hasResume, lastSync, topScore, topCompany, topJobId };
-}
-
-// ── Page ───────────────────────────────────────────────────────────────────────
-
-export default function DashboardPage() {
-  const { toasts, addToast, dismiss } = useToast();
-  const [stats, setStats] = useState<DashStats>({
-    totalJobs: null,
-    hasResume: null,
-    lastSync: null,
-    topScore: null,
-    topCompany: null,
-    topJobId: null,
-  });
-  const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-
-  const loadStats = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [s, d] = await Promise.allSettled([
-        fetchStats(),
-        getDashboardStats(),
-      ]);
-      if (s.status === "fulfilled") setStats(s.value);
-      if (d.status === "fulfilled") setDashStats(d.value);
-    } catch {
-      // partial — already set nulls
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
-
-  async function handleSync() {
-    if (syncing) return;
-    setSyncing(true);
-    try {
-      const result = await runScraper();
-      const total = result.total_new;
-      const scored = result.total_scored;
-      const scoredNote = scored > 0 ? ` (${scored} auto-scored)` : "";
-      addToast(
-        `Sync complete — ${total} new job${total !== 1 ? "s" : ""} added.${scoredNote}`,
-        "success",
-      );
-      await loadStats();
-    } catch (err) {
-      const msg = err instanceof ApiClientError ? err.message : "Sync failed.";
-      addToast(msg, "error");
-    } finally {
-      setSyncing(false);
-    }
-  }
-
+export default function LandingPage() {
   return (
-    <div>
-      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
-        <PageHeader
-          title="Dashboard"
-          subtitle="Your internship search at a glance"
-        />
-        <Button
-          onClick={handleSync}
-          loading={syncing}
-          disabled={syncing}
-          size="md"
-          style={{ marginTop: "0.25rem", flexShrink: 0 }}
-        >
-          {syncing ? "Syncing…" : "🔄 Sync Jobs"}
-        </Button>
-      </div>
-
-      {/* ── Stat cards ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Total Jobs"
-          value={
-            loading
-              ? "…"
-              : stats.totalJobs !== null
-                ? String(stats.totalJobs)
-                : "—"
-          }
-          icon="💼"
-          href="/jobs"
-        />
-        <StatCard
-          label="Resume"
-          value={
-            loading
-              ? "…"
-              : stats.hasResume === null
-                ? "—"
-                : stats.hasResume
-                  ? "Uploaded"
-                  : "None"
-          }
-          icon="📄"
-          href="/resume"
-          valueColor={
-            stats.hasResume ? "var(--color-green)" : "var(--color-amber)"
-          }
-        />
-        <StatCard
-          label="Last Sync"
-          value={
-            loading
-              ? "…"
-              : stats.lastSync
-                ? formatRelative(stats.lastSync)
-                : "Never"
-          }
-          icon="🔄"
-        />
-        <StatCard
-          label="Top Match"
-          value={
-            loading
-              ? "…"
-              : !stats.hasResume
-                ? "—"
-                : stats.topScore !== null
-                  ? `${stats.topScore}%`
-                  : "—"
-          }
-          icon="⭐"
-          href={
-            !loading && !stats.hasResume
-              ? "/resume"
-              : stats.topJobId
-                ? `/jobs/${stats.topJobId}`
-                : undefined
-          }
-          valueColor="var(--color-green)"
-          sub={
-            !loading && !stats.hasResume
-              ? "Upload Resume"
-              : (stats.topCompany ?? undefined)
-          }
-        />
-      </div>
-
-      {/* ── Recommendation metrics (Phase 5) ────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Previously Scored Jobs"
-          value={
-            loading ? "…" : dashStats ? String(dashStats.scored_jobs) : "—"
-          }
-          icon="🧮"
-        />
-        <StatCard
-          label="Average Match"
-          value={
-            loading
-              ? "…"
-              : !stats.hasResume
-                ? "—"
-                : dashStats?.average_match_score != null
-                  ? `${dashStats.average_match_score}%`
-                  : "—"
-          }
-          icon="📊"
-          href={!loading && !stats.hasResume ? "/resume" : undefined}
-          sub={!loading && !stats.hasResume ? "Upload Resume" : undefined}
-        />
-        <StatCard
-          label="Best Match Score"
-          value={
-            loading
-              ? "…"
-              : !stats.hasResume
-                ? "—"
-                : dashStats?.best_match_score != null
-                  ? `${dashStats.best_match_score}%`
-                  : "—"
-          }
-          icon="🏆"
-          valueColor="var(--color-green)"
-          href={!loading && !stats.hasResume ? "/resume" : undefined}
-          sub={!loading && !stats.hasResume ? "Upload Resume" : undefined}
-        />
-        <StatCard
-          label="Applications Submitted"
-          value={
-            loading
-              ? "…"
-              : dashStats
-                ? String(dashStats.applications_submitted)
-                : "—"
-          }
-          icon="📨"
-        />
-      </div>
-
-      {/* ── Top Matches + Match Quality (Phase 5) ───────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
-        <div className="lg:col-span-2">
-          <TopMatches
-            matches={dashStats?.top_matches ?? []}
-            loading={loading}
-            hasResume={stats.hasResume ?? false}
-          />
+    <div className="flex flex-col gap-20 md:gap-28 pb-8">
+      {/* ── 1. Hero ──────────────────────────────────────────────────── */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center pt-4">
+        <div>
+          <Badge color="indigo">AI-Powered Job Search</Badge>
+          <h1
+            className="mt-4"
+            style={{
+              fontSize: "2.5rem",
+              lineHeight: 1.15,
+              fontWeight: 800,
+              color: "var(--color-text)",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            Find Better Internships Faster With AI
+          </h1>
+          <p
+            className="mt-4 max-w-lg"
+            style={{
+              fontSize: "1.05rem",
+              color: "var(--color-subtle)",
+              lineHeight: 1.6,
+            }}
+          >
+            Upload your resume, discover opportunities from multiple sources,
+            and instantly see which jobs match your skills.
+          </p>
+          <div className="flex flex-wrap items-center gap-3 mt-7">
+            <Link href="/dashboard">
+              <Button size="lg">Get Started</Button>
+            </Link>
+            <Link href="/jobs">
+              <Button size="lg" variant="secondary">
+                View Jobs
+              </Button>
+            </Link>
+          </div>
         </div>
-        <MatchQualityBreakdown
-          breakdown={dashStats?.quality_breakdown ?? null}
-          loading={loading}
-          hasResume={stats.hasResume ?? false}
-        />
-      </div>
 
-      {/* ── Quick actions ─────────────────────────────────────────── */}
-      <div className="mb-8">
+        {/* Hero visual — CSS-only mockup, no stock imagery */}
+        <div className="relative">
+          <div
+            aria-hidden
+            className="absolute -inset-8 rounded-full"
+            style={{
+              background:
+                "radial-gradient(circle at 30% 20%, rgba(99,102,241,0.25), transparent 60%)",
+              filter: "blur(10px)",
+            }}
+          />
+          <Card padding="lg" className="relative">
+            <p
+              className="text-xs uppercase tracking-wide mb-4"
+              style={{ color: "var(--color-muted)" }}
+            >
+              Match Score Preview
+            </p>
+            <div className="flex flex-col gap-3">
+              {PREVIEW_JOBS.map((job) => (
+                <div
+                  key={job.company}
+                  className="flex items-center justify-between gap-3 p-3 rounded-lg"
+                  style={{
+                    background: "var(--color-bg)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  <div>
+                    <p
+                      style={{
+                        fontWeight: 600,
+                        fontSize: "0.875rem",
+                        color: "var(--color-text)",
+                      }}
+                    >
+                      {job.role}
+                    </p>
+                    <p
+                      style={{
+                        fontSize: "0.78rem",
+                        color: "var(--color-subtle)",
+                      }}
+                    >
+                      {job.company}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <StatusBadge status={job.status} />
+                    <ScoreBadge score={job.score} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      {/* ── 2. Trust / value bar ─────────────────────────────────────── */}
+      <section>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {VALUE_BAR.map((item) => (
+            <Card key={item.label} padding="md" className="text-center">
+              <div style={{ fontSize: "1.4rem" }}>{item.icon}</div>
+              <p
+                className="mt-2"
+                style={{
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                  color: "var(--color-subtle)",
+                }}
+              >
+                {item.label}
+              </p>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      {/* ── 3. How it works ──────────────────────────────────────────── */}
+      <section>
         <h2
-          className="text-sm font-semibold uppercase tracking-wide mb-3"
-          style={{ color: "var(--color-muted)" }}
+          className="text-center"
+          style={{
+            fontSize: "1.75rem",
+            fontWeight: 700,
+            color: "var(--color-text)",
+          }}
         >
-          Quick actions
+          How It Works
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <QuickAction
-            href="/jobs"
-            icon="🔍"
-            label="Browse jobs"
-            desc="View all fetched internships"
-          />
-          <QuickAction
-            href="/resume"
-            icon="📎"
-            label="Upload resume"
-            desc="Enable AI match scoring"
-          />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-8">
+          {STEPS.map((step) => (
+            <Card key={step.n} padding="lg" className="relative">
+              <span
+                className="absolute top-4 right-4"
+                style={{
+                  fontSize: "1.75rem",
+                  fontWeight: 800,
+                  color: "var(--color-border)",
+                }}
+              >
+                {step.n}
+              </span>
+              <div style={{ fontSize: "1.5rem" }}>{step.icon}</div>
+              <h3
+                className="mt-3"
+                style={{
+                  fontSize: "1.05rem",
+                  fontWeight: 700,
+                  color: "var(--color-text)",
+                }}
+              >
+                {step.title}
+              </h3>
+              <p
+                className="mt-1.5"
+                style={{ fontSize: "0.875rem", color: "var(--color-subtle)" }}
+              >
+                {step.desc}
+              </p>
+            </Card>
+          ))}
         </div>
-      </div>
+      </section>
 
-      <ToastContainer toasts={toasts} onDismiss={dismiss} />
+      {/* ── 4. Features ──────────────────────────────────────────────── */}
+      <section>
+        <h2
+          className="text-center"
+          style={{
+            fontSize: "1.75rem",
+            fontWeight: 700,
+            color: "var(--color-text)",
+          }}
+        >
+          Everything You Need To Land An Internship
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-8">
+          {FEATURES.map((f) => (
+            <Card key={f.title} padding="lg">
+              <div style={{ fontSize: "1.4rem" }}>{f.icon}</div>
+              <h3
+                className="mt-3"
+                style={{
+                  fontSize: "1rem",
+                  fontWeight: 700,
+                  color: "var(--color-text)",
+                }}
+              >
+                {f.title}
+              </h3>
+              <p
+                className="mt-1.5"
+                style={{ fontSize: "0.85rem", color: "var(--color-subtle)" }}
+              >
+                {f.desc}
+              </p>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      {/* ── 5. Dashboard preview ─────────────────────────────────────── */}
+      <section>
+        <h2
+          className="text-center"
+          style={{
+            fontSize: "1.75rem",
+            fontWeight: 700,
+            color: "var(--color-text)",
+          }}
+        >
+          Your Job Search, At A Glance
+        </h2>
+        <p
+          className="text-center max-w-xl mx-auto mt-2"
+          style={{ color: "var(--color-subtle)", fontSize: "0.95rem" }}
+        >
+          One dashboard for match scores, top jobs, and search statistics.
+        </p>
+
+        <Card padding="lg" className="mt-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+            <PreviewStat label="Total Jobs" value="164" icon="💼" />
+            <PreviewStat
+              label="Top Match"
+              value="92%"
+              icon="⭐"
+              valueColor="var(--color-green)"
+            />
+            <PreviewStat label="Average Match" value="71%" icon="📊" />
+            <PreviewStat label="Applications" value="12" icon="📨" />
+          </div>
+          <div className="flex flex-col gap-2">
+            {PREVIEW_JOBS.map((job) => (
+              <div
+                key={job.company}
+                className="flex items-center justify-between gap-3 p-3 rounded-lg"
+                style={{
+                  background: "var(--color-bg)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                <div>
+                  <p
+                    style={{
+                      fontWeight: 600,
+                      fontSize: "0.875rem",
+                      color: "var(--color-text)",
+                    }}
+                  >
+                    {job.role} · {job.company}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={job.status} />
+                  <ScoreBadge score={job.score} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </section>
+
+      {/* ── 6. Benefits ──────────────────────────────────────────────── */}
+      <section>
+        <h2
+          className="text-center"
+          style={{
+            fontSize: "1.75rem",
+            fontWeight: 700,
+            color: "var(--color-text)",
+          }}
+        >
+          Why Internship Hunter?
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-8">
+          {BENEFITS.map((b) => (
+            <div key={b.title}>
+              <div style={{ fontSize: "1.4rem" }}>{b.icon}</div>
+              <h3
+                className="mt-2"
+                style={{
+                  fontSize: "0.95rem",
+                  fontWeight: 700,
+                  color: "var(--color-text)",
+                }}
+              >
+                {b.title}
+              </h3>
+              <p
+                className="mt-1"
+                style={{ fontSize: "0.83rem", color: "var(--color-subtle)" }}
+              >
+                {b.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── 7. Application tracking ──────────────────────────────────── */}
+      <section>
+        <h2
+          className="text-center"
+          style={{
+            fontSize: "1.75rem",
+            fontWeight: 700,
+            color: "var(--color-text)",
+          }}
+        >
+          Manage Every Application Stage
+        </h2>
+        <p
+          className="text-center max-w-xl mx-auto mt-2"
+          style={{ color: "var(--color-subtle)", fontSize: "0.95rem" }}
+        >
+          Move jobs through your pipeline with a single click — from first save
+          to final offer.
+        </p>
+
+        <Card padding="lg" className="mt-8">
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <StatusBadge status="saved" />
+            <Arrow />
+            <StatusBadge status="applied" />
+            <Arrow />
+            <StatusBadge status="interview" />
+            <Arrow />
+            <StatusBadge status="offer" />
+          </div>
+          <div className="flex items-center justify-center gap-3 mt-4">
+            <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>
+              or, at any stage after applying
+            </span>
+            <Arrow />
+            <StatusBadge status="rejected" />
+          </div>
+        </Card>
+      </section>
+
+      {/* ── 8. Final CTA ─────────────────────────────────────────────── */}
+      <section>
+        <Card padding="lg" className="text-center py-10">
+          <h2
+            style={{
+              fontSize: "1.75rem",
+              fontWeight: 700,
+              color: "var(--color-text)",
+            }}
+          >
+            Ready to Find Your Next Opportunity?
+          </h2>
+          <p
+            className="max-w-md mx-auto mt-2"
+            style={{ color: "var(--color-subtle)", fontSize: "0.95rem" }}
+          >
+            Start matching your skills with internships and jobs in minutes.
+          </p>
+          <div className="mt-6">
+            <Link href="/dashboard">
+              <Button size="lg">Get Started</Button>
+            </Link>
+          </div>
+        </Card>
+      </section>
+
+      {/* ── 9. In-page footer summary ────────────────────────────────── */}
+      <section
+        className="pt-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+        style={{ borderTop: "1px solid var(--color-border)" }}
+      >
+        <div>
+          <p style={{ fontWeight: 700, color: "var(--color-text)" }}>
+            Internship Hunter
+          </p>
+          <p
+            className="mt-1 max-w-sm"
+            style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}
+          >
+            AI-powered internship discovery and job matching platform.
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/dashboard"
+            style={{ fontSize: "0.85rem", color: "var(--color-subtle)" }}
+          >
+            Dashboard
+          </Link>
+          <Link
+            href="/jobs"
+            style={{ fontSize: "0.85rem", color: "var(--color-subtle)" }}
+          >
+            Jobs
+          </Link>
+          <Link
+            href="/resume"
+            style={{ fontSize: "0.85rem", color: "var(--color-subtle)" }}
+          >
+            Resume
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
+// ── Local presentational helpers ────────────────────────────────────────────
 
-function StatCard({
+function PreviewStat({
   label,
   value,
   icon,
-  href,
   valueColor,
-  sub,
 }: {
   label: string;
   value: string;
   icon: string;
-  href?: string;
   valueColor?: string;
-  sub?: string;
-}) {
-  const inner = (
-    <Card padding="md" className="h-full">
-      <div className="flex items-start justify-between">
-        <div>
-          <p
-            style={{
-              color: "var(--color-muted)",
-              fontSize: "0.72rem",
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              fontWeight: 600,
-            }}
-          >
-            {label}
-          </p>
-          <p
-            style={{
-              fontSize: "1.6rem",
-              fontWeight: 700,
-              color: valueColor ?? "var(--color-text)",
-              lineHeight: 1.2,
-              marginTop: "0.3rem",
-            }}
-          >
-            {value}
-          </p>
-          {sub && (
-            <p
-              style={{
-                color: "var(--color-subtle)",
-                fontSize: "0.75rem",
-                marginTop: "0.2rem",
-              }}
-            >
-              {sub}
-            </p>
-          )}
-        </div>
-        <span style={{ fontSize: "1.4rem", opacity: 0.7 }}>{icon}</span>
-      </div>
-    </Card>
-  );
-
-  if (href)
-    return (
-      <Link href={href} className="block hover:opacity-90 transition-opacity">
-        {inner}
-      </Link>
-    );
-  return inner;
-}
-
-function QuickAction({
-  href,
-  icon,
-  label,
-  desc,
-}: {
-  href: string;
-  icon: string;
-  label: string;
-  desc: string;
 }) {
   return (
-    <Link href={href}>
-      <Card
-        padding="md"
-        className="flex items-center gap-3 hover:opacity-90 transition-opacity cursor-pointer"
+    <div
+      className="p-3 rounded-lg"
+      style={{
+        background: "var(--color-bg)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <p
+        style={{
+          fontSize: "0.68rem",
+          color: "var(--color-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+        }}
       >
-        <span style={{ fontSize: "1.5rem" }}>{icon}</span>
-        <div>
-          <p
-            style={{
-              fontWeight: 600,
-              fontSize: "0.875rem",
-              color: "var(--color-text)",
-            }}
-          >
-            {label}
-          </p>
-          <p
-            style={{
-              fontSize: "0.775rem",
-              color: "var(--color-subtle)",
-              marginTop: "0.1rem",
-            }}
-          >
-            {desc}
-          </p>
-        </div>
-      </Card>
-    </Link>
+        {icon} {label}
+      </p>
+      <p
+        className="mt-1"
+        style={{
+          fontSize: "1.2rem",
+          fontWeight: 700,
+          color: valueColor ?? "var(--color-text)",
+        }}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function Arrow() {
+  return (
+    <span style={{ color: "var(--color-muted)", fontSize: "1rem" }} aria-hidden>
+      →
+    </span>
   );
 }
