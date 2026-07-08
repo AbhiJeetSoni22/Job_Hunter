@@ -144,6 +144,33 @@ Scraping:
 
 ---
 
+### 6. Resume Gap Analyzer
+
+*(Added as an isolated feature after MVP. Uses existing infrastructure (active resume fetch, Gemini client) but operates independently of job scoring and tracking.)*
+
+**What:** Analyze any job description (pasted by the user, not necessarily from the database) against the active resume and receive structured improvement feedback.
+
+**Behaviour:**
+- User navigates to `/resume-review` page.
+- Page checks for active resume on mount. If none exists, shows resume upload CTA.
+- User pastes any job description into a text area.
+- User clicks "Analyze" button.
+- Gemini analyzes the resume against the job description and returns:
+  - `match_score` (0–100)
+  - `summary` (1-2 sentences on overall fit)
+  - `missing_skills` (up to 5 skills required by job but not on resume)
+  - `strengths` (up to 5 skills/experience on resume matching the job)
+  - `suggestions` (up to 5 actionable resume improvements for this specific role)
+  - `ats_tips` (up to 5 ATS optimization tips for this job description)
+- Results display in real-time with a clean, structured UI.
+- Does not modify the active resume.
+- Does not create job records or affect job scores.
+- Does not persist analysis results (stateless per request).
+
+**Out of scope:** Bulk analysis, analysis history, resume editing suggestions, cover letter generation.
+
+---
+
 ## User Flows
 
 ### Flow 1 — First time setup

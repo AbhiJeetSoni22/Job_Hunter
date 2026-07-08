@@ -586,19 +586,108 @@ Same shape as `GET /api/resume`.
 
 ---
 
+# Resume Analysis (Resume Gap Analyzer)
+
+## POST /api/resume/analyze
+
+Analyzes the currently active uploaded resume against a pasted job description. Returns a match score, summary, missing skills, existing strengths, resume improvement suggestions, and ATS optimization tips.
+
+Does not upload a new resume and does not affect existing job match scores.
+
+### Request
+
+```json
+{
+  "job_description": "Full plain text of the job description..."
+}
+```
+
+### Response 200
+
+```json
+{
+  "data": {
+    "match_score": 78,
+    "summary": "Strong alignment on backend systems. Primary gaps are DevOps and Kubernetes experience.",
+    "missing_skills": [
+      "Kubernetes",
+      "Docker Compose",
+      "CI/CD Pipelines"
+    ],
+    "strengths": [
+      "FastAPI",
+      "PostgreSQL",
+      "REST APIs",
+      "Python"
+    ],
+    "suggestions": [
+      "Highlight any containerization experience in your projects section",
+      "Add keywords like 'infrastructure' and 'deployment' where relevant",
+      "Consider adding a DevOps project or learning experience"
+    ],
+    "ats_tips": [
+      "Use 'Kubernetes' not 'K8s' for ATS matching",
+      "Match exact titles from the job description (e.g., 'Backend Engineer')",
+      "Include both full names and abbreviations for technologies (e.g., 'PostgreSQL (Postgres)')"
+    ]
+  },
+  "error": null
+}
+```
+
+### Response 422 (No Resume)
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "NO_RESUME",
+    "message": "Upload a resume before running analysis."
+  }
+}
+```
+
+### Response 422 (Empty Job Description)
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "EMPTY_JOB_DESCRIPTION",
+    "message": "job_description must not be empty"
+  }
+}
+```
+
+### Response 502 (AI Error)
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "ANALYSIS_ERROR",
+    "message": "Resume analysis failed. Please try again."
+  }
+}
+```
+
+---
+
 # Error Codes
 
 | Code           | Status | Where it's raised                                    |
 | -------------- | ------ | ------------------------------------------------------ |
 | NOT_FOUND      | 404    | Job or job ID not found                                |
 | NO_RESUME      | 404    | `GET/DELETE /api/resume` when no resume is uploaded    |
-| NO_RESUME      | 422    | `POST /api/jobs/{id}/score` when no resume is uploaded — scoring is a write operation that requires a resume as input, so it's treated as a validation failure rather than a missing resource |
+| NO_RESUME      | 422    | `POST /api/jobs/{id}/score` or `POST /api/resume/analyze` when no resume is uploaded — scoring/analysis are write operations that require a resume as input, so it's treated as a validation failure rather than a missing resource |
 | INVALID_FILE   | 422    | Resume upload — not a PDF, or over 5 MB                |
 | INVALID_STATUS | 422    | `PATCH /api/jobs/{id}` with an invalid status value    |
 | INVALID_PARAM  | 422    | `GET /api/jobs` with an invalid `sort_by`/`order`      |
+| EMPTY_JOB_DESCRIPTION | 422 | `POST /api/resume/analyze` with empty job description |
 | VALIDATION_ERROR | 422  | Request body fails Pydantic validation                 |
 | EXTRACTION_ERROR | 500  | PyMuPDF or Gemini extraction failure during upload      |
 | AI_ERROR       | 502    | Gemini API call failed after all retries                |
+| ANALYSIS_ERROR | 502    | Resume analysis failed in `POST /api/resume/analyze` |
 | INTERNAL_ERROR | 500    | Unhandled exception (message never leaks internals)     |
 
 Note: `NO_RESUME` intentionally maps to two different status codes depending on context — this is not a bug. On the resume resource itself, "no resume" is a 404 (the resource doesn't exist). On the scoring endpoint, "no resume" is a 422 (the request can't be validated without one).

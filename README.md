@@ -50,12 +50,20 @@ Gemini (`gemini-2.5-flash`) does two jobs, both as structured JSON with a low te
 - PDF upload → PyMuPDF text extraction → Gemini skill extraction
 - 5 MB size limit, PDF-only validation
 - Single active resume; uploading a new one replaces the old one
+- Validation includes corrupted PDF detection, password-protected PDF detection, image-only PDF detection, page limit validation (3 pages max), and resume heuristics checking
 
 ### AI Job Scoring
 - Match score (0–100), missing skills (up to 5), two-sentence summary
 - Automatic scoring of newly synced jobs right after a sync completes (skipped cleanly if no resume is uploaded)
 - Results cached on the job record; re-scoring only happens if the resume changed since the last score
 - "Needs Re-score" flag surfaced in the UI when the active resume is newer than a job's last score
+
+### Resume Gap Analyzer
+- Paste any job description (not just from the database) into the analyzer
+- Get detailed feedback: match score, summary, missing skills, existing strengths
+- Receive concrete resume improvement suggestions specific to the role
+- Get ATS optimization tips for that specific job description
+- Powered by Gemini, with the same caching and retry logic as job scoring
 
 ### Application Tracking
 - Status per job: `saved → applied → interview → offer / rejected`
@@ -97,8 +105,8 @@ ai-internship-hunter/
 ├── backend/
 │   ├── alembic/               # one migration: initial schema
 │   └── app/
-│       ├── routers/           # health, jobs, resume, scraper, dashboard
-│       ├── services/          # job, resume, match, scraper, dashboard
+│       ├── routers/           # health, jobs, resume, resume_analysis, scraper, dashboard
+│       ├── services/          # job, resume, resume_analysis, match, scraper, dashboard
 │       ├── models/            # Job, Resume, ScrapeRun (SQLAlchemy)
 │       ├── schemas/           # Pydantic request/response models
 │       ├── scrapers/          # RemoteOKScraper, YCJobsScraper
@@ -106,8 +114,8 @@ ai-internship-hunter/
 │   └── tests/                 # 104 pytest tests (service layer)
 │
 ├── frontend/
-│   ├── app/                   # dashboard ("/"), /jobs, /jobs/[id], /resume
-│   ├── components/            # ui/, jobs/, resume/, dashboard/
+│   ├── app/                   # dashboard ("/"), /jobs, /jobs/[id], /resume, /resume-review
+│   ├── components/            # ui/, jobs/, resume/, resume-review/, dashboard/
 │   └── lib/                   # api.ts (fetch wrapper), types.ts
 │
 └── docs/
@@ -204,7 +212,7 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the complete list and setup i
 
 ## Development Status
 
-**MVP Complete.** All core flows — sync, score, track, and the recommendation dashboard — work end-to-end in the browser against a live PostgreSQL database and the real RemoteOK/YC Jobs sources.
+**MVP Complete.** All core flows — sync, score, track, the recommendation dashboard, and resume gap analysis — work end-to-end in the browser against a live PostgreSQL database and the real RemoteOK/YC Jobs sources.
 
 **Completed:**
 - Job collection from both sources, with dedup and per-source error isolation
@@ -213,6 +221,7 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the complete list and setup i
 - Automatic scoring of new jobs after every sync
 - Application status and notes tracking
 - Recommendation dashboard with match-quality breakdown and top matches
+- Resume Gap Analyzer for analyzing any job description against the active resume
 - 104 passing pytest tests across all services
 
 **In progress / next up:**

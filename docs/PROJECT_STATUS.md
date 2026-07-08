@@ -89,15 +89,32 @@ ai-internship-hunter/
 │       ├── schemas/
 │       │   ├── __init__.py
 │       │   ├── job.py
-│       │   └── resume.py
+│       │   ├── resume.py
+│       │   └── resume_analysis.py  ← new (Phase 6)
 │       ├── routers/
 │       │   ├── __init__.py
 │       │   ├── health.py
 │       │   ├── jobs.py
 │       │   ├── scraper.py
-│       │   └── resume.py           ← bug-fixed (Phase 3C hotfix)
+│       │   ├── resume.py
+│       │   └── resume_analysis.py  ← new (Phase 6)
 │       ├── services/
 │       │   ├── __init__.py
+│       │   ├── job_service.py
+│       │   ├── scraper_service.py
+│       │   ├── match_service.py
+│       │   ├── resume_service.py
+│       │   ├── resume_analysis_service.py  ← new (Phase 6)
+│       │   └── dashboard_service.py
+│       ├── ai/
+│       │   ├── __init__.py
+│       │   ├── gemini_client.py
+│       │   └── prompts.py
+│       └── scrapers/
+│           ├── __init__.py
+│           ├── base.py
+│           ├── remoteok.py
+│           └── yc_jobs.py
 │       │   ├── job_service.py
 │       │   ├── scraper_service.py
 │       │   ├── resume_service.py

@@ -1,17 +1,18 @@
 # Prompts
 
-Gemini is used in two places:
+Gemini is used in three operations:
 
 1. Skill extraction (resume upload)
 2. Job matching (job scoring)
+3. Resume gap analysis (Resume Gap Analyzer)
 
-Both prompts live in:
+All prompts live in:
 
 ```text
 backend/app/ai/prompts.py
 ```
 
-> **Known issue (cosmetic, not functional):** the source file currently has its docstring and both prompt constants duplicated back-to-back — likely from a bad merge. Python's last-assignment-wins behavior means the correct, final values of `SKILL_EXTRACTION_PROMPT` and `JOB_MATCH_PROMPT` (the ones documented below) are what the rest of the app actually uses; nothing is broken at runtime. The file should still be cleaned up to remove the dead duplicate block.
+> **Known issue (cosmetic, not functional):** the source file currently has its docstring and the first two prompt constants duplicated back-to-back — likely from a bad merge. Python's last-assignment-wins behavior means the correct, final values of `SKILL_EXTRACTION_PROMPT` and `JOB_MATCH_PROMPT` (the ones documented below) are what the rest of the app actually uses; nothing is broken at runtime. The file should still be cleaned up to remove the dead duplicate block.
 
 ---
 
@@ -49,6 +50,15 @@ Models produce more consistent outputs when given a strict schema.
 
 * Maximum 5 missing skills
 * Exactly 2 summary sentences
+
+### Resume Gap Analysis
+
+* Match score: 0–100
+* Summary: 1–2 sentences
+* Missing skills: maximum 5
+* Strengths: maximum 5
+* Suggestions: maximum 5
+* ATS tips: maximum 5
 
 ---
 
@@ -249,6 +259,86 @@ A candidate missing multiple required technologies should rarely receive a score
     "Kubernetes"
   ],
   "match_summary": "Strong alignment on Python backend development, FastAPI, and PostgreSQL requirements. The primary gaps are Kubernetes and GraphQL, both listed as preferred technologies."
+}
+```
+
+---
+
+# Prompt 3 — Resume Gap Analysis
+
+Used in:
+
+```text
+resume_analysis_service.analyze()
+↓
+gemini_client.analyze_resume_gap()
+```
+
+This is a dedicated prompt used by the Resume Gap Analyzer feature (`POST /api/resume/analyze`). It runs independently from job scoring and does not replace or modify the existing Job Match prompt.
+
+Input substitutions:
+
+```text
+{resume_text}      — full plain text extracted from the active resume
+{job_description}  — full plain text pasted by the user
+```
+
+Expected output schema:
+
+```json
+{
+  "match_score": 75,
+  "summary": "One to two sentences on overall fit for this specific role.",
+  "missing_skills": ["Skill1", "Skill2"],
+  "strengths": ["Skill1", "Skill2"],
+  "suggestions": ["Actionable suggestion 1", "Actionable suggestion 2"],
+  "ats_tips": ["ATS tip 1", "ATS tip 2"]
+}
+```
+
+Key differences from Job Match prompt:
+
+- Includes `summary` (1–2 sentences vs. exactly 2)
+- Includes `strengths` (skills/experience in resume matching the job)
+- Includes `suggestions` (concrete, actionable resume improvements for this specific role)
+- Includes `ats_tips` (Applicant Tracking System optimization tips specific to the job description)
+- Takes full resume text (not just extracted skills) — allows richer analysis
+- Bounded to 5 items each for missing_skills, strengths, suggestions, and ats_tips
+
+## Example Output
+
+```json
+{
+  "match_score": 78,
+  "summary": "Strong fit for a backend role. Your FastAPI and PostgreSQL experience aligns well with the core requirements. Primary gaps are in DevOps tooling.",
+  "missing_skills": [
+    "Kubernetes",
+    "Docker Compose",
+    "Terraform",
+    "CI/CD Pipelines",
+    "AWS ECS"
+  ],
+  "strengths": [
+    "FastAPI",
+    "PostgreSQL",
+    "REST APIs",
+    "Python",
+    "Docker"
+  ],
+  "suggestions": [
+    "Highlight containerization work prominently in your projects section",
+    "Add deployment/infrastructure experience if you have any, even personal projects",
+    "Quantify performance improvements you've made to backend systems",
+    "Mention any experience with configuration management or infrastructure-as-code",
+    "Add a DevOps or infrastructure project to your portfolio"
+  ],
+  "ats_tips": [
+    "Use 'Kubernetes' not 'K8s' for ATS matching",
+    "Match the exact job title from the posting (e.g., 'Backend Engineer' vs 'Backend Developer')",
+    "Include both full names and common abbreviations (e.g., 'PostgreSQL (Postgres)')",
+    "Use standard cloud platform names: 'AWS', 'Google Cloud', 'Azure'",
+    "List technologies in a dedicated 'Technical Skills' section near the top"
+  ]
 }
 ```
 

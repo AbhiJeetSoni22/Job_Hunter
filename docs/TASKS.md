@@ -210,6 +210,43 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 
 ---
 
+# Phase 6 — Resume Gap Analyzer ✅ Done
+
+*(New, isolated feature. Does not modify any existing Phase 1-5 logic or tables.)*
+
+## Backend
+
+* [x] `schemas/resume_analysis.py` — new file with `ResumeAnalysisRequest` and `ResumeAnalysisResponse`
+* [x] `services/resume_analysis_service.py` — new service: `ResumeAnalysisService.analyze()`, job description validation, reuses `ResumeService.get_latest_with_text()` and `GeminiClient`
+* [x] `routers/resume_analysis.py` — new router: `POST /api/resume/analyze` with proper error translation (NO_RESUME 422, EMPTY_JOB_DESCRIPTION 422, ANALYSIS_ERROR 502)
+* [x] `ai/prompts.py` — `RESUME_GAP_ANALYSIS_PROMPT` added (separate from existing job-match prompt); prompt takes resume text + job description, returns match_score, summary, missing_skills, strengths, suggestions, ats_tips
+* [x] `app/main.py` — resume_analysis router registered (imports handled correctly, no collision with existing /resume router)
+
+## Frontend
+
+* [x] `app/resume-review/page.tsx` — new page component for Resume Gap Analyzer
+* [x] Resume pre-check on mount — gates page before user enters job description
+* [x] `components/resume-review/JobDescriptionForm.tsx` — text area for job description + Analyze button
+* [x] `components/resume-review/MatchScoreCard.tsx` — displays match_score prominently
+* [x] `components/resume-review/SkillTagSection.tsx` — renders missing_skills, strengths as pills/chips
+* [x] `components/resume-review/BulletListSection.tsx` — renders suggestions and ats_tips as bullet lists
+* [x] Loading spinner during analysis, error states (NO_RESUME, network errors, AI failures)
+* [x] `lib/api.ts` — `analyzeResume()` method added, error handling via `ApiClientError`
+* [x] `lib/types.ts` — `ResumeAnalysisResponse` type added
+
+## Documentation
+
+* [x] `API_SPEC.md` — `POST /api/resume/analyze` endpoint documented with request/response examples and error cases
+* [x] `ARCHITECTURE.md` — routes table updated with `/resume-review`, AI Layer section expanded to document the new prompt
+* [x] `PRD.md` — Capability 6 added to MVP scope with user flow
+* [x] `README.md` — Resume Gap Analyzer added to features list and project structure
+* [x] `TASKS.md` — Phase 6 documented (this section)
+* [x] `PROMPTS.md` — `RESUME_GAP_ANALYSIS_PROMPT` documented
+
+**Phase complete:** All Resume Gap Analyzer components working end-to-end. Feature operates independently without affecting existing job scoring, tracking, or dashboard.
+
+---
+
 # MVP Completion Checklist
 
 * [x] Jobs sync from RemoteOK
@@ -227,9 +264,10 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 * [x] Health endpoint verifies DB
 * [x] Auto-scoring after sync (originally listed as out-of-scope in `PRD.md`; implemented in Phase 5)
 * [x] Recommendation dashboard
+* [x] Resume Gap Analyzer (new in Phase 6)
 * [x] 104 pytest tests passing (DB-gated via `TEST_DATABASE_URL`)
 * [ ] `.env.example` verified complete against `DEPLOYMENT.md`
 * [ ] Resume delete confirmation dialog
 * [ ] Loading skeletons
 
-**Overall: MVP complete.** Remaining items are polish, not blockers.
+**Overall: MVP complete including Resume Gap Analyzer.** Remaining items are polish, not blockers.

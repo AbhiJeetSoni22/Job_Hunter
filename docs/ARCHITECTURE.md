@@ -38,6 +38,7 @@ App Router, all pages are client components (`"use client"`) since every page ne
 | `/jobs`      | Job list — server-side filters (status/source/scored), sorting, pagination |
 | `/jobs/[id]` | Job detail — description, Score button, match result, status/notes editing |
 | `/resume`    | Resume upload (drag-and-drop), extracted skills, delete                |
+| `/resume-review` | Resume Gap Analyzer — paste job description, analyze against active resume, receive match score and improvement suggestions |
 
 Frontend communicates with FastAPI through a Next.js `rewrites()` proxy (`/api/*` → `http://localhost:8000/api/*`) — not through separate Next.js API routes.
 
@@ -77,7 +78,7 @@ Global exception handlers normalize every response to
 
 ## AI Layer — Gemini
 
-Two AI operations, both implemented on `GeminiClient` (`app/ai/gemini_client.py`):
+Three AI operations, all implemented on `GeminiClient` (`app/ai/gemini_client.py`):
 
 ### Skill Extraction
 
@@ -101,7 +102,17 @@ GeminiClient.match_job(job_description, skills)
 match_score, missing_skills, match_summary
 ```
 
-Both calls go through `GeminiClient._call_with_retry()`: exponential backoff (1s, 2s, 4s) across 3 attempts, retrying on HTTP 429/500/502/503, raising `AIError` after the final failure. Temperature is fixed at `0.1` for both prompts to keep JSON output consistent.
+### Resume Gap Analysis
+
+```text
+Resume Text + Job Description (from user)
+        ↓
+GeminiClient.analyze_resume_gap(resume_text, job_description)
+        ↓
+match_score, summary, missing_skills, strengths, suggestions, ats_tips
+```
+
+All three calls use `GeminiClient._call_with_retry()`: exponential backoff (1s, 2s, 4s) across 3 attempts, retrying on HTTP 429/500/502/503, raising `AIError` after the final failure. Temperature is fixed at `0.1` for all prompts to keep JSON output consistent.
 
 ---
 
