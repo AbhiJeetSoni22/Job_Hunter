@@ -219,3 +219,87 @@ Summary Rules:
 - Exactly 2 sentences.
 - Sentence 1: strongest area of technical alignment.
 - Sentence 2: largest technical gaps or concerns."""
+
+
+# ---------------------------------------------------------------------------
+# Prompt 3 — Resume Gap Analyzer (new, isolated feature)
+#
+# Used by: gemini_client.analyze_resume_gap(resume_text, job_description)
+# Called from: resume_analysis_service.py (new — Resume Gap Analyzer)
+#
+# This is a dedicated prompt, separate from JOB_MATCH_PROMPT. It does not
+# replace or alter job match scoring in any way — match_service and
+# JOB_MATCH_PROMPT are untouched. This prompt is used only by the new
+# POST /api/resume/analyze endpoint.
+#
+# Input substitutions:
+    #   {resume_text}      — full plain text extracted from the active resume
+    #   {job_description}  — full plain text pasted by the user
+    #
+    # Expected output schema:
+        #   {
+            #     "match_score": 0-100,
+            #     "summary": "...",
+            #     "missing_skills": ["Skill1", ...],
+            #     "strengths": ["Skill1", ...],
+            #     "suggestions": ["...", ...],
+            #     "ats_tips": ["...", ...]
+            #   }
+            # ---------------------------------------------------------------------------
+
+RESUME_GAP_ANALYSIS_PROMPT = """You are a career coach and technical recruiter helping a candidate improve their resume for a specific job.
+
+            Resume Text:
+                {resume_text}
+
+                Job Description:
+                    {job_description}
+
+                    Analyze how well the resume aligns with the job description and return ONLY this exact JSON structure with no preamble, explanation, or markdown:
+
+                        {{
+                            "match_score": 75,
+                            "summary": "One to two sentences on overall fit for this specific role.",
+                            "missing_skills": [
+                                "Skill1",
+                                "Skill2"
+                            ],
+                            "strengths": [
+                                "Skill1",
+                                "Skill2"
+                            ],
+                            "suggestions": [
+                                "Actionable resume improvement 1",
+                                "Actionable resume improvement 2"
+                            ],
+                            "ats_tips": [
+                                "ATS optimization tip 1",
+                                "ATS optimization tip 2"
+                            ]
+                        }}
+
+                        Scoring Rules:
+                            - match_score is an integer 0 to 100. Score technical fit only.
+                            - Ignore location, salary, company prestige, and cultural fit.
+                            - Do not inflate scores. A resume missing multiple required technologies should rarely score above 80.
+
+                            Missing Skills Rules:
+                                - List at most 5 skills explicitly required by the job description but not found in the resume.
+                                - Do not invent or infer skills not mentioned in the job description.
+
+                                Strengths Rules:
+                                    - List at most 5 skills or experiences from the resume that directly match the job description.
+                                    - Only include items explicitly present in the resume text.
+
+                                    Suggestions Rules:
+                                        - List at most 5 concrete, actionable ways the candidate could improve their resume for THIS specific role.
+                                        - Focus on content and framing (e.g. quantifying impact, adding relevant projects, reordering sections) — not generic advice.
+                                        - Do not suggest fabricating experience the candidate does not have.
+
+                                        ATS Tips Rules:
+                                            - List at most 5 concrete Applicant Tracking System optimization tips specific to this job description.
+                                            - Focus on keyword alignment, formatting, and terminology matching the job posting.
+
+                                            General Rules:
+                                                - Base every claim only on the resume text and job description provided. Do not hallucinate.
+                                                - Keep each list item concise — one sentence or short phrase."""

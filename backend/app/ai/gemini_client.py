@@ -34,11 +34,14 @@ from typing import Any, TypedDict
 import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
 
-from app.ai.prompts import JOB_MATCH_PROMPT, SKILL_EXTRACTION_PROMPT
+from app.ai.prompts import JOB_MATCH_PROMPT, RESUME_GAP_ANALYSIS_PROMPT, SKILL_EXTRACTION_PROMPT
+
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# new constant, next to _MAX_MISSING_SKILLS:
+_MAX_GAP_LIST_ITEMS = 5
 # ── Retry configuration ────────────────────────────────────────────────────
 
 # HTTP status codes that indicate a transient failure worth retrying
@@ -77,7 +80,14 @@ class MatchResult(TypedDict):
     missing_skills: list[str]
     match_summary: str
 
-
+# new TypedDict, next to MatchResult:
+class GapAnalysisResult(TypedDict):
+    match_score: int
+    summary: str
+    missing_skills: list[str]
+    strengths: list[str]
+    suggestions: list[str]
+    ats_tips: list[str]
 # ── Client ─────────────────────────────────────────────────────────────────
 
 class GeminiClient:
@@ -217,6 +227,56 @@ class GeminiClient:
             len(result["missing_skills"]),
         )
         return result
+    
+        # new public method, added directly after match_job():
+    def analyze_resume_gap(self, resume_text: str, job_description: str) -> GapAnalysisResult:
+        if not resume_text or not resume_text.strip():
+            raise ValueError("resume_text must not be empty")
+        if not job_description or not job_description.strip():
+            raise ValueError("job_description must not be empty")
+
+        prompt = RESUME_GAP_ANALYSIS_PROMPT.format(
+            resume_text=resume_text,
+            job_description=job_description,
+        )
+        raw_response = self._call_with_retry(prompt, operation="analyze_resume_gap")
+        return self._parse_gap_analysis(raw_response)
+
+        # new private parser, added directly after _parse_match_result():
+    def _parse_gap_analysis(self, raw: str) -> GapAnalysisResult:
+        parsed = self._parse_json(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError(f"analyze_resume_gap response must be a JSON object, got {type(parsed).__name__}")
+        data = parsed
+
+        if "match_score" not in data:
+            raise ValueError("Response missing 'match_score'")
+        raw_score = data["match_score"]
+        if not isinstance(raw_score, (int, float)):
+            raise ValueError(f"'match_score' must be a number, got {type(raw_score).__name__}")
+        match_score = max(0, min(100, int(raw_score)))
+
+        if "summary" not in data:
+            raise ValueError("Response missing 'summary'")
+        raw_summary = data["summary"]
+        if not isinstance(raw_summary, str) or not raw_summary.strip():
+            raise ValueError(f"'summary' must be a non-empty string, got {raw_summary!r}")
+        summary = raw_summary.strip()
+
+        def _parse_string_list(key: str) -> list[str]:
+            raw_list = data.get(key, [])
+            if not isinstance(raw_list, list):
+                return []
+            return [item.strip() for item in raw_list[:_MAX_GAP_LIST_ITEMS] if isinstance(item, str) and item.strip()]
+
+        return GapAnalysisResult(
+        match_score=match_score,
+        summary=summary,
+        missing_skills=_parse_string_list("missing_skills"),
+        strengths=_parse_string_list("strengths"),
+        suggestions=_parse_string_list("suggestions"),
+        ats_tips=_parse_string_list("ats_tips"),
+    )
 
     # ── Private: API call with retry ───────────────────────────────────────
 
@@ -588,3 +648,7 @@ class GeminiClient:
             missing_skills=missing_skills,
             match_summary=match_summary,
         )
+    
+
+
+
