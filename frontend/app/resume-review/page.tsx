@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { JobDescriptionForm } from "@/components/resume-review/JobDescriptionForm";
 import { MatchScoreCard } from "@/components/resume-review/MatchScoreCard";
 import { SkillTagSection } from "@/components/resume-review/SkillTagSection";
 import { BulletListSection } from "@/components/resume-review/BulletListSection";
-import { analyzeResume, ApiClientError } from "@/lib/api";
+import { analyzeResume, getResume, ApiClientError } from "@/lib/api";
 import type { ResumeAnalysisResponse } from "@/lib/types";
 
 export default function ResumeReviewPage() {
@@ -20,8 +22,33 @@ export default function ResumeReviewPage() {
   const [noResume, setNoResume] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // ── Resume pre-check ──────────────────────────────────────────────────────
+  // Same source of truth as the Dashboard/Resume page (getResume() → null
+  // when no active resume). Checked on mount so the page gates itself
+  // before the user ever pastes a JD, instead of surfacing NO_RESUME only
+  // after they click Analyze.
+  const [checkingResume, setCheckingResume] = useState(true);
+
+  const checkResume = useCallback(async () => {
+    setCheckingResume(true);
+    try {
+      const resume = await getResume();
+      setNoResume(resume === null);
+    } catch {
+      // Fetch failure: fall back to letting the form render — the existing
+      // NO_RESUME handling on submit still catches the no-resume case.
+      setNoResume(false);
+    } finally {
+      setCheckingResume(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkResume();
+  }, [checkResume]);
+
   async function handleSubmit(jobDescription: string) {
-    if (loading) return;
+    if (loading) return; // prevent duplicate submissions
 
     const trimmed = jobDescription.trim();
     if (!trimmed) {
@@ -48,6 +75,7 @@ export default function ResumeReviewPage() {
             err.message || "Resume analysis failed. Please try again.",
           );
         } else {
+          // NETWORK_ERROR, TIMEOUT, INVALID_RESPONSE, UNKNOWN_ERROR, etc.
           setErrorMessage(
             err.message || "Something went wrong. Please try again.",
           );
@@ -67,15 +95,23 @@ export default function ResumeReviewPage() {
         subtitle="Analyze your uploaded resume against a job description and receive personalized recommendations."
       />
 
-      {noResume ? (
+      {checkingResume ? (
+        <Card padding="lg">
+          <div className="flex flex-col items-center gap-3 py-6">
+            <Skeleton width="40%" height="1rem" />
+            <Skeleton width="60%" height="0.8rem" />
+            <Skeleton width="8rem" height="2rem" rounded="0.375rem" />
+          </div>
+        </Card>
+      ) : noResume ? (
         <EmptyState
           icon="📎"
-          title="No resume on file"
-          description="Upload a resume before running analysis."
+          title="Resume Required"
+          description="Upload a resume before using Resume Gap Analyzer."
           action={
             <Link href="/resume">
               <Button variant="primary" size="sm">
-                Go to Resume
+                Upload Resume
               </Button>
             </Link>
           }

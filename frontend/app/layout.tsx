@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/jobs", label: "Jobs" },
   { href: "/resume", label: "Resume" },
+  { href: "/resume-review", label: "Resume Review" },
 ];
 
 export default function RootLayout({ children }: { children: ReactNode }) {
