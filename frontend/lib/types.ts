@@ -25,7 +25,6 @@ export interface ResumeUploadResponse extends Resume {
   char_count: number;
 }
 
-
 /** Returned by GET /api/jobs — no description, notes, or match_summary */
 export interface JobListItem {
   id: string;
@@ -175,7 +174,12 @@ export interface ResumeUploadResponse extends Resume {
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 
-export type JobStatus = "saved" | "applied" | "interview" | "offer" | "rejected";
+export type JobStatus =
+  | "saved"
+  | "applied"
+  | "interview"
+  | "offer"
+  | "rejected";
 export type JobSource = "remoteok" | "yc_jobs";
 export type SortBy = "created_at" | "posted_at" | "match_score";
 
@@ -298,4 +302,17 @@ export interface ScraperRunResult {
 export interface HealthStatus {
   status: "ok" | "degraded";
   database: "connected" | "unreachable";
+}
+
+export interface ResumeAnalysisRequest {
+  job_description: string;
+}
+
+export interface ResumeAnalysisResponse {
+  match_score: number;
+  summary: string;
+  missing_skills: string[];
+  strengths: string[];
+  suggestions: string[];
+  ats_tips: string[];
 }

@@ -29,6 +29,7 @@ import type {
   ScoreResponse,
   ScraperRun,
   ScraperRunResult,
+  ResumeAnalysisResponse,
 } from "./types";
 
 // ── Client error class ────────────────────────────────────────────────────────
@@ -205,4 +206,13 @@ export async function getScraperStatus(): Promise<ScraperRun[]> {
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   return apiFetch<DashboardStats>("/api/dashboard/stats");
+}
+
+export async function analyzeResume(
+  jobDescription: string,
+): Promise<ResumeAnalysisResponse> {
+  return apiFetch<ResumeAnalysisResponse>("/api/resume/analyze", {
+    method: "POST",
+    body: JSON.stringify({ job_description: jobDescription }),
+  });
 }
