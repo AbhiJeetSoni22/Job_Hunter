@@ -30,6 +30,7 @@ import type {
   ScraperRun,
   ScraperRunResult,
   ResumeAnalysisResponse,
+  InterviewPrepResponse,
 } from "./types";
 
 // ── Client error class ────────────────────────────────────────────────────────
@@ -190,6 +191,14 @@ export async function scoreJob(id: string): Promise<ScoreResponse> {
 
 export async function deleteJob(id: string): Promise<void> {
   return apiFetch<void>(`/api/jobs/${id}`, { method: "DELETE" });
+}
+
+export async function generateInterviewPrep(
+  id: string,
+): Promise<InterviewPrepResponse> {
+  return apiFetch<InterviewPrepResponse>(`/api/jobs/${id}/interview-prep`, {
+    method: "POST",
+  });
 }
 
 // ── Scraper ───────────────────────────────────────────────────────────────────

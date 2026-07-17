@@ -316,3 +316,11 @@ export interface ResumeAnalysisResponse {
   suggestions: string[];
   ats_tips: string[];
 }
+
+export interface InterviewPrepResponse {
+  project_questions: string[];
+  technical_questions: string[];
+  behavioral_questions: string[];
+  topics_to_revise: string[];
+  interview_tips: string[];
+}

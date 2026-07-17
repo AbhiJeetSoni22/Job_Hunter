@@ -34,7 +34,12 @@ from typing import Any, TypedDict
 import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
 
-from app.ai.prompts import JOB_MATCH_PROMPT, RESUME_GAP_ANALYSIS_PROMPT, SKILL_EXTRACTION_PROMPT
+from app.ai.prompts import (
+    INTERVIEW_PREP_PROMPT,
+    JOB_MATCH_PROMPT,
+    RESUME_GAP_ANALYSIS_PROMPT,
+    SKILL_EXTRACTION_PROMPT,
+)
 
 from app.config import get_settings
 
@@ -42,6 +47,16 @@ logger = logging.getLogger(__name__)
 
 # new constant, next to _MAX_MISSING_SKILLS:
 _MAX_GAP_LIST_ITEMS = 5
+
+# Maximum items per list for the AI Interview Prep Generator.
+# Project and technical questions get the higher cap — they are the
+# highest-priority, most resume/JD-grounded lists. Behavioral tips and
+# interview tips are capped lower to keep them tight and non-generic.
+_MAX_PROJECT_QUESTIONS = 8
+_MAX_TECHNICAL_QUESTIONS = 8
+_MAX_BEHAVIORAL_QUESTIONS = 6
+_MAX_TOPICS_TO_REVISE = 8
+_MAX_INTERVIEW_TIPS = 6
 # ── Retry configuration ────────────────────────────────────────────────────
 
 # HTTP status codes that indicate a transient failure worth retrying
@@ -88,6 +103,14 @@ class GapAnalysisResult(TypedDict):
     strengths: list[str]
     suggestions: list[str]
     ats_tips: list[str]
+
+# new TypedDict, next to GapAnalysisResult:
+class InterviewPrepResult(TypedDict):
+    project_questions: list[str]
+    technical_questions: list[str]
+    behavioral_questions: list[str]
+    topics_to_revise: list[str]
+    interview_tips: list[str]
 # ── Client ─────────────────────────────────────────────────────────────────
 
 class GeminiClient:
@@ -241,6 +264,65 @@ class GeminiClient:
         )
         raw_response = self._call_with_retry(prompt, operation="analyze_resume_gap")
         return self._parse_gap_analysis(raw_response)
+
+        # new public method, added directly after analyze_resume_gap():
+    def generate_interview_prep(
+        self,
+        resume_text: str,
+        job_description: str,
+        job_title: str,
+        company_name: str,
+    ) -> InterviewPrepResult:
+        if not resume_text or not resume_text.strip():
+            raise ValueError("resume_text must not be empty")
+        if not job_description or not job_description.strip():
+            raise ValueError("job_description must not be empty")
+
+        prompt = INTERVIEW_PREP_PROMPT.format(
+            resume_text=resume_text,
+            job_description=job_description,
+            job_title=job_title or "",
+            company_name=company_name or "",
+        )
+        raw_response = self._call_with_retry(prompt, operation="generate_interview_prep")
+        return self._parse_interview_prep(raw_response)
+
+        # new private parser, added directly after _parse_gap_analysis():
+    def _parse_interview_prep(self, raw: str) -> InterviewPrepResult:
+        parsed = self._parse_json(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                f"generate_interview_prep response must be a JSON object, got {type(parsed).__name__}"
+            )
+        data = parsed
+
+        def _parse_string_list(key: str, max_items: int) -> list[str]:
+            raw_list = data.get(key, [])
+            if not isinstance(raw_list, list):
+                return []
+            return [
+                item.strip()
+                for item in raw_list[:max_items]
+                if isinstance(item, str) and item.strip()
+            ]
+
+        return InterviewPrepResult(
+            project_questions=_parse_string_list(
+                "project_questions", _MAX_PROJECT_QUESTIONS
+            ),
+            technical_questions=_parse_string_list(
+                "technical_questions", _MAX_TECHNICAL_QUESTIONS
+            ),
+            behavioral_questions=_parse_string_list(
+                "behavioral_questions", _MAX_BEHAVIORAL_QUESTIONS
+            ),
+            topics_to_revise=_parse_string_list(
+                "topics_to_revise", _MAX_TOPICS_TO_REVISE
+            ),
+            interview_tips=_parse_string_list(
+                "interview_tips", _MAX_INTERVIEW_TIPS
+            ),
+        )
 
         # new private parser, added directly after _parse_match_result():
     def _parse_gap_analysis(self, raw: str) -> GapAnalysisResult:

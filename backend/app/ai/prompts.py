@@ -303,3 +303,95 @@ RESUME_GAP_ANALYSIS_PROMPT = """You are a career coach and technical recruiter h
                                             General Rules:
                                                 - Base every claim only on the resume text and job description provided. Do not hallucinate.
                                                 - Keep each list item concise — one sentence or short phrase."""
+# ---------------------------------------------------------------------------
+# Prompt 4 — AI Interview Preparation Generator (new, isolated feature)
+#
+# Used by: gemini_client.generate_interview_prep(resume_text, job_description,
+#           job_title, company_name)
+# Called from: interview_prep_service.py (new — AI Interview Prep Generator)
+#
+# This is a dedicated prompt, separate from JOB_MATCH_PROMPT and
+# RESUME_GAP_ANALYSIS_PROMPT. It does not replace or alter job match
+# scoring or resume gap analysis in any way. Used only by the new
+# POST /api/jobs/{job_id}/interview-prep endpoint.
+#
+# Input substitutions:
+    #   {resume_text}      — full plain text of the active resume
+    #   {job_description}  — full plain text of the job listing
+    #   {job_title}        — job title as stored on the Job row
+    #   {company_name}     — company name as stored on the Job row
+    #
+    # Expected output schema:
+        #   {
+            #     "technical_questions": ["...", ...],
+            #     "behavioral_questions": ["...", ...],
+            #     "project_questions": ["...", ...],
+            #     "topics_to_revise": ["...", ...],
+            #     "interview_tips": ["...", ...]
+            #   }
+            # ---------------------------------------------------------------------------
+
+INTERVIEW_PREP_PROMPT = """You are an interviewer at a startup preparing to interview a candidate for an internship-level role. You write specific, grounded questions — never generic "tell me about a time" filler unless the situation calls for it.
+
+            Resume Text:
+                {resume_text}
+
+                Job Title: {job_title}
+                Company: {company_name}
+
+                Job Description:
+                    {job_description}
+
+                    Generate interview preparation material tailored to THIS candidate and THIS role. Return ONLY this exact JSON structure with no preamble, explanation, or markdown:
+
+                        {{
+                            "project_questions": [
+                                "Project question 1",
+                                "Project question 2"
+                            ],
+                            "technical_questions": [
+                                "Technical question 1",
+                                "Technical question 2"
+                            ],
+                            "behavioral_questions": [
+                                "Behavioral question 1",
+                                "Behavioral question 2"
+                            ],
+                            "topics_to_revise": [
+                                "Topic 1",
+                                "Topic 2"
+                            ],
+                            "interview_tips": [
+                                "Tip 1",
+                                "Tip 2"
+                            ]
+                        }}
+
+                        Project Questions Rules (HIGHEST PRIORITY — generate these first, put the most effort here):
+                            - Derive every question directly from specific projects, tools, and experience named in the resume text. Never invent a project.
+                            - Reference the candidate's own project names, stack choices, and stated outcomes when writing each question.
+                            - Ask about architecture/design decisions, why one technology was chosen over an alternative, how a specific hard part was implemented, and how a challenging bug or tradeoff was handled.
+                            - Write these the way a real engineer conducting the interview would — specific and pointed, e.g. "Why did you choose FastAPI instead of Express for [project]?" not "Tell me about a project."
+                            - List at most 8.
+
+                            Technical Questions Rules:
+                                - Derive every question from the specific technologies, frameworks, and requirements explicitly stated in the job description.
+                                - Favor technologies required by the job description that appear weakly or not at all in the resume — these are the real gaps an interviewer would probe.
+                                - Avoid generic textbook questions ("what is a REST API") unless the job description's seniority level makes that appropriate.
+                                - List at most 8.
+
+                                Behavioral Questions Rules:
+                                    - List at most 6 situational/behavioral questions relevant to this role's seniority and team context (internship/startup pace, ambiguity, ownership).
+                                    - Do not invent candidate history — keep these role-general, not resume-specific.
+
+                                    Topics To Revise Rules:
+                                        - List at most 8 concrete technical concepts or tools from the job description the candidate should brush up on.
+                                        - Prioritize gaps: required by the job description but weak or absent in the resume.
+
+                                        Interview Tips Rules:
+                                            - List at most 6 concrete, actionable tips specific to this role, company, and interview stage — not generic advice like "be confident."
+
+                                            General Rules:
+                                                - Base every item only on the resume text, job title, company name, and job description provided. Do not hallucinate projects, companies, or skills.
+                                                - Prioritize realism over volume — an interviewer would rather ask 3 sharp project questions than 8 shallow ones. It's fine to return fewer than the max if the resume doesn't support more.
+                                                - Keep each item concise — one sentence or short phrase."""

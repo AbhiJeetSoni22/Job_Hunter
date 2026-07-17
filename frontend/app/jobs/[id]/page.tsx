@@ -20,9 +20,16 @@ import {
   getResume,
   updateJob,
   scoreJob,
+  generateInterviewPrep,
   ApiClientError,
 } from "@/lib/api";
-import type { Job, JobStatus, ScoreResponse } from "@/lib/types";
+import type {
+  Job,
+  JobStatus,
+  ScoreResponse,
+  InterviewPrepResponse,
+} from "@/lib/types";
+import { InterviewPrepPanel } from "@/components/interview-prep/InterviewPrepPanel";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -53,6 +60,11 @@ export default function JobDetailPage({ params }: Props) {
   // Score state
   const [scoreResult, setScoreResult] = useState<ScoreResponse | null>(null);
   const [scoring, setScoring] = useState(false);
+
+  // Interview prep state
+  const [interviewPrep, setInterviewPrep] =
+    useState<InterviewPrepResponse | null>(null);
+  const [generatingPrep, setGeneratingPrep] = useState(false);
 
   // Status update
   const [status, setStatus] = useState<JobStatus>("saved");
@@ -126,6 +138,26 @@ export default function JobDetailPage({ params }: Props) {
       );
     } finally {
       setScoring(false);
+    }
+  }
+
+  // ── Interview Prep ───────────────────────────────────────────────────────────
+
+  async function handleGenerateInterviewPrep() {
+    if (generatingPrep) return;
+    setGeneratingPrep(true);
+    try {
+      const result = await generateInterviewPrep(id);
+      setInterviewPrep(result);
+    } catch (err) {
+      addToast(
+        err instanceof ApiClientError
+          ? err.message
+          : "Interview prep generation failed.",
+        "error",
+      );
+    } finally {
+      setGeneratingPrep(false);
     }
   }
 
@@ -310,6 +342,69 @@ export default function JobDetailPage({ params }: Props) {
               onClick={handleScore}
             >
               {scoring ? "Scoring…" : "⭐ Score Job"}
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* ── Interview Prep ──────────────────────────────────────────────── */}
+      <Card padding="md" className="mb-4">
+        <p
+          className="text-xs uppercase tracking-wide mb-3"
+          style={{ color: "var(--color-muted)" }}
+        >
+          AI Interview Prep
+        </p>
+        {hasResume === false ? (
+          <div>
+            <p
+              style={{
+                color: "var(--color-subtle)",
+                fontSize: "0.875rem",
+                marginBottom: "0.75rem",
+              }}
+            >
+              Upload a resume to generate interview preparation material for
+              this job.
+            </p>
+            <Link href="/resume">
+              <Button size="sm">Upload Resume</Button>
+            </Link>
+          </div>
+        ) : interviewPrep ? (
+          <div>
+            <InterviewPrepPanel result={interviewPrep} />
+            <div className="mt-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={generatingPrep}
+                disabled={generatingPrep}
+                onClick={handleGenerateInterviewPrep}
+              >
+                {generatingPrep ? "Generating…" : "↻ Regenerate"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p
+              style={{
+                color: "var(--color-subtle)",
+                fontSize: "0.875rem",
+                marginBottom: "0.75rem",
+              }}
+            >
+              Generate tailored interview questions, topics to revise, and tips
+              based on your resume and this job.
+            </p>
+            <Button
+              size="sm"
+              loading={generatingPrep}
+              disabled={generatingPrep}
+              onClick={handleGenerateInterviewPrep}
+            >
+              {generatingPrep ? "Generating…" : "🧠 Generate Interview Prep"}
             </Button>
           </div>
         )}
