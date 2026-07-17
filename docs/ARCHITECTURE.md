@@ -36,7 +36,7 @@ App Router, all pages are client components (`"use client"`) since every page ne
 | ------------ | --------------------------------------------------------------------- |
 | `/`          | Dashboard — live stat cards, Sync Jobs button, top matches, match-quality breakdown |
 | `/jobs`      | Job list — server-side filters (status/source/scored), sorting, pagination |
-| `/jobs/[id]` | Job detail — description, Score button, match result, status/notes editing |
+| `/jobs/[id]` | Job detail — description, Score button, match result, interview-prep action, status/notes editing |
 | `/resume`    | Resume upload (drag-and-drop), extracted skills, delete                |
 | `/resume-review` | Resume Gap Analyzer — paste job description, analyze against active resume, receive match score and improvement suggestions |
 
@@ -78,7 +78,7 @@ Global exception handlers normalize every response to
 
 ## AI Layer — Gemini
 
-Three AI operations, all implemented on `GeminiClient` (`app/ai/gemini_client.py`):
+Four AI operations, all implemented on `GeminiClient` (`app/ai/gemini_client.py`):
 
 ### Skill Extraction
 
@@ -112,7 +112,38 @@ GeminiClient.analyze_resume_gap(resume_text, job_description)
 match_score, summary, missing_skills, strengths, suggestions, ats_tips
 ```
 
-All three calls use `GeminiClient._call_with_retry()`: exponential backoff (1s, 2s, 4s) across 3 attempts, retrying on HTTP 429/500/502/503, raising `AIError` after the final failure. Temperature is fixed at `0.1` for all prompts to keep JSON output consistent.
+### Interview Preparation Generator
+
+```text
+Active Resume Text + Job Description + Job Title + Company Name
+        ↓
+InterviewPrepService.generate(job_id)
+        ↓
+GeminiClient.generate_interview_prep(resume_text, job_description, job_title, company_name)
+        ↓
+project_questions, technical_questions, behavioral_questions, topics_to_revise, interview_tips
+```
+
+The new request flow is intentionally isolated and stateless:
+
+```text
+POST /api/jobs/{job_id}/interview-prep
+        ↓
+router/interview_prep.py
+        ↓
+InterviewPrepService.generate(job_id)
+        ↓
+ResumeService.get_latest_with_text()   → active resume
+Job lookup from the database            → selected job title + description + company
+        ↓
+GeminiClient.generate_interview_prep(...)
+        ↓
+InterviewPrepResponse returned directly to the browser
+```
+
+No write occurs to the database, no cache is consulted, and no background task is launched. The service layer is responsible only for orchestration and data shaping; the router handles HTTP translation and error normalization.
+
+All four calls use `GeminiClient._call_with_retry()`: exponential backoff (1s, 2s, 4s) across 3 attempts, retrying on HTTP 429/500/502/503, raising `AIError` after the final failure. Temperature is fixed at `0.1` for all prompts to keep JSON output consistent.
 
 ---
 

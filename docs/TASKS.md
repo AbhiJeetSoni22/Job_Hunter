@@ -247,6 +247,31 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 
 ---
 
+# Phase 7 — Interview Preparation Generator ✅ Done
+
+*(New, isolated feature. Reuses the active resume and Gemini path without introducing persistence, caching, or background jobs.)*
+
+## Backend
+* [x] `schemas/interview_prep.py` — new `InterviewPrepResponse` schema with `project_questions`, `technical_questions`, `behavioral_questions`, `topics_to_revise`, and `interview_tips`
+* [x] `services/interview_prep_service.py` — new `InterviewPrepService.generate()` orchestrator, using `ResumeService.get_latest_with_text()` and job lookup by ID
+* [x] `routers/interview_prep.py` — new `POST /api/jobs/{job_id}/interview-prep` endpoint, translated to HTTP 200/404/422/502 as appropriate
+* [x] `ai/prompts.py` — `INTERVIEW_PREP_PROMPT` added as a dedicated prompt separate from the resume-gap analyzer and job-matching prompts
+* [x] `ai/gemini_client.py` — `generate_interview_prep()` and response parser added without modifying existing scoring behavior
+
+## Frontend
+* [x] Job detail page (`app/jobs/[id]/page.tsx`) — `Generate Interview Prep` action added inline with the existing score panel
+* [x] `lib/api.ts` — typed `generateInterviewPrep()` helper added for the new endpoint
+* [x] `components/interview-prep/InterviewPrepPanel.tsx` — renders the five result sections in the same card-based layout used elsewhere
+
+## Documentation
+* [x] `API_SPEC.md` — endpoint and error contract documented
+* [x] `ARCHITECTURE.md` — request flow and service placement documented
+* [x] `PROMPTS.md` — prompt schema and expected output documented
+
+**Phase complete:** Interview Preparation Generator works end-to-end on the job detail page without adding any new infrastructure or persistence.
+
+---
+
 # MVP Completion Checklist
 
 * [x] Jobs sync from RemoteOK

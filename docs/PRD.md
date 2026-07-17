@@ -171,6 +171,29 @@ Scraping:
 
 ---
 
+### 7. Interview Preparation Generator
+
+*(Added as an isolated feature after the Resume Gap Analyzer. It reuses the existing active resume and Gemini flow, but operates only from a saved job detail view.)*
+
+**What:** Generate tailored interview preparation material for a selected job using the active resume and the job's title, company, and description.
+
+**Behaviour:**
+- User opens a job detail page after a job has been saved in the database.
+- User clicks "Generate Interview Prep" on the job detail page.
+- Backend resolves the job by ID and the active resume by the existing resume upload flow.
+- Gemini returns structured guidance in five sections:
+  - `technical_questions`
+  - `behavioral_questions`
+  - `project_questions`
+  - `topics_to_revise`
+  - `interview_tips`
+- Results render inline in the job detail page.
+- The request is stateless: nothing is saved, cached, queued, or persisted.
+
+**Out of scope:** Interview history, saved interview prep results, background generation, new infrastructure.
+
+---
+
 ## User Flows
 
 ### Flow 1 — First time setup
@@ -193,6 +216,13 @@ Scraping:
 2. Loading state while Gemini runs (or instant if cached)
 3. Score badge, missing skills list, and summary appear
 
+### Flow 4 — Generating interview preparation
+1. Open `/jobs/[id]` for a saved job
+2. Ensure an active resume is uploaded
+3. Click "Generate Interview Prep"
+4. Review the generated sections: technical questions, behavioral questions, project questions, topics to revise, and interview tips
+5. Regenerate as needed without any persistence or background processing
+
 ---
 
 ## Success Criteria
@@ -204,6 +234,8 @@ Scraping:
 | Scoring works | Match score + missing skills display for any scored job |
 | Caching works | Re-clicking "Score" returns instantly with no new API call |
 | Tracking works | Status and notes update persists across page refreshes |
+| Interview prep works | Clicking "Generate Interview Prep" on a job detail page returns the expected five-section response when a resume exists |
+| No resume guard | If no active resume exists, interview prep generation returns a clean validation error instead of silently proceeding |
 | No crashes | Scraper failure on one source doesn't prevent the other from completing |
 
 ---

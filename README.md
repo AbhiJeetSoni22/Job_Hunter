@@ -19,10 +19,11 @@ Who it's for: anyone tired of manually cross-referencing job descriptions agains
 
 ### How AI is used
 
-Gemini (`gemini-2.5-flash`) does two jobs, both as structured JSON with a low temperature (0.1) to keep output deterministic:
+Gemini (`gemini-2.5-flash`) does three jobs, all as structured JSON with a low temperature (0.1) to keep output deterministic:
 
 - **Resume parsing** — turns an uploaded PDF's raw text into a normalized list of technical skills.
 - **Job matching** — compares those skills against a job description and returns a fit score, up to five missing skills, and a two-sentence summary. Scores are cached and only recomputed when the resume changes.
+- **Interview preparation generation** — uses the active resume text plus a job's title, company, and description to return tailored technical, behavioral, and project questions, topics to revise, and interview tips. The generation is stateless and never persisted.
 
 ---
 
@@ -32,7 +33,7 @@ Gemini (`gemini-2.5-flash`) does two jobs, both as structured JSON with a low te
 - **FastAPI** backend with a strict layering discipline: routers handle HTTP only, all business logic lives in services, and every error response is normalized into one `{data, error}` envelope.
 - **PostgreSQL + SQLAlchemy 2.x + Alembic** — three tables (`jobs`, `resumes`, `scrape_runs`), one migration, JSONB for skill arrays, indexed for the actual query patterns the API uses.
 - **Playwright** drives a headless Chromium browser to scrape YC's JS-rendered job board; **httpx** hits RemoteOK's public JSON API directly — no browser needed there.
-- **Gemini AI** for skill extraction and job-fit scoring, with retry + exponential backoff on transient API errors.
+- **Gemini AI** for skill extraction, job-fit scoring, resume-gap analysis, and interview-prep generation, with retry + exponential backoff on transient API errors.
 - **Docker Compose** for PostgreSQL in local dev.
 - **Pytest** — 104 service-layer tests with Gemini mocked out, gated behind a live test database.
 
@@ -64,6 +65,12 @@ Gemini (`gemini-2.5-flash`) does two jobs, both as structured JSON with a low te
 - Receive concrete resume improvement suggestions specific to the role
 - Get ATS optimization tips for that specific job description
 - Powered by Gemini, with the same caching and retry logic as job scoring
+
+### Interview Preparation Generator
+- Open a saved job and generate interview prep from the active resume plus the job's title, company, and description
+- Receive structured guidance across technical questions, behavioral questions, project questions, topics to revise, and interview tips
+- No database persistence, no caching, and no background jobs; generation is stateless and runs on demand
+- Reuses the existing Gemini integration already used by scoring and resume analysis
 
 ### Application Tracking
 - Status per job: `saved → applied → interview → offer / rejected`
@@ -222,6 +229,7 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the complete list and setup i
 - Application status and notes tracking
 - Recommendation dashboard with match-quality breakdown and top matches
 - Resume Gap Analyzer for analyzing any job description against the active resume
+- Interview Preparation Generator on the job detail page, powered by the active resume and job content
 - 104 passing pytest tests across all services
 
 **In progress / next up:**
@@ -244,6 +252,8 @@ Ideas beyond the current MVP, roughly in priority order:
 - Resume versioning
 - Cover letter generation
 - Scheduled (rather than manual) syncing
+
+Interview Preparation Generator is now part of the shipped V1 workflow and is no longer a roadmap item.
 
 ---
 

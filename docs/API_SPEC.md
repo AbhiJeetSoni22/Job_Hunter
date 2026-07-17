@@ -305,6 +305,80 @@ Requires an active resume.
 
 ---
 
+## POST /api/jobs/{job_id}/interview-prep
+
+Generates AI interview preparation material for a job using the active uploaded resume plus the selected job's title, company, and description.
+
+This endpoint is stateless. It takes no request body. The job context comes from the URL path, and the resume context comes from the currently active resume upload.
+
+### Request
+
+No JSON body.
+
+### Response 200
+
+```json
+{
+  "data": {
+    "project_questions": [
+      "Tell me about a project where you used FastAPI in production."
+    ],
+    "technical_questions": [
+      "How would you design a retry strategy for an API endpoint?"
+    ],
+    "behavioral_questions": [
+      "Describe a time you handled ambiguity in a project."
+    ],
+    "topics_to_revise": [
+      "Asynchronous task handling",
+      "SQL joins and indexing"
+    ],
+    "interview_tips": [
+      "Be ready to walk through your most relevant project end-to-end."
+    ]
+  },
+  "error": null
+}
+```
+
+### Response 404
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Job <uuid> not found"
+  }
+}
+```
+
+### Response 422
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "NO_RESUME",
+    "message": "Upload a resume before generating interview prep."
+  }
+}
+```
+
+### Response 502
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "INTERVIEW_PREP_ERROR",
+    "message": "Interview prep generation failed. Please try again."
+  }
+}
+```
+
+---
+
 ## PATCH /api/jobs/{id}
 
 Updates status and/or notes.

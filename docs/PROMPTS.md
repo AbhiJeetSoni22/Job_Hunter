@@ -1,10 +1,11 @@
 # Prompts
 
-Gemini is used in three operations:
+Gemini is used in four operations:
 
 1. Skill extraction (resume upload)
 2. Job matching (job scoring)
 3. Resume gap analysis (Resume Gap Analyzer)
+4. Interview preparation generation (Job Detail → Generate Interview Prep)
 
 All prompts live in:
 
@@ -59,6 +60,14 @@ Models produce more consistent outputs when given a strict schema.
 * Strengths: maximum 5
 * Suggestions: maximum 5
 * ATS tips: maximum 5
+
+### Interview Preparation Generator
+
+* Project questions: maximum 8
+* Technical questions: maximum 8
+* Behavioral questions: maximum 6
+* Topics to revise: maximum 8
+* Interview tips: maximum 6
 
 ---
 
@@ -341,6 +350,43 @@ Key differences from Job Match prompt:
   ]
 }
 ```
+
+---
+
+# Prompt 4 — Interview Preparation Generator
+
+Used in:
+
+```text
+interview_prep_service.generate()
+↓
+gemini_client.generate_interview_prep()
+```
+
+This prompt is dedicated to the Job Detail interview-prep flow. It uses the active resume text along with the selected job's title, company, and description to return practical interview preparation guidance.
+
+Input substitutions:
+
+```text
+{resume_text}      — full plain text extracted from the active resume
+{job_description}  — full plain text of the selected job listing
+{job_title}        — job title from the saved job row
+{company_name}     — company name from the saved job row
+```
+
+Expected output schema:
+
+```json
+{
+  "project_questions": ["Question 1", "Question 2"],
+  "technical_questions": ["Question 1", "Question 2"],
+  "behavioral_questions": ["Question 1", "Question 2"],
+  "topics_to_revise": ["Topic 1", "Topic 2"],
+  "interview_tips": ["Tip 1", "Tip 2"]
+}
+```
+
+The prompt is optimized to stay structured, specific to the job, and grounded in the active resume without introducing any persistence or state beyond the immediate request.
 
 ---
 
