@@ -205,11 +205,11 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 
 * [x] Loading skeletons for job list and dashboard (`JobCardSkeleton`, `StatCardSkeleton` in `components/ui/Skeleton.tsx`, used in `app/jobs/page.tsx` and `app/dashboard/page.tsx`)
 * [x] Debug dump call removed from `yc_jobs.py` — no `_dump_debug()` in the current scraper
-* [ ] Resume delete confirmation dialog — `DELETE /api/resume` is still called directly from the resume page with no confirmation step
-* [ ] Fix the dead duplicate decorator in `routers/resume.py`
-* [ ] Remove the duplicated `SKILL_EXTRACTION_PROMPT`/`JOB_MATCH_PROMPT` definitions in `ai/prompts.py`
-* [ ] Remove the stray, unused `app/scrapers/dashboard.py`
-* [ ] Wire `Settings.CORS_ORIGINS` into `main.py`'s `CORSMiddleware` instead of the current hardcoded `http://localhost:3000`
+* [x] Resume delete confirmation dialog — `DELETE /api/resume` is still called directly from the resume page with no confirmation step
+* [x] Fix the dead duplicate decorator in `routers/resume.py`
+* [x] Remove the duplicated `SKILL_EXTRACTION_PROMPT`/`JOB_MATCH_PROMPT` definitions in `ai/prompts.py`
+* [x] Remove the stray, unused `app/scrapers/dashboard.py`
+* [x] Wire `Settings.CORS_ORIGINS` into `main.py`'s `CORSMiddleware` instead of the current hardcoded `http://localhost:3000`
 * [ ] Consolidate `app.database.get_db` and `app.dependencies.get_db_session` into a single dependency
 
 ---

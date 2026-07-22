@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
+from app.config import get_settings
 from app.routers import dashboard, health, jobs, resume, resume_analysis, scraper,interview_prep
 
 
@@ -30,14 +30,15 @@ app = FastAPI(
 # CORS
 # ---------------------------------------------------------------------------
 
+settings = get_settings()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # ---------------------------------------------------------------------------
 # Global exception handlers

@@ -1,42 +1,21 @@
 """
 Shared FastAPI dependencies.
 
-Import these in routers with Depends():
+Import these in routers:
 
-    from app.dependencies import get_db_session, get_active_resume
+from app.dependencies import DbSession, get_active_resume
 
-The db session dependency lives here (not in database.py) so routers
-have a single import location for all dependency functions.
+This module provides reusable dependency aliases and higher-level
+dependencies built on top of app.database.get_db().
 """
-
-from collections.abc import Generator
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
-from app.database import SessionLocal
 
  
 from app.database import get_db
 from app.models.resume import Resume
 
-# ── Database session ───────────────────────────────────────────────────────
-def get_db_session() -> Generator[Session, None, None]:
-    """
-    Yield a database session scoped to a single HTTP request.
-
-    Automatically closed after the request completes, even on exception.
-
-    Usage:
-        @router.get("/example")
-        def example(db: Session = Depends(get_db_session)) -> ...:
-            ...
-    """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ── Convenience type alias ─────────────────────────────────────────────────
@@ -49,7 +28,7 @@ def get_db_session() -> Generator[Session, None, None]:
 #
 from typing import Annotated  # noqa: E402
 
-DbSession = Annotated[Session, Depends(get_db_session)]
+DbSession = Annotated[Session, Depends(get_db)]
 
 
 def get_active_resume(db: Session = Depends(get_db)) -> Resume:

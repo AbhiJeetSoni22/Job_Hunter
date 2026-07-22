@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import type { Resume } from "@/lib/types";
 import type { ResumeUploaderHandle } from "@/components/resume/ResumeUploader";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type UploadProgressStatus = "idle" | "uploading" | "success" | "error";
 
@@ -60,7 +61,7 @@ export default function ResumePage() {
   const [initialised, setInitialised] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const { resume, setResume, deleting, setDeleting } = useResume(null);
-
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<UploadProgressStatus>("idle");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadFilename, setUploadFilename] = useState<string | null>(null);
@@ -118,16 +119,17 @@ export default function ResumePage() {
 
   async function handleDelete() {
     if (deleting || !resume) return;
+
     setDeleting(true);
+
     try {
       await deleteResume();
+
       setResume(null);
+
+      setShowDeleteDialog(false);
+
       addToast("Resume deleted.", "success");
-    } catch (err) {
-      addToast(
-        err instanceof ApiClientError ? err.message : "Delete failed.",
-        "error",
-      );
     } finally {
       setDeleting(false);
     }
@@ -171,7 +173,7 @@ export default function ResumePage() {
               <>
                 <ResumeOverviewCard
                   resume={resume}
-                  onDelete={handleDelete}
+                  onDelete={() => setShowDeleteDialog(true)}
                   deleting={deleting}
                 />
                 <ResumeSkillsCard resume={resume} />
@@ -184,7 +186,16 @@ export default function ResumePage() {
           </div>
         </div>
       )}
-
+      <ConfirmDialog
+        open={showDeleteDialog}
+        title="Delete Resume?"
+        description="This action cannot be undone. Your uploaded resume and extracted skills will be permanently removed."
+        confirmText="Delete Resume"
+        cancelText="Cancel"
+        loading={deleting}
+        onCancel={() => setShowDeleteDialog(false)}
+        onConfirm={handleDelete}
+      />
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );
