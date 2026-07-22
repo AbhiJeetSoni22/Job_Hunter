@@ -201,16 +201,20 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 
 ---
 
-# Phase 4 — Remaining Polish (Not started / partial)
+# Phase 4 — Remaining Polish (Updated to reflect current code)
 
-* [ ] Loading skeletons for job list and job detail (currently spinners)
-* [ ] Resume delete confirmation dialog
-* [ ] Remove the debug dump call in `yc_jobs.py` (`_dump_debug()`) now that the scraper's selectors have been confirmed working against live data (28 jobs found, 23 new, in the most recent verified run)
-* [ ] Fix the dead duplicate decorator in `routers/resume.py` (see Phase 2 note above)
+* [x] Loading skeletons for job list and dashboard (`JobCardSkeleton`, `StatCardSkeleton` in `components/ui/Skeleton.tsx`, used in `app/jobs/page.tsx` and `app/dashboard/page.tsx`)
+* [x] Debug dump call removed from `yc_jobs.py` — no `_dump_debug()` in the current scraper
+* [ ] Resume delete confirmation dialog — `DELETE /api/resume` is still called directly from the resume page with no confirmation step
+* [ ] Fix the dead duplicate decorator in `routers/resume.py`
+* [ ] Remove the duplicated `SKILL_EXTRACTION_PROMPT`/`JOB_MATCH_PROMPT` definitions in `ai/prompts.py`
+* [ ] Remove the stray, unused `app/scrapers/dashboard.py`
+* [ ] Wire `Settings.CORS_ORIGINS` into `main.py`'s `CORSMiddleware` instead of the current hardcoded `http://localhost:3000`
+* [ ] Consolidate `app.database.get_db` and `app.dependencies.get_db_session` into a single dependency
 
 ---
 
-# Phase 6 — Resume Gap Analyzer ✅ Done
+# Phase 5 — Resume Gap Analyzer ✅ Done
 
 *(New, isolated feature. Does not modify any existing Phase 1-5 logic or tables.)*
 
@@ -290,9 +294,12 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 * [x] Auto-scoring after sync (originally listed as out-of-scope in `PRD.md`; implemented in Phase 5)
 * [x] Recommendation dashboard
 * [x] Resume Gap Analyzer (new in Phase 6)
-* [x] 104 pytest tests passing (DB-gated via `TEST_DATABASE_URL`)
-* [ ] `.env.example` verified complete against `DEPLOYMENT.md`
+* [x] AI Interview Preparation Generator (new in Phase 7)
+* [x] Backend test suite passing across `job_service`, `resume_service`, `match_service`, `resume_analysis_service`, `scraper_service`, `dashboard_service` (DB-gated via `TEST_DATABASE_URL`; run `pytest` for the current count — see `docs/TESTING.md`)
+* [x] Loading skeletons (job list, dashboard)
+* [ ] `.env.example` verified complete against current `config.py` (no `DEPLOYMENT.md` exists in this repo — see `docs/PROJECT_STATUS.md` re: no production deployment config)
 * [ ] Resume delete confirmation dialog
-* [ ] Loading skeletons
+* [ ] Router-level test coverage (HTTP status/envelope) and `interview_prep_service.py` test coverage — see `docs/TESTING.md`
+* [ ] Clean up known dead code (duplicate resume-router decorator, duplicate prompt constants, stray `scrapers/dashboard.py`)
 
 **Overall: MVP complete including Resume Gap Analyzer.** Remaining items are polish, not blockers.

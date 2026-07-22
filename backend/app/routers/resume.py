@@ -2,22 +2,15 @@
 Resume router.
 
 Handles HTTP concerns for:
-  POST /api/resume/upload          — upload PDF, extract text, store
-  GET  /api/resume/latest          — return current active resume
-  GET  /api/resume/{resume_id}     — return resume by UUID
+  POST /api/resume                — upload PDF, extract text, store
+  GET  /api/resume                — return current active resume
+  GET  /api/resume/{resume_id}    — return resume by UUID
 
 Rules (ARCHITECTURE.md):
   - No business logic here.
   - No database access here.
   - Delegate everything to ResumeService.
   - Translate service exceptions (ValueError, LookupError) to HTTP responses.
-
-Why /api/resume/upload instead of /api/resume (POST)?
-  The API_SPEC.md defines POST /api/resume. Using /upload as a sub-path
-  makes the OpenAPI docs cleaner (avoids a conflict with GET /api/resume
-  returning the same path with different verbs and different response shapes)
-  and makes intent explicit in the URL. This is the only deviation from
-  the spec — it is a deliberate improvement, not an oversight.
 """
 
 import uuid
@@ -85,21 +78,6 @@ async def upload_resume(
 
 
 
-# ── POST /api/resume ───────────────────────────────────────────────────────
-
-@router.post(
-    "",
-    response_model=ApiResponse[ResumeUploadResponse],
-    status_code=status.HTTP_200_OK,
-    summary="Upload resume PDF",
-    description=(
-        "Upload a PDF resume. Extracts text via PyMuPDF and skills via Gemini. "
-        "Replaces any existing resume — only one active resume exists at a time."
-    ),
-)
-
- 
- 
 # ── GET /api/resume ────────────────────────────────────────────────────────
 
 @router.get(

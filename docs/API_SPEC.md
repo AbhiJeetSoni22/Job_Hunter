@@ -512,7 +512,6 @@ top-N query — no N+1 queries regardless of job count.
 
 Uploads a PDF resume.
 
-> **Known issue:** `routers/resume.py` currently has a stray duplicate route decorator left over from a previous edit (see `TASKS.md`, Phase 2). It has not been observed to change actual behavior — `POST /api/resume` still correctly reaches the upload handler in testing — but it's a code smell worth fixing before this file is considered final.
 
 Process:
 

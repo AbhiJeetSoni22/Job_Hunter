@@ -61,7 +61,7 @@ class ResumeResponse(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Resume — upload response
-# Returned immediately after POST /api/resume/upload.
+# Returned immediately after POST /api/resume.
 # Includes extraction statistics (page_count, char_count) so the client
 # can show feedback without a second round-trip.
 # ---------------------------------------------------------------------------

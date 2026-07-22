@@ -1,261 +1,227 @@
 # AI Internship Hunter
 
-A full-stack, AI-powered job search assistant. It scrapes internship listings from multiple sources, scores each one against your resume using Google Gemini, and tracks your application pipeline — all from a single dashboard.
+A personal, single-user tool that discovers software-engineering internships from multiple sources, scores them against your resume with Google Gemini, and tracks your application pipeline end to end.
 
-> Built as a personal tool and portfolio project. Single-user by design: no authentication, no multi-tenancy, no scaling concerns. The architecture is intentionally simple where simplicity is correct, and AI-driven where AI adds real value.
+> This README is generated from the actual codebase (backend `app/`, frontend `app/`, `alembic/versions/`, `tests/`). Nothing below describes a feature that isn't implemented.
 
----
+## Table of Contents
 
-## What It Does
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Running Locally](#running-locally)
+- [Running Tests](#running-tests)
+- [Deployment](#deployment)
+- [Screenshots](#screenshots)
+- [Documentation Index](#documentation-index)
+- [Roadmap](#roadmap)
 
-Manually hunting for internships means juggling multiple job boards, reading descriptions one by one, guessing how well you fit each role, and tracking applications in a spreadsheet. AI Internship Hunter automates the first three and gives you a clean place to do the fourth:
+## Overview
 
-1. **Collects** internship listings from RemoteOK and YC's Work at a Startup with one click.
-2. **Scores** every new listing against your resume with Gemini — a 0–100 fit score, the skills you're missing, and a two-sentence rationale — automatically, right after each sync.
-3. **Tracks** your pipeline (saved → applied → interview → offer/rejected) with notes per job.
-4. **Surfaces** your best-fit opportunities on a dashboard: top matches, score distribution, and sync history.
+AI Internship Hunter is a FastAPI + Next.js application built for one user, one resume at a time. It:
 
-Who it's for: anyone tired of manually cross-referencing job descriptions against their own resume. It's built for internship search specifically, but the scoring and tracking pattern generalizes to any job search.
+1. Accepts a PDF resume, extracts text (PyMuPDF), and pulls a normalized skills list from it (Gemini).
+2. Scrapes internship/entry-level listings from RemoteOK and Y Combinator's Work at a Startup, de-duplicating by URL.
+3. Scores each job against the active resume with Gemini (0-100 fit score, missing skills, two-sentence summary), with a resume-keyed cache.
+4. Lets you track each job through a status pipeline: `saved -> applied -> interview -> offer` (or `rejected`).
+5. Surfaces a dashboard of aggregate stats (total/scored jobs, average/best score, applications submitted, match-quality breakdown, top 5 matches).
+6. Runs two additional, independent AI features on demand: a **Resume Gap Analyzer** (paste any JD, get a score + resume-improvement suggestions) and an **AI Interview Prep Generator** (per-job, project/technical/behavioral questions and tips).
 
-### How AI is used
+There is no user authentication and no multi-user support - the data model assumes exactly one resume exists at a time.
 
-Gemini (`gemini-2.5-flash`) does three jobs, all as structured JSON with a low temperature (0.1) to keep output deterministic:
+## Key Features
 
-- **Resume parsing** — turns an uploaded PDF's raw text into a normalized list of technical skills.
-- **Job matching** — compares those skills against a job description and returns a fit score, up to five missing skills, and a two-sentence summary. Scores are cached and only recomputed when the resume changes.
-- **Interview preparation generation** — uses the active resume text plus a job's title, company, and description to return tailored technical, behavioral, and project questions, topics to revise, and interview tips. The generation is stateless and never persisted.
+| Feature | Summary |
+|---|---|
+| Resume Upload & Parsing | PDF upload -> PyMuPDF text extraction -> Gemini skill extraction. Single active resume (upload replaces the previous one). |
+| Multi-Source Job Scraping | RemoteOK JSON API + YC "Work at a Startup" (Playwright). Deduplicated by canonical URL. |
+| AI Job Match Scoring | Gemini scores each job 0-100 against resume skills, with a resume-version-aware cache and stale-score ("Needs Re-score") detection. |
+| Application Tracking | PATCH job status/notes; status values: `saved`, `applied`, `interview`, `offer`, `rejected`. |
+| Dashboard | Aggregate metrics computed in two SQL queries: totals, average/best score, match-quality tiers, top 5 matches. |
+| Auto-Scoring on Sync | After a scraper run, newly inserted jobs are scored in the background (FastAPI `BackgroundTasks`) without blocking the HTTP response. |
+| Resume Gap Analyzer | Paste a job description; get a match score, summary, missing skills, strengths, resume suggestions, and ATS tips - independent of the jobs table. |
+| AI Interview Prep Generator | Per job, generates project questions, technical questions, behavioral questions, topics to revise, and interview tips from the resume + job description. |
 
----
-
-## Technical Highlights
-
-- **Next.js 15 (App Router) + React 19 + TypeScript** — client-rendered dashboard, job list/detail, and resume pages, all talking to the backend through a single typed `lib/api.ts` fetch wrapper.
-- **FastAPI** backend with a strict layering discipline: routers handle HTTP only, all business logic lives in services, and every error response is normalized into one `{data, error}` envelope.
-- **PostgreSQL + SQLAlchemy 2.x + Alembic** — three tables (`jobs`, `resumes`, `scrape_runs`), one migration, JSONB for skill arrays, indexed for the actual query patterns the API uses.
-- **Playwright** drives a headless Chromium browser to scrape YC's JS-rendered job board; **httpx** hits RemoteOK's public JSON API directly — no browser needed there.
-- **Gemini AI** for skill extraction, job-fit scoring, resume-gap analysis, and interview-prep generation, with retry + exponential backoff on transient API errors.
-- **Docker Compose** for PostgreSQL in local dev.
-- **Pytest** — 104 service-layer tests with Gemini mocked out, gated behind a live test database.
-
----
-
-## Features
-
-### Job Collection
-- Manual sync pulls from RemoteOK (public API) and YC Jobs (Playwright)
-- Duplicate detection by canonical URL
-- Per-source scrape history (jobs found, jobs new, errors) in `scrape_runs`
-- One source failing never blocks the other
-
-### Resume Upload
-- PDF upload → PyMuPDF text extraction → Gemini skill extraction
-- 5 MB size limit, PDF-only validation
-- Single active resume; uploading a new one replaces the old one
-- Validation includes corrupted PDF detection, password-protected PDF detection, image-only PDF detection, page limit validation (3 pages max), and resume heuristics checking
-
-### AI Job Scoring
-- Match score (0–100), missing skills (up to 5), two-sentence summary
-- Automatic scoring of newly synced jobs right after a sync completes (skipped cleanly if no resume is uploaded)
-- Results cached on the job record; re-scoring only happens if the resume changed since the last score
-- "Needs Re-score" flag surfaced in the UI when the active resume is newer than a job's last score
-
-### Resume Gap Analyzer
-- Paste any job description (not just from the database) into the analyzer
-- Get detailed feedback: match score, summary, missing skills, existing strengths
-- Receive concrete resume improvement suggestions specific to the role
-- Get ATS optimization tips for that specific job description
-- Powered by Gemini, with the same caching and retry logic as job scoring
-
-### Interview Preparation Generator
-- Open a saved job and generate interview prep from the active resume plus the job's title, company, and description
-- Receive structured guidance across technical questions, behavioral questions, project questions, topics to revise, and interview tips
-- No database persistence, no caching, and no background jobs; generation is stateless and runs on demand
-- Reuses the existing Gemini integration already used by scoring and resume analysis
-
-### Application Tracking
-- Status per job: `saved → applied → interview → offer / rejected`
-- Free-text notes per job
-- Filter jobs by status, source, and scored/unscored
-
-### Recommendation Dashboard
-- Total jobs, scored jobs, average/best match score, applications submitted
-- Match-quality breakdown (Excellent / Good / Possible / Weak)
-- Top 5 matches by score, with a plain-language recommendation label per job
-
----
+See [`docs/FEATURES.md`](docs/FEATURES.md) for full detail on each feature (workflow, endpoints, DB tables, AI usage).
 
 ## Architecture
 
-```
-Browser (Next.js 15, client components)
-        │  HTTP/JSON via lib/api.ts
-        ▼
-FastAPI Backend
-    ├── routers/     ← HTTP only, no business logic
-    ├── services/    ← all business logic, independently testable
-    ├── scrapers/    ← RemoteOK (httpx) + YC Jobs (Playwright)
-    └── ai/           ← Gemini client + prompts
-        │
-        ▼
-PostgreSQL 16  (jobs · resumes · scrape_runs)
+```mermaid
+flowchart LR
+    A[Next.js Frontend] -->|"/api/* (rewrite proxy)"| B[FastAPI Routers]
+    B --> C[Service Layer]
+    C --> D[GeminiClient]
+    C --> E[SQLAlchemy ORM]
+    E --> F[(PostgreSQL)]
+    D --> G[(Google Gemini API)]
+    C --> H[Scrapers: RemoteOK / YC Jobs]
+    H --> I[(External job sites)]
 ```
 
-Everything runs synchronously and on-demand — no task queue, no scheduler, no background workers beyond a single FastAPI `BackgroundTasks` call that scores newly-synced jobs after the sync response has already been returned. That's a deliberate scope decision for a single-user tool, not an oversight — see `docs/ARCHITECTURE.md` for the full request-lifecycle breakdown and the reasoning behind it.
+Routers contain no business logic or DB access - they translate HTTP <-> service calls only. Services own all business rules and raise plain Python exceptions (`ValueError`, `LookupError`, custom `*Error` classes) that routers convert to the `{ data, error }` API envelope. Full detail in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md).
 
----
+## Tech Stack
+
+**Backend**
+- Python 3.12, FastAPI 0.115, Uvicorn
+- SQLAlchemy 2.x (typed `Mapped[...]` models) + Alembic migrations
+- PostgreSQL (JSONB + native UUID columns - SQLite is not compatible)
+- PyMuPDF (`fitz`) for PDF text extraction
+- `google-generativeai` (Gemini) for all AI features
+- `httpx` (RemoteOK) and Playwright/Chromium (YC Jobs) for scraping
+- pytest, ruff, mypy (strict)
+
+**Frontend**
+- Next.js 15 (App Router), React 19, TypeScript
+- Tailwind CSS 4
+- No state-management library - plain `useState`/`useEffect` + a centralized `lib/api.ts` fetch client
 
 ## Project Structure
 
 ```
-ai-internship-hunter/
-│
+Job_Hunter-main/
 ├── backend/
-│   ├── alembic/               # one migration: initial schema
-│   └── app/
-│       ├── routers/           # health, jobs, resume, resume_analysis, scraper, dashboard
-│       ├── services/          # job, resume, resume_analysis, match, scraper, dashboard
-│       ├── models/            # Job, Resume, ScrapeRun (SQLAlchemy)
-│       ├── schemas/           # Pydantic request/response models
-│       ├── scrapers/          # RemoteOKScraper, YCJobsScraper
-│       └── ai/                 # GeminiClient, prompt templates
-│   └── tests/                 # 104 pytest tests (service layer)
-│
+│   ├── app/
+│   │   ├── main.py                 # FastAPI app factory, CORS, exception handlers, router registration
+│   │   ├── config.py               # Settings (env vars) via pydantic-settings
+│   │   ├── database.py             # Engine, SessionLocal, Base, get_db, health check
+│   │   ├── dependencies.py         # DbSession alias, get_active_resume dependency
+│   │   ├── models/                 # SQLAlchemy ORM: Job, Resume, ScrapeRun
+│   │   ├── schemas/                # Pydantic request/response schemas + ApiResponse envelope
+│   │   ├── routers/                # HTTP layer only: health, jobs, resume, resume_analysis,
+│   │   │                           #   interview_prep, scraper, dashboard
+│   │   ├── services/               # Business logic: job_service, resume_service, match_service,
+│   │   │                           #   resume_analysis_service, interview_prep_service,
+│   │   │                           #   scraper_service, dashboard_service
+│   │   ├── scrapers/               # BaseScraper ABC + RemoteOKScraper + YCJobsScraper
+│   │   └── ai/                     # gemini_client.py (GeminiClient, AIError) + prompts.py
+│   ├── alembic/                    # Migrations (one initial-schema revision)
+│   ├── tests/                      # pytest suite, PostgreSQL-backed, Gemini mocked
+│   └── pyproject.toml
 ├── frontend/
-│   ├── app/                   # dashboard ("/"), /jobs, /jobs/[id], /resume, /resume-review
-│   ├── components/            # ui/, jobs/, resume/, resume-review/, dashboard/
-│   └── lib/                   # api.ts (fetch wrapper), types.ts
-│
-└── docs/
-    ├── PRD.md
-    ├── DATABASE.md
-    ├── API_SPEC.md
-    ├── ARCHITECTURE.md
-    ├── TASKS.md
-    ├── PROMPTS.md
-    ├── DEPLOYMENT.md
-    └── TESTING.md
+│   ├── app/                        # Next.js App Router pages: /, /dashboard, /jobs, /jobs/[id],
+│   │                                #   /resume, /resume-review
+│   ├── components/                 # dashboard/, jobs/, resume/, resume-review/, interview-prep/, ui/
+│   ├── lib/api.ts                  # Single fetch client - all HTTP calls go through here
+│   ├── lib/types.ts                # Shared TS types mirroring backend schemas
+│   └── next.config.ts              # Rewrites /api/* to the backend
+├── docker-compose.yml               # PostgreSQL only (see Deployment)
+└── docs/                            # See Documentation Index below
 ```
 
----
+## Installation
 
-## Quick Start
-
-### Prerequisites
-- Docker + Docker Compose
-- Node.js 20+
-- Python 3.12+
-- A Gemini API key ([Google AI Studio](https://aistudio.google.com/))
-
-### 1. Clone and configure
+Prerequisites: Python 3.12, Node.js 18+, Docker (for PostgreSQL), a Google Gemini API key.
 
 ```bash
-git clone <your-repository-url>
-cd ai-internship-hunter
-cp .env.example .env   # then fill in GEMINI_API_KEY at minimum
-```
+git clone <this-repo>
+cd Job_Hunter-main
 
-### 2. Start PostgreSQL
-
-```bash
+# Database
 docker compose up -d
-```
 
-### 3. Start the backend
-
-```bash
+# Backend
 cd backend
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
+playwright install chromium                          # required for the YC Jobs scraper
+cp .env.example .env                                  # then fill in GEMINI_API_KEY
 alembic upgrade head
-uvicorn app.main:app --reload --port 8000
+
+# Frontend
+cd ../frontend
+npm install
 ```
 
-- API: `http://localhost:8000`
-- Interactive docs (Swagger): `http://localhost:8000/docs`
+## Configuration
 
-### 4. Start the frontend
+Backend configuration is read from `backend/.env` (see `backend/.env.example`) via `app/config.py`:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | - (required) | PostgreSQL DSN, e.g. `postgresql://postgres:postgres@localhost:5432/internship_hunter` |
+| `GEMINI_API_KEY` | - (required) | Google Gemini API key |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name |
+| `APP_ENV` | `development` | One of `development`, `production`, `test` |
+| `LOG_LEVEL` | `INFO` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed origins |
+
+Frontend configuration (`frontend/next.config.ts`, `frontend/lib/api.ts`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `API_BASE_URL` | `http://localhost:8000` | Server-side base URL used by the Next.js rewrite proxy and by server components |
+
+The browser never calls the backend directly - requests to `/api/*` are rewritten by Next.js to `API_BASE_URL`.
+
+## Running Locally
 
 ```bash
+# Terminal 1 - database (if not already running)
+docker compose up -d
+
+# Terminal 2 - backend
+cd backend
+uvicorn app.main:app --reload --port 8000
+
+# Terminal 3 - frontend
 cd frontend
-npm install
 npm run dev
 ```
 
-- App: `http://localhost:3000`
+Visit `http://localhost:3000`. The backend serves interactive OpenAPI docs at `http://localhost:8000/docs`.
 
-Full walkthrough, including environment variables and production notes, is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+Health check: `GET http://localhost:8000/api/health` -> `200 {"status":"ok","database":"connected"}` or `503` if PostgreSQL is unreachable.
 
----
+## Running Tests
 
-## Environment Variables
+```bash
+cd backend
+export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/test_db"
+pytest
+```
 
-| Variable            | Where            | Required | Description                                      |
-| -------------------- | ---------------- | -------- | ------------------------------------------------- |
-| `DATABASE_URL`       | backend          | Yes      | PostgreSQL connection string                       |
-| `GEMINI_API_KEY`     | backend          | Yes      | Gemini API key                                     |
-| `GEMINI_MODEL`       | backend          | No       | Defaults to `gemini-2.5-flash`                     |
-| `APP_ENV`            | backend          | No       | `development` / `production` / `test`             |
-| `LOG_LEVEL`          | backend          | No       | Defaults to `INFO`                                 |
-| `CORS_ORIGINS`       | backend          | No       | Comma-separated allowed origins                    |
-| `API_BASE_URL`       | frontend (server) | No      | Backend URL used server-side; defaults to `http://localhost:8000` |
+Tests require a **real PostgreSQL** database (JSONB/UUID columns are not SQLite-compatible) - every DB-dependent fixture is skipped automatically if `TEST_DATABASE_URL` is unset. All Gemini calls are mocked (`GeminiClient` is patched in `conftest.py`); no test makes a real network or AI call. See [`docs/TESTING.md`](docs/TESTING.md).
 
-See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the complete list and setup instructions.
+Frontend has no automated test suite; `npm run lint` and `npm run type-check` are available.
 
----
+## Deployment
 
-## Documentation
+There is currently no production deployment configuration in this repository:
 
-| Document                            | Description                                  |
-| ------------------------------------ | --------------------------------------------- |
-| [`PRD.md`](docs/PRD.md)             | Product requirements and scope                |
-| [`DATABASE.md`](docs/DATABASE.md)   | Schema, indexes, design decisions             |
-| [`API_SPEC.md`](docs/API_SPEC.md)   | Full REST API reference                       |
-| [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System design, layering rules, data flows |
-| [`TASKS.md`](docs/TASKS.md)         | Build history by phase                        |
-| [`PROMPTS.md`](docs/PROMPTS.md)     | Gemini prompt templates and design rules      |
-| [`DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Local setup and production deployment notes |
-| [`TESTING.md`](docs/TESTING.md)     | Running the test suite                        |
+- `docker-compose.yml` only defines the PostgreSQL service - there are **no Dockerfiles** for the backend or frontend.
+- Both apps are intended to be run locally (`uvicorn` / `next dev` or `next start`) against the Dockerized database.
+- CORS is hardcoded to `http://localhost:3000` in `app/main.py`'s middleware (in addition to the configurable `CORS_ORIGINS` setting, which is not currently wired into that middleware - see [Known Limitations](docs/PROJECT_STATUS.md#known-limitations)).
 
----
+Anyone wanting to deploy this to a server will need to add their own Dockerfiles/process manager and reconcile the two CORS configuration paths first.
 
-## Development Status
+## Screenshots
 
-**MVP Complete.** All core flows — sync, score, track, the recommendation dashboard, and resume gap analysis — work end-to-end in the browser against a live PostgreSQL database and the real RemoteOK/YC Jobs sources.
+_No screenshots are currently included in this repository. (Placeholder - add UI screenshots of the Dashboard, Jobs list, Job detail/Interview Prep panel, Resume page, and Resume Review page here.)_
 
-**Completed:**
-- Job collection from both sources, with dedup and per-source error isolation
-- Resume upload, PDF text extraction, AI skill extraction
-- AI job scoring with caching and stale-score detection
-- Automatic scoring of new jobs after every sync
-- Application status and notes tracking
-- Recommendation dashboard with match-quality breakdown and top matches
-- Resume Gap Analyzer for analyzing any job description against the active resume
-- Interview Preparation Generator on the job detail page, powered by the active resume and job content
-- 104 passing pytest tests across all services
+## Documentation Index
 
-**In progress / next up:**
-- Loading skeletons (currently spinners) for perceived-performance polish
-- Delete-confirmation dialog on resume removal
-- Removing a leftover debug-dump call in the YC scraper now that selectors are confirmed stable
-
-See [`TASKS.md`](docs/TASKS.md) for the full phase-by-phase breakdown.
-
----
+| Document | Contents |
+|---|---|
+| [`docs/FEATURES.md`](docs/FEATURES.md) | Every implemented feature: workflow, backend/frontend implementation, APIs, DB tables, AI usage |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layered architecture, layer responsibilities, request lifecycle |
+| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) | High-level design, data flow, deployment architecture, trade-offs |
+| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | End-to-end workflows with Mermaid diagrams (resume upload -> interview prep) |
+| [`docs/API_SPEC.md`](docs/API_SPEC.md) | Every endpoint: method, path, auth, request/response, errors |
+| [`docs/DATABASE.md`](docs/DATABASE.md) | Tables, columns, relationships, constraints, indexes, migrations |
+| [`docs/PROMPTS.md`](docs/PROMPTS.md) | All four Gemini prompts, output schemas, retry/caching/validation logic |
+| [`docs/TESTING.md`](docs/TESTING.md) | Test strategy, fixtures, coverage, how to run |
+| [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) | Completed / in progress / planned / known limitations / tech debt |
+| [`docs/PRD.md`](docs/PRD.md) | Product requirements (original intent) |
+| [`docs/TASKS.md`](docs/TASKS.md) | Phase-by-phase build log |
 
 ## Roadmap
 
-Ideas beyond the current MVP, roughly in priority order:
-
-- Loading skeletons and further UI polish
-- Application status history / timeline view
-- Bulk status updates
-- Additional job sources (e.g. Wellfound)
-- Resume versioning
-- Cover letter generation
-- Scheduled (rather than manual) syncing
-
-Interview Preparation Generator is now part of the shipped V1 workflow and is no longer a roadmap item.
-
----
+See [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) for the authoritative, code-derived roadmap (Completed / In Progress / Planned / Future Ideas / Known Limitations / Technical Debt).
 
 ## License
 
