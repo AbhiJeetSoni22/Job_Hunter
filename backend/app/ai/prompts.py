@@ -119,7 +119,7 @@ Design rules (from docs/PROMPTS.md):
   - Exact output schema embedded in every prompt.
   - Bounded output (max 30 skills, max 5 missing skills, exactly 2 sentences).
   - No hallucination — only explicit information from the input.
-  - Placeholders use {curly_brace} format for str.format() substitution.
+
 
 Temperature: both prompts should be called with temperature=0.1 to
 maximise consistency and minimise hallucination in structured output.

@@ -4,7 +4,8 @@ services/dashboard_service.py
 Aggregate statistics for the AI-powered recommendation dashboard.
 
 Phase 5:
-  - Feature 1: Top Matches      -> top 5 scored jobs, sorted desc, excludes unscored
+  - Feature 1: Top Matches      -> top 5 scored, active jobs, sorted desc,
+                                     excludes unscored and expired jobs
   - Feature 2: Match Quality    -> Excellent / Good / Possible / Weak counts
   - Feature 3: Dashboard Metrics -> Total Jobs, Scored Jobs, Average/Best score,
                                      Applications Submitted
@@ -99,7 +100,7 @@ class DashboardService:
         """
         rows = self.db.scalars(
             select(Job)
-            .where(Job.match_score.isnot(None))
+            .where(Job.match_score.isnot(None), Job.expired_at.is_(None))
             .order_by(Job.match_score.desc())
             .limit(TOP_MATCHES_LIMIT)
         ).all()

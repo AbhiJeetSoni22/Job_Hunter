@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import asc, desc, func, select
+from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.job import Job
@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 VALID_SORT_COLUMNS = {"created_at", "posted_at", "match_score"}
 VALID_ORDER = {"asc", "desc"}
 VALID_STATUSES = {"saved", "applied", "interview", "offer", "rejected"}
+
+# Job lifecycle (docs/ARCHITECTURE.md §7 Data Flow — Job Lifecycle)
+EXPIRE_AFTER_MISSING_SYNCS = 2
 
 
 class JobService:
@@ -53,6 +56,7 @@ class JobService:
         source: str | None = None,
         scored: bool | None = None,
         current_resume_uploaded_at: datetime | None = None,
+        include_expired: bool = False,
     ) -> PaginatedJobList:
         if sort_by not in VALID_SORT_COLUMNS:
             raise ValueError(
@@ -63,6 +67,8 @@ class JobService:
 
         query = select(Job)
 
+        if not include_expired:
+            query = query.where(Job.expired_at.is_(None))
         if status is not None:
             query = query.where(Job.status == status)
         if source is not None:
@@ -149,27 +155,58 @@ class JobService:
     # ── Upsert (called by scraper_service) ────────────────────────────────
 
     def upsert_jobs(
-    self,
-    jobs: list[JobUpsertData],
-    new_job_ids: list[str] | None = None,
+        self,
+        jobs: list[JobUpsertData],
+        new_job_ids: list[str] | None = None,
+        source: str | None = None,
     ) -> int:
         """
-        Insert new jobs; skip duplicates by URL.
-        Returns count of newly inserted rows.
+        Insert new jobs; mark existing jobs (by URL) as seen; skip nothing.
 
-        If `new_job_ids` is provided, the id of every newly inserted job
-        is appended to it. This lets callers (e.g. scraper_service, for
-        Phase 5 auto-scoring) know exactly which jobs are new without a
-        second query, while leaving the existing int return contract
-        untouched for all current callers and tests.
+        Also drives job-lifecycle tracking (last_seen_at, missing_sync_count,
+        expired_at) for every OTHER active job belonging to the same source
+        that was NOT in this batch — those jobs disappeared from the source
+        during this sync. One source's sync never touches another source's
+        jobs (`Job.source == source` scopes every lifecycle query).
+
+        Args:
+            jobs: normalised job data for ONE source's sync (as produced by
+                a single scraper's run()).
+            new_job_ids: if provided, ids of newly inserted jobs are appended.
+            source: the source this batch belongs to. Required to detect
+                missing jobs when `jobs` is empty (a scraper that found
+                nothing still needs its existing jobs aged). Inferred from
+                the batch when omitted and non-empty, for backward
+                compatibility with existing callers/tests.
+
+        Returns:
+            Count of newly inserted rows (unchanged contract).
+
+        Efficient by construction: one query to bulk-load existing rows for
+        this batch's URLs, one query to bulk-load this source's active jobs
+        missing from the batch. No per-job queries — no N+1.
         """
+        now = datetime.now(timezone.utc)
+        batch_source = source or (jobs[0].source if jobs else None)
+
+        urls = [data.url for data in jobs]
+        existing_by_url: dict[str, Job] = {}
+        if urls:
+            existing_rows = self.db.scalars(
+                select(Job).where(Job.url.in_(urls))
+            ).all()
+            existing_by_url = {job.url: job for job in existing_rows}
+
+        seen_urls: set[str] = set()
         new_count = 0
+
         for data in jobs:
-            exists = self.db.scalar(
-                select(func.count()).where(Job.url == data.url)
-            )
-            if exists:
-                logger.debug("upsert skip duplicate url=%s", data.url)
+            seen_urls.add(data.url)
+            existing = existing_by_url.get(data.url)
+
+            if existing is not None:
+                self._mark_seen(existing, now)
+                logger.debug("upsert seen existing url=%s", data.url)
                 continue
 
             job = Job(
@@ -183,8 +220,10 @@ class JobService:
                 location=data.location,
                 posted_at=data.posted_at,
                 status="saved",
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
+                last_seen_at=now,
+                missing_sync_count=0,
+                created_at=now,
+                updated_at=now,
             )
             self.db.add(job)
             new_count += 1
@@ -192,11 +231,81 @@ class JobService:
                 new_job_ids.append(job.id)
             logger.debug("upsert new job url=%s", data.url)
 
+        if batch_source is not None:
+            self._age_missing_jobs(batch_source, seen_urls, now)
+
         self.db.commit()
         logger.info("upsert complete new=%d", new_count)
         return new_count
 
+    # ── Cleanup (called by app/cleanup.py) ─────────────────────────────────
+
+    def cleanup_expired_jobs(self, *, days: int = 30) -> int:
+        """
+        Permanently delete expired jobs older than `days` with no
+        meaningful user interaction.
+
+        Eligible for deletion only when ALL of:
+          - expired_at is set and at least `days` days in the past
+          - status is still "saved" (user never applied/interviewed/etc.)
+          - notes is empty (user never annotated it)
+
+        Anything the user acted on (status changed, or notes added) is
+        kept forever, regardless of expiry age.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        stmt = select(Job).where(
+            Job.expired_at.isnot(None),
+            Job.expired_at <= cutoff,
+            Job.status == "saved",
+            or_(Job.notes.is_(None), Job.notes == ""),
+        )
+        rows = self.db.scalars(stmt).all()
+        deleted = len(rows)
+
+        for job in rows:
+            self.db.delete(job)
+        self.db.commit()
+
+        logger.info("cleanup_expired_jobs deleted=%d cutoff_days=%d", deleted, days)
+        return deleted
+
     # ── Private helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _mark_seen(job: Job, now: datetime) -> None:
+        """Reset lifecycle state for a job whose URL appeared in this sync."""
+        job.last_seen_at = now
+        job.missing_sync_count = 0
+        if job.expired_at is not None:
+            job.expired_at = None  # reappeared — active again
+
+    def _age_missing_jobs(
+        self,
+        source: str,
+        seen_urls: set[str],
+        now: datetime,
+    ) -> None:
+        """
+        Bump missing_sync_count for every active job of `source` that was
+        NOT in this sync's batch. Expires jobs that hit the threshold.
+
+        Scoped strictly to `source` — a sync of one source never marks
+        another source's jobs as missing/expired.
+        """
+        stmt = select(Job).where(
+            Job.source == source,
+            Job.expired_at.is_(None),
+        )
+        if seen_urls:
+            stmt = stmt.where(Job.url.notin_(seen_urls))
+
+        rows = self.db.scalars(stmt).all()
+        for job in rows:
+            job.missing_sync_count += 1
+            if job.missing_sync_count >= EXPIRE_AFTER_MISSING_SYNCS:
+                job.expired_at = now
 
     @staticmethod
     def _compute_needs_rescore(
@@ -234,6 +343,7 @@ class JobService:
             status=job.status,
             match_score=job.match_score,
             needs_rescore=self._compute_needs_rescore(job, current_resume_uploaded_at),
+            expired_at=job.expired_at,
             posted_at=job.posted_at,
             created_at=job.created_at,
             updated_at=job.updated_at,
@@ -261,6 +371,7 @@ class JobService:
             matched_at=job.matched_at,
             needs_rescore=self._compute_needs_rescore(job, current_resume_uploaded_at),
             resume_uploaded_at=job.resume_uploaded_at,
+            expired_at=job.expired_at,
             posted_at=job.posted_at,
             created_at=job.created_at,
             updated_at=job.updated_at,

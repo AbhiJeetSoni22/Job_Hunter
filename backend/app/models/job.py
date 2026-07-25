@@ -4,17 +4,17 @@ Job ORM model.
 Maps to the `jobs` table defined in docs/DATABASE.md.
 
 Design decisions (from DATABASE.md):
-  - Match data (match_score, missing_skills, match_summary, matched_at,
+    - Match data (match_score, missing_skills, match_summary, matched_at,
     resume_uploaded_at) lives directly on this table — not a separate
     `matches` table. Single user, single resume: a join table adds
     complexity with zero benefit.
-  - `status` and `notes` live here too. An `applications` table is the
+    - `status` and `notes` live here too. An `applications` table is the
     right abstraction for multi-user systems; for personal use the job
     record IS the application record.
-  - `resume_uploaded_at` mirrors the resume's uploaded_at at scoring time.
+    - `resume_uploaded_at` mirrors the resume's uploaded_at at scoring time.
     When resume.uploaded_at > job.resume_uploaded_at the UI can flag
     "Needs Re-score" without touching every job automatically.
-"""
+    """
 
 import uuid
 from datetime import datetime
@@ -179,6 +179,38 @@ class Job(Base):
         doc="Timestamp of the last update to any field on this record.",
     )
 
+    # ── Lifecycle tracking (job expiry / cleanup) ────────────────────────────
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc=(
+            "Timestamp this job's URL was last seen during a sync of its "
+            "source. Reset to now() every time the job appears in a scrape; "
+            "used together with missing_sync_count to detect stale listings."
+        ),
+    )
+
+    missing_sync_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+        doc=(
+            "Consecutive syncs of this job's source where the job's URL was "
+            "not seen. Reset to 0 whenever the job is seen again. Jobs "
+            "reaching 2 are marked expired."
+        ),
+    )
+
+    expired_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc=(
+            "Set once missing_sync_count reaches 2 during a sync of this "
+            "job's source. Null while active. Cleared automatically if the "
+            "job's URL reappears in a later sync (job becomes active again)."
+        ),
+    )
+
     # ── Indexes ──────────────────────────────────────────────────────────────
     __table_args__ = (
         # Filter by application status (most common query filter)
@@ -186,7 +218,9 @@ class Job(Base):
         # Filter by source (remoteok vs yc_jobs)
         Index("idx_jobs_source", "source"),
         # Sort job list by match score descending; NULLs sort last
-        Index("idx_jobs_score", "match_score")
+        Index("idx_jobs_score", "match_score"),
+        # Default listing excludes expired jobs; cleanup scans by expired_at
+        Index("idx_jobs_expired_at", "expired_at"),
         # Deduplication — enforced at DB level, not just application level
         # Defined as unique=True on the column above; named here for clarity
         # (The UNIQUE constraint creates the index automatically)
@@ -194,10 +228,10 @@ class Job(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<Job id={self.id} title={self.title!r} "
-            f"company={self.company!r} status={self.status!r} "
-            f"score={self.match_score}>"
-        )
+    f"<Job id={self.id} title={self.title!r} "
+    f"company={self.company!r} status={self.status!r} "
+    f"score={self.match_score}>"
+)
 
     @property
     def is_scored(self) -> bool:
@@ -217,6 +251,6 @@ class Job(Base):
         if current_resume_uploaded_at is None:
             return False
         return (
-            self.resume_uploaded_at is None
-            or self.resume_uploaded_at < current_resume_uploaded_at
-        )
+        self.resume_uploaded_at is None
+        or self.resume_uploaded_at < current_resume_uploaded_at
+    )

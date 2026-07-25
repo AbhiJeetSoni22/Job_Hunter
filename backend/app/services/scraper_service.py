@@ -135,7 +135,9 @@ class ScraperService:
         try:
             raw_jobs: list[JobUpsertData] = scraper.run()
             jobs_found = len(raw_jobs)
-            jobs_new = self._job_service.upsert_jobs(raw_jobs, new_job_ids=new_job_ids)
+            jobs_new = self._job_service.upsert_jobs(
+                raw_jobs, new_job_ids=new_job_ids, source=source
+            )
             logger.info(
                 "Scraper %s complete: found=%d new=%d",
                 source, jobs_found, jobs_new,

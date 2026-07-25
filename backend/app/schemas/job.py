@@ -103,6 +103,10 @@ class JobListItem(BaseModel):
     # Human-readable label derived from match_score (Phase 5 — Feature 5)
     recommendation_label: str | None = None
 
+    # Lifecycle — null while active, set once the job disappears from its
+    # source for 2 consecutive syncs (see JobService._age_missing_jobs)
+    expired_at: datetime | None = None
+
     posted_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -147,6 +151,9 @@ class JobResponse(BaseModel):
 
     # Human-readable label derived from match_score (Phase 5 — Feature 5)
     recommendation_label: str | None = None
+
+    # Lifecycle — see JobListItem.expired_at
+    expired_at: datetime | None = None
 
     posted_at: datetime | None
     created_at: datetime

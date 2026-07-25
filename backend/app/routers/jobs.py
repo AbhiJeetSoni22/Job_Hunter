@@ -87,6 +87,10 @@ def list_jobs(
     status: str | None = Query(default=None),
     source: str | None = Query(default=None),
     scored: bool | None = Query(default=None),
+    include_expired: bool = Query(
+        default=False,
+        description="Include expired jobs in results. Defaults to False.",
+    ),
 ) -> ApiResponse[PaginatedJobList]:
     current_resume_uploaded_at = _get_resume_uploaded_at(db)
 
@@ -100,6 +104,7 @@ def list_jobs(
             source=source,
             scored=scored,
             current_resume_uploaded_at=current_resume_uploaded_at,
+            include_expired=include_expired,
         )
     except ValueError as exc:
         raise _invalid_param(str(exc)) from exc
