@@ -1,0 +1,23 @@
+{
+  "name": "AI Internship Hunter",
+  "short_name": "InternHunter",
+  "description": "AI-powered internship discovery platform that ranks internships by resume compatibility using Gemini AI.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0f1117",
+  "background_color": "#0f1117",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,13 +1,67 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import "@/styles/globals.css";
 import type { ReactNode } from "react";
+
+// TODO: replace with the real production domain once deployed.
+const SITE_URL = "https://ai-internship-hunter.example.com";
+const SITE_NAME = "AI Internship Hunter";
+const SITE_DESCRIPTION =
+  "AI-powered internship discovery platform that scrapes internship listings and ranks them by compatibility with your resume using Gemini AI.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "AI Internship Hunter",
-    template: "%s | AI Internship Hunter",
+    default: SITE_NAME,
+    template: `%s | ${SITE_NAME}`,
   },
-  description: "Find and score software engineering internships with AI",
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  authors: [{ name: SITE_NAME }],
+  creator: SITE_NAME,
+  keywords: [
+    "internship search",
+    "AI internship matching",
+    "resume matching",
+    "Gemini AI",
+    "job search",
+    "internship tracker",
+    "software engineering internships",
+  ],
+  robots: {
+    index: true,
+    follow: true,
+  },
+  manifest: "/site.webmanifest",
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: SITE_NAME,
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: ["/og-image.png"],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#0f1117",
+  colorScheme: "dark",
 };
 
 const NAV_LINKS = [
