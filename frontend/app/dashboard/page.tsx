@@ -10,7 +10,6 @@ import { TopMatches } from "@/components/dashboard/TopMatches";
 import { MatchQualityBreakdown } from "@/components/dashboard/MatchQualityBreakdown";
 import { StatCardSkeleton } from "@/components/ui/Skeleton";
 import {
-  getJobs,
   getResume,
   getScraperStatus,
   getDashboardStats,
@@ -22,12 +21,8 @@ import type { ScraperRun, DashboardStats } from "@/lib/types";
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface DashStats {
-  totalJobs: number | null;
   hasResume: boolean | null;
   lastSync: string | null;
-  topScore: number | null;
-  topCompany: string | null;
-  topJobId: string | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -43,14 +38,11 @@ function formatRelative(iso: string): string {
 }
 
 async function fetchStats(): Promise<DashStats> {
-  const [jobsResult, resumeResult, scraperResult] = await Promise.allSettled([
-    getJobs({ page: 1, page_size: 1 }),
+  const [resumeResult, scraperResult] = await Promise.allSettled([
     getResume(),
     getScraperStatus(),
   ]);
 
-  const totalJobs =
-    jobsResult.status === "fulfilled" ? jobsResult.value.total : null;
   const hasResume =
     resumeResult.status === "fulfilled" ? resumeResult.value !== null : null;
   const lastSync =
@@ -58,31 +50,7 @@ async function fetchStats(): Promise<DashStats> {
       ? (scraperResult.value[0]?.completed_at ?? null)
       : null;
 
-  // Top-scored job
-  let topScore: number | null = null;
-  let topCompany: string | null = null;
-  let topJobId: string | null = null;
-
-  if (jobsResult.status === "fulfilled" && jobsResult.value.total > 0) {
-    try {
-      const scored = await getJobs({
-        sort_by: "match_score",
-        order: "desc",
-        page_size: 1,
-        scored: true,
-      });
-      const top = scored.jobs[0] ?? null;
-      if (top) {
-        topScore = top.match_score;
-        topCompany = top.company;
-        topJobId = top.id;
-      }
-    } catch {
-      /* no scored jobs — leave null */
-    }
-  }
-
-  return { totalJobs, hasResume, lastSync, topScore, topCompany, topJobId };
+  return { hasResume, lastSync };
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────────
@@ -90,12 +58,8 @@ async function fetchStats(): Promise<DashStats> {
 export default function DashboardPage() {
   const { toasts, addToast, dismiss } = useToast();
   const [stats, setStats] = useState<DashStats>({
-    totalJobs: null,
     hasResume: null,
     lastSync: null,
-    topScore: null,
-    topCompany: null,
-    topJobId: null,
   });
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -173,7 +137,7 @@ export default function DashboardPage() {
           <>
             <StatCard
               label="Total Jobs"
-              value={stats.totalJobs !== null ? String(stats.totalJobs) : "—"}
+              value={dashStats ? String(dashStats.total_jobs) : "—"}
               icon="💼"
               href="/jobs"
             />
@@ -202,23 +166,23 @@ export default function DashboardPage() {
               value={
                 !stats.hasResume
                   ? "—"
-                  : stats.topScore !== null
-                    ? `${stats.topScore}%`
+                  : dashStats?.best_match_score != null
+                    ? `${dashStats.best_match_score}%`
                     : "—"
               }
               icon="⭐"
               href={
                 !stats.hasResume
                   ? "/resume"
-                  : stats.topJobId
-                    ? `/jobs/${stats.topJobId}`
+                  : dashStats?.top_matches[0]?.id
+                    ? `/jobs/${dashStats.top_matches[0].id}`
                     : undefined
               }
               valueColor="var(--color-green)"
               sub={
                 !stats.hasResume
                   ? "Upload Resume"
-                  : (stats.topCompany ?? undefined)
+                  : (dashStats?.top_matches[0]?.company ?? undefined)
               }
             />
           </>

@@ -15,7 +15,7 @@ from app.schemas.dashboard import DashboardStats
 from app.schemas.job import ApiResponse
 from app.services.dashboard_service import DashboardService
 from fastapi import APIRouter
-
+import time
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
@@ -32,5 +32,8 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
     ),
 )
 def dashboard_stats(db: DbSession) -> ApiResponse[DashboardStats]:
+    print("Before service:", time.perf_counter())
+    start = time.perf_counter()
     stats = DashboardService(db).get_stats()
+    print(f"DashboardService: {time.perf_counter()-start:.3f}s")
     return ApiResponse(data=stats)

@@ -12,7 +12,7 @@ from collections.abc import Generator
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
-
+import time
 from app.config import get_settings
 
 settings = get_settings()
@@ -63,7 +63,11 @@ def get_db() -> Generator[Session, None, None]:
     The session is closed automatically after the request completes,
     even if an exception is raised.
     """
+    start = time.perf_counter()
+
     db = SessionLocal()
+    print(f"SessionLocal(): {time.perf_counter() - start:.3f}s")
+
     try:
         yield db
     finally:

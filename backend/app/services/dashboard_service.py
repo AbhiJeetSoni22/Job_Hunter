@@ -26,7 +26,7 @@ from sqlalchemy.sql import func
 from app.models.job import Job
 from app.schemas.dashboard import DashboardStats, MatchQualityBreakdown, TopMatchItem
 from app.services.match_service import recommendation_label
-
+import time
 TOP_MATCHES_LIMIT = 5
 
 # Match-quality tier thresholds (Feature 2 — distinct from the
@@ -42,7 +42,8 @@ class DashboardService:
 
     def get_stats(self) -> DashboardStats:
         """Compute every dashboard metric with two total queries."""
-
+        start = time.perf_counter()
+        print("Before SQL")
         aggregates = self.db.execute(
             select(
                 func.count(Job.id).label("total_jobs"),
@@ -64,9 +65,10 @@ class DashboardService:
                 func.count(case((Job.match_score < POSSIBLE_MIN, 1))).label("weak"),
             )
         ).one()
-
+        print(f"Aggregate Query: {time.perf_counter() - start:.3f}s")
+        start = time.perf_counter()
         top_matches = self._get_top_matches()
-
+        print(f"Top Matches Query: {time.perf_counter() - start:.3f}s")
         average = (
             round(float(aggregates.average_match_score), 1)
             if aggregates.average_match_score is not None
