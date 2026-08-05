@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -13,6 +13,7 @@ import {
   getResume,
   getScraperStatus,
   getDashboardStats,
+  getScoringStatus,
   runScraper,
   ApiClientError,
 } from "@/lib/api";
@@ -24,6 +25,14 @@ interface DashStats {
   hasResume: boolean | null;
   lastSync: string | null;
 }
+
+// Background auto-scoring poll: how often to check, and how long to wait
+// before giving up and just reporting whatever progress was made. Chosen
+// generously — Gemini calls can take 10-30s each with up to 3 retries
+// (see gemini_client._BACKOFF_SECONDS), and new jobs are scored one at a
+// time, so a couple of slow/retried jobs can legitimately take a while.
+const SCORING_POLL_INTERVAL_MS = 2_000;
+const SCORING_POLL_TIMEOUT_MS = 90_000;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -64,40 +73,135 @@ export default function DashboardPage() {
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [scoring, setScoring] = useState<{
+    total: number;
+    scored: number;
+    failed: number;
+  } | null>(null);
 
-  const loadStats = useCallback(async () => {
+  // Polling refs — a ref (not state) so timer ids survive re-renders without
+  // re-triggering effects, and so cleanup always sees the latest ids.
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped every time a new poll session starts; stale async callbacks from
+  // a previous session compare against this and bail out instead of acting.
+  const pollTokenRef = useRef(0);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+  }, []);
+
+  const loadStats = useCallback(async (): Promise<{
+    hasResume: boolean | null;
+  }> => {
     setLoading(true);
+    let hasResume: boolean | null = null;
     try {
       const [s, d] = await Promise.allSettled([
         fetchStats(),
         getDashboardStats(),
       ]);
-      if (s.status === "fulfilled") setStats(s.value);
+      if (s.status === "fulfilled") {
+        setStats(s.value);
+        hasResume = s.value.hasResume;
+      }
       if (d.status === "fulfilled") setDashStats(d.value);
     } catch {
       // partial — already set nulls
     } finally {
       setLoading(false);
     }
+    return { hasResume };
   }, []);
 
   useEffect(() => {
     loadStats();
   }, [loadStats]);
 
+  // Stop any in-flight poll on unmount — no orphan timers.
+  useEffect(() => stopPolling, [stopPolling]);
+
+  const startScoringPoll = useCallback(
+    (runId: string, total: number) => {
+      // A repeated sync click could in principle race a previous poll —
+      // cancel it first so there's never more than one interval running.
+      stopPolling();
+      const token = ++pollTokenRef.current;
+      setScoring({ total, scored: 0, failed: 0 });
+
+      const finish = async (message: string, kind: "success" | "info") => {
+        if (pollTokenRef.current !== token) return;
+        stopPolling();
+        setScoring(null);
+        addToast(message, kind);
+        await loadStats();
+      };
+
+      const check = async () => {
+        if (pollTokenRef.current !== token) return;
+        try {
+          const s = await getScoringStatus(runId);
+          if (pollTokenRef.current !== token) return;
+          setScoring({ total: s.total, scored: s.scored, failed: s.failed });
+
+          if (s.status === "completed") {
+            const message =
+              s.failed > 0
+                ? `Scoring complete — ${s.scored} scored, ${s.failed} failed.`
+                : `Scoring complete — ${s.scored} job${s.scored !== 1 ? "s" : ""} scored.`;
+            await finish(message, "success");
+          }
+        } catch {
+          // Transient failure reaching the status endpoint — keep polling
+          // on the next tick rather than tearing down already-loaded
+          // dashboard state (edge case: scoring-status request fails).
+        }
+      };
+
+      pollTimerRef.current = setInterval(check, SCORING_POLL_INTERVAL_MS);
+      pollTimeoutRef.current = setTimeout(async () => {
+        if (pollTokenRef.current !== token) return;
+        // Safety fallback only — normal completion comes from the backend
+        // reporting status "completed", never from this timing out.
+        try {
+          const s = await getScoringStatus(runId);
+          if (pollTokenRef.current !== token) return;
+          await finish(
+            `Still scoring — ${s.scored + s.failed} of ${s.total} done so far.`,
+            "info",
+          );
+        } catch {
+          await finish("Scoring is taking longer than expected.", "info");
+        }
+      }, SCORING_POLL_TIMEOUT_MS);
+
+      check(); // don't wait a full interval for the first read
+    },
+    [stopPolling, addToast, loadStats],
+  );
+
   async function handleSync() {
-    if (syncing) return;
+    if (syncing || scoring) return;
     setSyncing(true);
     try {
       const result = await runScraper();
       const total = result.total_new;
-      const scored = result.total_scored;
-      const scoredNote = scored > 0 ? ` (${scored} auto-scored)` : "";
       addToast(
-        `Sync complete — ${total} new job${total !== 1 ? "s" : ""} added.${scoredNote}`,
+        `Sync complete — ${total} new job${total !== 1 ? "s" : ""} found.`,
         "success",
       );
-      await loadStats();
+      const { hasResume } = await loadStats();
+
+      if (total > 0 && hasResume && result.scoring_run_id) {
+        startScoringPoll(result.scoring_run_id, result.new_job_ids.length);
+      }
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : "Sync failed.";
       addToast(msg, "error");
@@ -115,12 +219,16 @@ export default function DashboardPage() {
         />
         <Button
           onClick={handleSync}
-          loading={syncing}
-          disabled={syncing}
+          loading={syncing || !!scoring}
+          disabled={syncing || !!scoring}
           size="md"
           style={{ marginTop: "0.25rem", flexShrink: 0 }}
         >
-          {syncing ? "Syncing…" : "🔄 Sync Jobs"}
+          {syncing
+            ? "Syncing…"
+            : scoring
+              ? `Scoring ${scoring.scored + scoring.failed}/${scoring.total}…`
+              : "🔄 Sync Jobs"}
         </Button>
       </div>
 

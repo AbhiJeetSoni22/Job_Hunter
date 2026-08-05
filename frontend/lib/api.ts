@@ -27,6 +27,7 @@ import type {
   Resume,
   ResumeUploadResponse,
   ScoreResponse,
+  ScoringStatus,
   ScraperRun,
   ScraperRunResult,
   ResumeAnalysisResponse,
@@ -209,6 +210,11 @@ export async function runScraper(): Promise<ScraperRunResult> {
 
 export async function getScraperStatus(): Promise<ScraperRun[]> {
   return apiFetch<ScraperRun[]>("/api/scraper/status");
+}
+
+export async function getScoringStatus(runId: string): Promise<ScoringStatus> {
+  const qs = new URLSearchParams({ run_id: runId });
+  return apiFetch<ScoringStatus>(`/api/scraper/scoring-status?${qs}`);
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────

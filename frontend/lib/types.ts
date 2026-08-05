@@ -137,6 +137,16 @@ export interface ScraperRunResult {
   runs: ScraperRun[];
   total_new: number;
   total_scored: number;
+  new_job_ids: string[];
+  scoring_run_id: string | null;
+}
+
+export interface ScoringStatus {
+  status: "running" | "completed";
+  total: number;
+  scored: number;
+  failed: number;
+  pending: number;
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────
@@ -295,6 +305,16 @@ export interface ScraperRunResult {
   runs: ScraperRun[];
   total_new: number;
   total_scored: number;
+  new_job_ids: string[];
+  scoring_run_id: string | null;
+}
+
+export interface ScoringStatus {
+  status: "running" | "completed";
+  total: number;
+  scored: number;
+  failed: number;
+  pending: number;
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────
