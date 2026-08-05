@@ -271,10 +271,11 @@ class TestAutoScoreNewJobs:
             p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
             with p1, p2:
                 summary, new_ids = scraper_service.run_all()
-            scored = scraper_service._auto_score_new_jobs(new_ids)
+            scored, failed = scraper_service._auto_score_new_jobs(new_ids)
 
         assert summary.total_new == 1
         assert scored == 1
+        assert failed == 0
 
     def test_existing_jobs_are_never_rescored(self, scraper_service, sample_resume, db):
         from app.schemas.job import JobUpsertData
@@ -318,7 +319,7 @@ class TestAutoScoreNewJobs:
             scored2 = scraper_service._auto_score_new_jobs(new_ids2)
 
         assert summary2.total_new == 0
-        assert scored2 == 0
+        assert scored2 == (0, 0)
         row = db.scalar(select(Job).where(Job.url == url))
         assert row.match_score == 80
     
@@ -351,7 +352,222 @@ class TestAutoScoreNewJobs:
             p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
             with p1, p2:
              summary, new_ids = scraper_service.run_all()
-            scored = scraper_service._auto_score_new_jobs(new_ids)
+            scored, failed = scraper_service._auto_score_new_jobs(new_ids)
 
         assert summary.total_new == 2
         assert scored == 1
+        assert failed == 1
+
+
+# ---------------------------------------------------------------------------
+# ScoringRun terminal-state semantics
+#
+# scored + failed must always reach total_jobs, even when some/all Gemini
+# calls permanently fail or no resume exists — that's what makes status
+# flip to "completed" a reliable signal for the frontend to stop polling.
+# ---------------------------------------------------------------------------
+
+class TestScoringRunTerminalState:
+
+    def test_successful_batch_completes_with_all_scored(
+        self, scraper_service, sample_resume
+    ):
+        from app.schemas.job import JobUpsertData
+
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(
+                title="A", company="Co", description="desc",
+                url="https://scraper-scoringrun.example.com/1",
+                source="remoteok",
+            ),
+            JobUpsertData(
+                title="B", company="Co", description="desc",
+                url="https://scraper-scoringrun.example.com/2",
+                source="remoteok",
+            ),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        with patch("app.services.match_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.match_job.return_value = {
+                "match_score": 90, "missing_skills": [], "match_summary": "fit",
+            }
+            p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
+            p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
+            with p1, p2:
+                _, new_ids = scraper_service.run_all()
+            run = scraper_service.start_scoring_run(len(new_ids))
+            scraper_service.run_auto_score(new_ids, scoring_run_id=run.id)
+
+        finished = scraper_service.get_scoring_run(run.id)
+        assert finished.status == "completed"
+        assert finished.total_jobs == 2
+        assert finished.scored_jobs == 2
+        assert finished.failed_jobs == 0
+        assert finished.pending_jobs == 0
+        assert finished.completed_at is not None
+
+    def test_partial_gemini_failure_still_completes(
+        self, scraper_service, sample_resume
+    ):
+        from app.schemas.job import JobUpsertData
+        from app.ai.gemini_client import AIError
+
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(
+                title="A", company="Co", description="desc",
+                url="https://scraper-scoringrun.example.com/3",
+                source="remoteok",
+            ),
+            JobUpsertData(
+                title="B", company="Co", description="desc",
+                url="https://scraper-scoringrun.example.com/4",
+                source="remoteok",
+            ),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        with patch("app.services.match_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.match_job.side_effect = [
+                {"match_score": 60, "missing_skills": [], "match_summary": "fit"},
+                AIError("gemini permanently down"),
+            ]
+            p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
+            p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
+            with p1, p2:
+                _, new_ids = scraper_service.run_all()
+            run = scraper_service.start_scoring_run(len(new_ids))
+            scraper_service.run_auto_score(new_ids, scoring_run_id=run.id)
+
+        finished = scraper_service.get_scoring_run(run.id)
+        # Terminal even though one job never got a score.
+        assert finished.status == "completed"
+        assert finished.scored_jobs == 1
+        assert finished.failed_jobs == 1
+        assert finished.scored_jobs + finished.failed_jobs == finished.total_jobs
+        assert finished.pending_jobs == 0
+
+    def test_complete_gemini_failure_still_completes(
+        self, scraper_service, sample_resume
+    ):
+        from app.schemas.job import JobUpsertData
+        from app.ai.gemini_client import AIError
+
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(
+                title="A", company="Co", description="desc",
+                url="https://scraper-scoringrun.example.com/5",
+                source="remoteok",
+            ),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        with patch("app.services.match_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.match_job.side_effect = AIError("down")
+            p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
+            p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
+            with p1, p2:
+                _, new_ids = scraper_service.run_all()
+            run = scraper_service.start_scoring_run(len(new_ids))
+            scraper_service.run_auto_score(new_ids, scoring_run_id=run.id)
+
+        finished = scraper_service.get_scoring_run(run.id)
+        assert finished.status == "completed"
+        assert finished.scored_jobs == 0
+        assert finished.failed_jobs == 1
+        assert finished.pending_jobs == 0
+
+    def test_no_resume_reaches_completed_not_stuck_running(self, scraper_service):
+        from app.schemas.job import JobUpsertData
+
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(
+                title="A", company="Co", description="desc",
+                url="https://scraper-scoringrun.example.com/6",
+                source="remoteok",
+            ),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
+        p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
+        with p1, p2:
+            _, new_ids = scraper_service.run_all()
+        run = scraper_service.start_scoring_run(len(new_ids))
+        # No sample_resume fixture used — no active resume exists.
+        scraper_service.run_auto_score(new_ids, scoring_run_id=run.id)
+
+        finished = scraper_service.get_scoring_run(run.id)
+        assert finished.status == "completed"
+        assert finished.scored_jobs == 0
+        assert finished.failed_jobs == finished.total_jobs
+        assert finished.pending_jobs == 0
+
+    def test_zero_new_jobs_batch_completes_immediately(self, scraper_service):
+        run = scraper_service.start_scoring_run(0)
+        scraper_service.run_auto_score([], scoring_run_id=run.id)
+
+        finished = scraper_service.get_scoring_run(run.id)
+        assert finished.status == "completed"
+        assert finished.total_jobs == 0
+        assert finished.scored_jobs == 0
+        assert finished.failed_jobs == 0
+
+    def test_status_endpoint_data_while_running(self, scraper_service, sample_resume):
+        """
+        Before run_auto_score is called, the row a router would have just
+        created is still 'running' with no progress yet — this is the
+        shape GET /api/scraper/scoring-status returns while scoring is
+        in flight.
+        """
+        run = scraper_service.start_scoring_run(2)
+
+        fetched = scraper_service.get_scoring_run(run.id)
+        assert fetched.status == "running"
+        assert fetched.scored_jobs == 0
+        assert fetched.failed_jobs == 0
+        assert fetched.completed_at is None
+
+    def test_status_endpoint_data_after_completion(
+        self, scraper_service, sample_resume
+    ):
+        from app.schemas.job import JobUpsertData
+
+        remoteok = FakeScraper("remoteok")
+        remoteok.set_jobs([
+            JobUpsertData(
+                title="A", company="Co", description="desc",
+                url="https://scraper-scoringrun.example.com/7",
+                source="remoteok",
+            ),
+        ])
+        yc = FakeScraper("yc_jobs")
+        yc.set_jobs([])
+
+        with patch("app.services.match_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.match_job.return_value = {
+                "match_score": 55, "missing_skills": [], "match_summary": "fit",
+            }
+            p1 = patch("app.scrapers.remoteok.RemoteOKScraper", return_value=remoteok)
+            p2 = patch("app.scrapers.yc_jobs.YCJobsScraper", return_value=yc)
+            with p1, p2:
+                _, new_ids = scraper_service.run_all()
+            run = scraper_service.start_scoring_run(len(new_ids))
+            scraper_service.run_auto_score(new_ids, scoring_run_id=run.id)
+
+        fetched = scraper_service.get_scoring_run(run.id)
+        assert fetched.status == "completed"
+        assert fetched.completed_at is not None
+
+    def test_unknown_run_id_returns_none(self, scraper_service):
+        import uuid
+
+        assert scraper_service.get_scoring_run(uuid.uuid4()) is None

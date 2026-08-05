@@ -291,6 +291,53 @@ class ScraperRunSummary(BaseModel):
             "active resume (Phase 5 — Feature 4). 0 when no resume is uploaded."
         ),
     )
+    new_job_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        description=(
+            "IDs of jobs newly inserted by this sync, across all sources. "
+            "Background auto-scoring is scheduled for exactly these ids — "
+            "this is what makes the scoring batch below correspond to "
+            "*this* sync and not e.g. jobs from a previous sync that "
+            "never got auto-scored. Empty when no new jobs were found."
+        ),
+    )
+    scoring_run_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Id of the ScoringRun batch created to track background "
+            "auto-scoring of new_job_ids, or null when new_job_ids is "
+            "empty (nothing to score, so no batch is created). Poll "
+            "GET /api/scraper/scoring-status?run_id=<this id> to find out "
+            "when scoring reaches a terminal state."
+        ),
+    )
+
+
+class ScoringStatusResponse(BaseModel):
+    """
+    Response for GET /api/scraper/scoring-status.
+
+    Reports the persisted progress of one ScoringRun batch. status is the
+    authoritative terminal-state signal: "completed" means
+    scored + failed == total, which is reachable even when some jobs
+    permanently failed to score (a Gemini AIError does not leave a job
+    "pending" forever — it counts as failed, not unscored-but-still-
+    trying). The frontend should stop polling on status == "completed",
+    not by inferring completion from match_score alone.
+    """
+
+    status: str = Field(..., description="One of: running, completed")
+    total: int = Field(..., description="Number of job ids in this batch")
+    scored: int = Field(..., description="Jobs successfully scored so far")
+    failed: int = Field(
+        ...,
+        description=(
+            "Jobs that will not be scored by this run — permanent Gemini "
+            "failure, job no longer found, or left unattempted because "
+            "the active resume was removed mid-run."
+        ),
+    )
+    pending: int = Field(..., description="total - scored - failed")
 
 
 

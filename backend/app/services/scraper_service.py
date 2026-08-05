@@ -15,12 +15,14 @@ Architecture rules (ARCHITECTURE.md):
     """
 
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import AIError
 from app.models.scrape_run import ScrapeRun, SCRAPER_SOURCE_VALUES
+from app.models.scoring_run import ScoringRun
 from app.schemas.job import JobUpsertData, ScrapeRunResponse, ScraperRunSummary
 from app.services import match_service
 from app.services.job_service import JobService
@@ -79,20 +81,57 @@ class ScraperService:
         runs=run_results,
         total_new=total_new,
         total_scored=0,  # scoring happens after response — see run_auto_score()
+        new_job_ids=all_new_job_ids,
         )
         return summary, all_new_job_ids
-    
-    def run_auto_score(self, job_ids: list[str]) -> None:
+
+    def start_scoring_run(self, total_jobs: int) -> ScoringRun:
+        """
+        Create the persisted ScoringRun row that tracks one background
+        auto-scoring batch.
+
+        Called synchronously by the router, in the SAME request/session
+        that returns the sync response — before the BackgroundTask is
+        scheduled — so the row is guaranteed to exist by the time the
+        frontend could possibly poll for it. The background task then
+        updates this same row (by id, via its own fresh session) as it
+        scores each job.
+        """
+        run = ScoringRun(status="running", total_jobs=total_jobs)
+        self._db.add(run)
+        self._db.commit()
+        self._db.refresh(run)
+        return run
+
+    def get_scoring_run(self, run_id: uuid.UUID) -> ScoringRun | None:
+        """Fetch a ScoringRun by id, or None if it doesn't exist."""
+        return self._db.get(ScoringRun, run_id)
+
+    def run_auto_score(
+        self, job_ids: list[str], scoring_run_id: uuid.UUID | None = None
+    ) -> None:
         """
         Background-task entrypoint (Phase 5 — Feature 4).
 
         Must be called with a ScraperService built on its OWN fresh
         Session — the request-scoped session used for run_all() is
         closed as soon as the HTTP response is sent, before this runs.
+
+        When scoring_run_id is given, the corresponding ScoringRun row is
+        updated as each job is scored and is flipped to status
+        "completed" once every job has either been scored or permanently
+        failed — this is the terminal-state signal the frontend polls
+        GET /api/scraper/scoring-status for.
         """
-        scored = self._auto_score_new_jobs(job_ids)
-        if scored:
-            logger.info("background auto-score finished scored=%d", scored)
+        scored, failed = self._auto_score_new_jobs(
+            job_ids, scoring_run_id=scoring_run_id
+        )
+        if scoring_run_id is not None:
+            self._finalize_scoring_run(scoring_run_id, scored=scored, failed=failed)
+        if scored or failed:
+            logger.info(
+                "background auto-score finished scored=%d failed=%d", scored, failed
+            )
 
     def get_status(self) -> list[ScrapeRunResponse]:
         """
@@ -159,7 +198,9 @@ class ScraperService:
 
         return ScrapeRunResponse.model_validate(run), new_job_ids
 
-    def _auto_score_new_jobs(self, job_ids: list[str]) -> int:
+    def _auto_score_new_jobs(
+        self, job_ids: list[str], scoring_run_id: uuid.UUID | None = None
+    ) -> tuple[int, int]:
         """
         Score every newly inserted job against the active resume
         (Phase 5 — Feature 4).
@@ -168,34 +209,76 @@ class ScraperService:
         touched. Reuses match_service.score_job(), so cache behaviour and
         Gemini retry logic are identical to manual scoring.
 
-        Stops immediately (without erroring the whole sync) when no
-        resume has been uploaded — auto-scoring is simply skipped.
-        A per-job Gemini failure (AIError) is logged and does not abort
-        scoring of the remaining new jobs.
+        Returns (scored, failed). "Failed" covers everything that keeps a
+        job from ever being scored by this run — not just Gemini errors —
+        so that scored + failed always equals len(job_ids) and the caller
+        can reach a clean terminal state:
+            - AIError            — Gemini failed after retries
+            - JobNotFoundError   — job vanished before scoring ran
+            - NoResumeError      — no active resume; every job from this
+                                    point on (including the current one)
+                                    is counted failed and the loop stops,
+                                    since nothing will score without a
+                                    resume
+
+        When scoring_run_id is given, the corresponding ScoringRun row is
+        updated after every job (not just once at the end) so polling
+        reflects live progress, e.g. "Scoring 1/2...".
         """
         if not job_ids:
-            return 0
+            return 0, 0
 
         scored = 0
-        for job_id in job_ids:
+        failed = 0
+        for index, job_id in enumerate(job_ids):
             try:
                 match_service.score_job(job_id, self._db)
                 scored += 1
             except NoResumeError:
-                logger.info("auto-score skipped — no active resume")
+                logger.info("auto-score stopped — no active resume")
+                failed += len(job_ids) - index
                 break
             except JobNotFoundError:
-                continue
+                failed += 1
             except AIError as exc:
                 logger.warning(
                     "auto-score failed job_id=%s error=%s", job_id, exc
                 )
-                continue
+                failed += 1
 
-        if scored:
-            logger.info("auto-score complete scored=%d", scored)
+            if scoring_run_id is not None:
+                self._update_scoring_run_progress(
+                    scoring_run_id, scored=scored, failed=failed
+                )
 
-        return scored
+        if scored or failed:
+            logger.info("auto-score complete scored=%d failed=%d", scored, failed)
+
+        return scored, failed
+
+    def _update_scoring_run_progress(
+        self, run_id: uuid.UUID, *, scored: int, failed: int
+    ) -> None:
+        """Persist live progress on a ScoringRun. Leaves status as 'running'."""
+        run = self._db.get(ScoringRun, run_id)
+        if run is None:
+            return  # row was deleted — nothing to update, don't crash the batch
+        run.scored_jobs = scored
+        run.failed_jobs = failed
+        self._db.commit()
+
+    def _finalize_scoring_run(
+        self, run_id: uuid.UUID, *, scored: int, failed: int
+    ) -> None:
+        """Flip a ScoringRun to its terminal 'completed' state."""
+        run = self._db.get(ScoringRun, run_id)
+        if run is None:
+            return
+        run.status = "completed"
+        run.scored_jobs = scored
+        run.failed_jobs = failed
+        run.completed_at = datetime.now(timezone.utc)
+        self._db.commit()
 
     def _persist_run(
         self,
