@@ -64,7 +64,7 @@ class DashboardService:
                     case((Job.match_score.between(POSSIBLE_MIN, GOOD_MIN - 1), 1))
                 ).label("possible"),
                 func.count(case((Job.match_score < POSSIBLE_MIN, 1))).label("weak"),
-            )
+            ).where(Job.expired_at.is_(None))
         ).one()
         print(f"Aggregate Query: {time.perf_counter() - start:.3f}s")
         start = time.perf_counter()
