@@ -93,6 +93,8 @@ export default function ResumeReviewPage() {
       <PageHeader
         title="Resume Gap Analyzer"
         subtitle="Analyze your uploaded resume against a job description and receive personalized recommendations."
+        backHref="/dashboard"
+        backLabel="Back to Dashboard"
       />
 
       {checkingResume ? (

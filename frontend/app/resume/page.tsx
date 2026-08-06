@@ -137,7 +137,11 @@ export default function ResumePage() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <ResumePageHeader resume={resume} />
+      <ResumePageHeader
+        resume={resume}
+        backHref="/dashboard"
+        backLabel="Back to Dashboard"
+      />
 
       {loading && !initialised ? (
         <ResumePageSkeleton />

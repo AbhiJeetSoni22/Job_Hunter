@@ -209,7 +209,7 @@ export default function JobDetailPage({ params }: Props) {
   if (loadError)
     return (
       <div>
-        <PageHeader title="Job detail" />
+        <PageHeader title="Job detail" backHref="/jobs" backLabel="Back to Jobs" />
         <ErrorState message={loadError} />
       </div>
     );
@@ -220,6 +220,8 @@ export default function JobDetailPage({ params }: Props) {
       <PageHeader
         title={job.title}
         subtitle={job.company + (job.location ? ` · ${job.location}` : "")}
+        backHref="/jobs"
+        backLabel="Back to Jobs"
       />
 
       {/* ── Badges ───────────────────────────────────────────────────────── */}
