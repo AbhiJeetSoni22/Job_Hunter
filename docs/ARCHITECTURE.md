@@ -436,7 +436,7 @@ This architecture is intentionally **not** built for multi-user or high-throughp
 - **No authentication or authorization anywhere.** Anyone who can reach the backend can read/modify all data. Acceptable only because the tool is designed to run on `localhost` for one person.
 - **API keys are read from environment variables only** and are never logged, along with raw resume text (§4, Error Handling).
 - **Uploaded PDFs are validated** (content type, size, page count, encryption, minimum extractable text, a resume-content heuristic) before processing — reducing, not eliminating, the risk of processing arbitrary or malicious files.
-- **CORS is currently hardcoded** to `http://localhost:3000` in the middleware configuration, so the backend is configured for local development only.
+- **CORS origins are configurable** via `CORS_ORIGINS` and are consumed by the backend `CORSMiddleware` in `app/main.py`.
 - **No rate limiting** on any endpoint, including the AI-backed ones, which could otherwise be triggered repeatedly at cost to the operator's own AI-provider quota/billing.
 
 ---

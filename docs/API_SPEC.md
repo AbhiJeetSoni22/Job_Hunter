@@ -102,11 +102,10 @@ Sources:
 
 One source failing must not stop other sources.
 
-Newly inserted jobs are automatically scored against the active resume
-(Phase 5 — Feature 4). `total_scored` reports how many of the newly
-inserted jobs were scored. Pre-existing jobs are never rescored by a
-sync. If no resume is uploaded, `total_scored` is `0` and the sync
-still succeeds — auto-scoring is simply skipped.
+Newly inserted jobs are scheduled for background auto-scoring against the
+active resume (Phase 5 — Feature 4). The HTTP response returns immediately,
+so `total_scored` is always `0` in this response. Pre-existing jobs are never
+rescored by a sync. If no resume is uploaded, background scoring is skipped.
 
 ---
 
@@ -131,6 +130,40 @@ Returns the latest scrape run for each source.
   "error": null
 }
 ```
+
+---
+
+## GET /api/scraper/scoring-status
+
+Returns progress for one background auto-scoring batch created by `POST /api/scraper/run`.
+
+### Query Parameters
+
+| Param | Type | Required |
+| ----- | ---- | -------- |
+| run_id | string | yes |
+
+### Response 200
+
+```json
+{
+  "data": {
+    "status": "running",
+    "total": 12,
+    "scored": 4,
+    "failed": 2,
+    "pending": 6
+  },
+  "error": null
+}
+```
+
+### Notes
+
+* `status` is `running` until every job in the scoring batch has either been scored or permanently failed.
+* `failed` counts jobs that could not be scored due to a permanent Gemini error, a missing job, or the resume being removed before scoring completed.
+* `pending` is computed as `total - scored - failed`.
+* Poll this endpoint after `POST /api/scraper/run` when `scoring_run_id` is returned in the sync response.
 
 ---
 

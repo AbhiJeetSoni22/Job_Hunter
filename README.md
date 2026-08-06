@@ -46,7 +46,7 @@ There is no user authentication and no multi-user support - the data model assum
 | Resume Gap Analyzer | Paste a job description; get a match score, summary, missing skills, strengths, resume suggestions, and ATS tips - independent of the jobs table. |
 | AI Interview Prep Generator | Per job, generates project questions, technical questions, behavioral questions, topics to revise, and interview tips from the resume + job description. |
 
-See [`docs/FEATURES.md`](docs/FEATURES.md) for full detail on each feature (workflow, endpoints, DB tables, AI usage).
+See [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) for implementation progress and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for design details.
 
 ## Architecture
 
@@ -62,7 +62,7 @@ flowchart LR
     H --> I[(External job sites)]
 ```
 
-Routers contain no business logic or DB access - they translate HTTP <-> service calls only. Services own all business rules and raise plain Python exceptions (`ValueError`, `LookupError`, custom `*Error` classes) that routers convert to the `{ data, error }` API envelope. Full detail in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md).
+Routers contain no business logic or DB access - they translate HTTP <-> service calls only. Services own all business rules and raise plain Python exceptions (`ValueError`, `LookupError`, custom `*Error` classes) that routers convert to the `{ data, error }` API envelope. Full detail in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Tech Stack
 
@@ -195,9 +195,9 @@ There is currently no production deployment configuration in this repository:
 
 - `docker-compose.yml` only defines the PostgreSQL service - there are **no Dockerfiles** for the backend or frontend.
 - Both apps are intended to be run locally (`uvicorn` / `next dev` or `next start`) against the Dockerized database.
-- CORS is hardcoded to `http://localhost:3000` in `app/main.py`'s middleware (in addition to the configurable `CORS_ORIGINS` setting, which is not currently wired into that middleware - see [Known Limitations](docs/PROJECT_STATUS.md#known-limitations)).
+- CORS origins are configured via `CORS_ORIGINS` and consumed by the backend `CORSMiddleware` in `app/main.py`.
 
-Anyone wanting to deploy this to a server will need to add their own Dockerfiles/process manager and reconcile the two CORS configuration paths first.
+Anyone wanting to deploy this to a server will need to add their own Dockerfiles/process manager and may need to adjust CORS for their host environment.
 
 ## Screenshots
 
@@ -207,11 +207,13 @@ _No screenshots are currently included in this repository. (Placeholder - add UI
 
 | Document | Contents |
 |---|---|
-| [`docs/FEATURES.md`](docs/FEATURES.md) | Every implemented feature: workflow, backend/frontend implementation, APIs, DB tables, AI usage |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layered architecture, layer responsibilities, request lifecycle |
-| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) | High-level design, data flow, deployment architecture, trade-offs |
-| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | End-to-end workflows with Mermaid diagrams (resume upload -> interview prep) |
-| [`docs/API_SPEC.md`](docs/API_SPEC.md) | Every endpoint: method, path, auth, request/response, errors |
+| [`docs/API_SPEC.md`](docs/API_SPEC.md) | Every endpoint: method, path, request/response, errors |
+| [`docs/DATABASE.md`](docs/DATABASE.md) | Tables, columns, relationships, constraints, indexes, migrations |
+| [`docs/PROMPTS.md`](docs/PROMPTS.md) | All Gemini prompts, output schemas, retry/caching/validation logic |
+| [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) | Completed / in progress / planned / known limitations / tech debt |
+| [`docs/TESTING.md`](docs/TESTING.md) | Test strategy, fixtures, coverage, how to run |
+| [`docs/TASKS.md`](docs/TASKS.md) | Phase-by-phase build log |
 | [`docs/DATABASE.md`](docs/DATABASE.md) | Tables, columns, relationships, constraints, indexes, migrations |
 | [`docs/PROMPTS.md`](docs/PROMPTS.md) | All four Gemini prompts, output schemas, retry/caching/validation logic |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test strategy, fixtures, coverage, how to run |

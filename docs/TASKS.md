@@ -178,12 +178,12 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 * [x] Empty states: no jobs, no resume
 * [x] Error handling: toast notifications on sync/score/upload errors (`Toast.tsx`, `useToast()`)
 * [x] Sorting: null match scores sort last
-* [ ] Resume delete confirmation dialog — not implemented; `DELETE /api/resume` fires immediately on click
+* [x] Resume delete confirmation dialog — implemented in `frontend/app/resume/page.tsx`.
 
 ## Documentation
 * [x] README finalized (this pass)
 * [x] Docs cross-checked against code (this pass)
-* [~] `.env.example` — confirm it lists every variable in the Environment Variables table before shipping (see `DEPLOYMENT.md`)
+* [x] `.env.example` — confirm it lists every variable in the Environment Variables table.
 
 ---
 
@@ -205,7 +205,7 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 
 * [x] Loading skeletons for job list and dashboard (`JobCardSkeleton`, `StatCardSkeleton` in `components/ui/Skeleton.tsx`, used in `app/jobs/page.tsx` and `app/dashboard/page.tsx`)
 * [x] Debug dump call removed from `yc_jobs.py` — no `_dump_debug()` in the current scraper
-* [x] Resume delete confirmation dialog — `DELETE /api/resume` is still called directly from the resume page with no confirmation step
+* [x] Resume delete confirmation dialog — implemented in `frontend/app/resume/page.tsx`.
 * [x] Fix the dead duplicate decorator in `routers/resume.py`
 * [x] Remove the duplicated `SKILL_EXTRACTION_PROMPT`/`JOB_MATCH_PROMPT` definitions in `ai/prompts.py`
 * [x] Remove the stray, unused `app/scrapers/dashboard.py`
@@ -297,7 +297,7 @@ Next.js starts. Navigation works. Frontend can talk to the backend.
 * [x] AI Interview Preparation Generator (new in Phase 7)
 * [x] Backend test suite passing across `job_service`, `resume_service`, `match_service`, `resume_analysis_service`, `scraper_service`, `dashboard_service` (DB-gated via `TEST_DATABASE_URL`; run `pytest` for the current count — see `docs/TESTING.md`)
 * [x] Loading skeletons (job list, dashboard)
-* [ ] `.env.example` verified complete against current `config.py` (no `DEPLOYMENT.md` exists in this repo — see `docs/PROJECT_STATUS.md` re: no production deployment config)
+* [x] `.env.example` verified complete against current `config.py`.
 * [ ] Resume delete confirmation dialog
 * [ ] Router-level test coverage (HTTP status/envelope) and `interview_prep_service.py` test coverage — see `docs/TESTING.md`
 * [ ] Clean up known dead code (duplicate resume-router decorator, duplicate prompt constants, stray `scrapers/dashboard.py`)

@@ -4,7 +4,7 @@
 **Version:** 1.0 MVP  
 **Scope:** Personal use
 
-> **Implementation status:** All seven capabilities described below (Job Collection, Resume Upload, Job Scoring, Application Tracking, Recommendation Dashboard, Resume Gap Analyzer, Interview Preparation Generator) are implemented in the current codebase. See `docs/FEATURES.md` for the code-verified detail of each, and `docs/PROJECT_STATUS.md` for what remains open (limitations, tech debt, ideas beyond this PRD's scope).
+> **Implementation status:** All seven capabilities described below (Job Collection, Resume Upload, Job Scoring, Application Tracking, Recommendation Dashboard, Resume Gap Analyzer, Interview Preparation Generator) are implemented in the current codebase. See `docs/PROJECT_STATUS.md` for what remains open (limitations, tech debt, ideas beyond this PRD's scope).
 
 ---
 

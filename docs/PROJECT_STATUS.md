@@ -164,7 +164,6 @@ Full endpoint-by-endpoint and table-by-table detail lives in `API_SPEC.md` and `
 - **No test coverage for the Interview Prep service** — every other service has a dedicated test file; this one does not.
 - **The Resume Gap Analyzer and Interview Prep Generator are uncached and unpersisted** — unlike job-match scoring, every call re-invokes the AI and nothing is saved; refreshing the page loses the last result.
 - **A stale job score does not resolve itself.** Replacing the active resume does not retroactively re-score existing jobs — each must be re-scored individually. Auto-scoring after a sync only covers jobs newly inserted by that sync.
-- **A configured CORS-origins setting exists but isn't actually used** — the CORS middleware is currently hardcoded to `localhost:3000` instead.
 - **Known dead code not yet cleaned up:** the details are tracked in `docs/TASKS.md` under Technical Debt.
 - **No production deployment configuration** — only the database is containerized; both apps are run locally.
 - **No frontend automated test suite** — only lint/type-check run on the frontend.
