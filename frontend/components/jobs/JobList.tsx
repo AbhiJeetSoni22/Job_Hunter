@@ -7,6 +7,7 @@ interface JobListProps {
   onStatusChanged?: (jobId: string, newStatus: JobStatus) => void;
   onStatusError?: (message: string) => void;
   /** When false, no active resume exists — match badges have no basis. */
+  
   hasResume?: boolean;
 }
 

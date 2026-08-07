@@ -4,6 +4,7 @@ interface ScoreBadgeProps {
   score: number | null;
 }
 
+
 function scoreColor(score: number): "green" | "amber" | "red" {
   if (score >= 70) return "green";
   if (score >= 40) return "amber";
