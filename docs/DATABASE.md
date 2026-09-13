@@ -1,187 +1,120 @@
-# Database
+# Database Specification
 
-**Engine:** PostgreSQL 16
-**ORM:** SQLAlchemy 2.x (mapped classes)
-**Migrations:** Alembic
-
----
-
-## Design Decisions
-
-**Match data lives on `jobs`, not a separate table.** Single resume, single user — a join table adds complexity with zero benefit. Extract to a `matches` table only if resume versioning is added later.
-
-**`status` and `notes` live on `jobs`.** An `applications` table is the right abstraction for multi-user systems. For personal use, the job record *is* the application record.
-
-**Three tables total.** `jobs`, `resumes`, `scrape_runs`. No junction tables, no soft-delete columns, no audit trail — all out of MVP scope.
+**Engine:** PostgreSQL 16  
+**ORM:** SQLAlchemy 2.x (Mapped Types)  
+**Migration Tool:** Alembic  
 
 ---
 
-## Enums
+## 1. Overview & Architectural Design Decisions
 
-### JobStatus
-
-Stored as plain `VARCHAR(20)` — **not** a PostgreSQL enum type. This is a deliberate choice: adding a new status value later is a simple deploy, not a migration that locks the table. Validation happens at the Pydantic schema layer instead.
-
-Allowed values:
-
-* saved
-* applied
-* interview
-* offer
-* rejected
-
-Default:
-
-```text
-saved
-```
+- **Four Core Tables**: `jobs`, `resumes`, `scrape_runs`, `scoring_runs`.
+- **No Foreign Key Constraints**: No junction tables or foreign keys exist between tables. In a single-user system with one active resume, storing match data directly on the `Job` record eliminates join overhead without sacrificing integrity.
+- **Single Active Resume Model**: The `resumes` table stores at most one active resume row. A new PDF upload replaces the existing row.
+- **Application Tracking on `Job`**: Application pipeline state (`status`) and user notes (`notes`) live directly on the `Job` record.
+- **String Constants over DB Enums**: Enum-like fields (`status`, `source`, `scoring_runs.status`) are stored as `VARCHAR` rather than PostgreSQL native enum types, preventing database locks during schema updates. Pydantic schemas enforce runtime validation.
 
 ---
 
-## Tables
+## 2. Table Specifications
 
-### `jobs`
+### 2.1 Table: `jobs`
 
-Stores every collected job listing, plus match results and application tracking state.
+Stores collected job listings, match scores, application status, and lifecycle expiration fields.
 
-| Column               | Type           | Constraints                   | Description                          |
-| -------------------- | -------------- | ----------------------------- | ------------------------------------ |
-| `id`                 | UUID           | PK, default gen_random_uuid() | Primary key                          |
-| `title`              | VARCHAR(500)   | NOT NULL                      | Job title                            |
-| `company`            | VARCHAR(500)   | NOT NULL                      | Company name                         |
-| `company_url`        | TEXT           | NULLABLE                      | Company website URL                  |
-| `description`        | TEXT           | NOT NULL                      | Full job description                 |
-| `url`                | TEXT           | NOT NULL, UNIQUE              | Source URL — dedup key               |
-| `source`             | VARCHAR(50)    | NOT NULL                      | `remoteok` or `yc_jobs` — validated against `JOB_SOURCE_VALUES` in `models/job.py`, not a DB-level constraint |
-| `location`           | VARCHAR(200)   | NULLABLE                      | Location string from source          |
-| `status`             | VARCHAR(20)    | NOT NULL, default `saved`     | Application tracking status (see JobStatus values below) |
-| `notes`              | TEXT           | NULLABLE                      | Free-text user notes                 |
-| `match_score`        | INTEGER        | NULLABLE                      | 0–100, null until scored             |
-| `missing_skills`     | JSONB          | NULLABLE                      | Array of skill strings               |
-| `match_summary`      | TEXT           | NULLABLE                      | 2-sentence Gemini summary            |
-| `matched_at`         | TIMESTAMPTZ    | NULLABLE                      | When scoring last ran                |
-| `resume_uploaded_at` | TIMESTAMPTZ    | NULLABLE                      | Resume timestamp used during scoring |
-| `posted_at`          | TIMESTAMPTZ    | NULLABLE                      | Original posting date from source    |
-| `created_at`         | TIMESTAMPTZ    | NOT NULL, default now()       | When we ingested this job            |
-| `updated_at`         | TIMESTAMPTZ    | NOT NULL, default now()       | Last update timestamp                |
+| Column | Data Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `gen_random_uuid()` | Primary Key |
+| `title` | `VARCHAR(500)` | No | - | Job title from source |
+| `company` | `VARCHAR(500)` | No | - | Company name |
+| `company_url` | `TEXT` | Yes | `NULL` | Company website URL |
+| `description` | `TEXT` | No | - | Full job listing text |
+| `url` | `TEXT` | No | - | Canonical source URL (UNIQUE constraint, dedup key) |
+| `source` | `VARCHAR(50)` | No | - | Scraper source (`remoteok`, `yc_jobs`) |
+| `location` | `VARCHAR(200)` | Yes | `NULL` | Location string |
+| `status` | `VARCHAR(20)` | No | `'saved'` | Application status (`saved`, `applied`, `interview`, `offer`, `rejected`) |
+| `notes` | `TEXT` | Yes | `NULL` | Free-text candidate notes |
+| `match_score` | `INTEGER` | Yes | `NULL` | Gemini fit score (0–100) |
+| `missing_skills` | `JSONB` | Yes | `NULL` | JSON array of missing skill strings |
+| `match_summary` | `TEXT` | Yes | `NULL` | Two-sentence fit summary |
+| `matched_at` | `TIMESTAMPTZ` | Yes | `NULL` | Timestamp when Gemini match score was generated |
+| `resume_uploaded_at` | `TIMESTAMPTZ` | Yes | `NULL` | Timestamp of resume version used during scoring |
+| `posted_at` | `TIMESTAMPTZ` | Yes | `NULL` | Original listing post date from source |
+| `created_at` | `TIMESTAMPTZ` | No | `now()` | Record insertion timestamp |
+| `updated_at` | `TIMESTAMPTZ` | No | `now()` | Record update timestamp |
+| `last_seen_at` | `TIMESTAMPTZ` | Yes | `NULL` | Timestamp when job URL was last seen during scraper sync |
+| `missing_sync_count` | `INTEGER` | No | `0` | Consecutive scraper syncs where job URL was missing |
+| `expired_at` | `TIMESTAMPTZ` | Yes | `NULL` | Expiration timestamp (set when `missing_sync_count >= 2`) |
 
----
-
-### Why `resume_uploaded_at`?
-
-Example:
-
-```text
-Resume A
-↓
-Job Score = 78
-
-Upload Resume B
-↓
-Old score becomes stale
-```
-
-If:
-
-```text
-resume_uploaded_at > matched_at
-```
-
-then the UI can show:
-
-```text
-Needs Re-score
-```
-
-without automatically recalculating every job.
+**Indexes on `jobs`:**
+- `idx_jobs_status` ON `jobs(status)`
+- `idx_jobs_source` ON `jobs(source)`
+- `idx_jobs_score` ON `jobs(match_score)`
+- `idx_jobs_expired_at` ON `jobs(expired_at)`
+- UNIQUE constraint on `url`
 
 ---
 
-### Indexes
+### 2.2 Table: `resumes`
 
-```sql
-CREATE INDEX idx_jobs_status
-ON jobs(status);
+Stores candidate PDF text and AI-extracted skills for the single active resume.
 
-CREATE INDEX idx_jobs_source
-ON jobs(source);
-
-CREATE INDEX idx_jobs_score
-ON jobs(match_score DESC NULLS LAST);
-
-CREATE UNIQUE INDEX idx_jobs_url
-ON jobs(url);
-```
+| Column | Data Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `gen_random_uuid()` | Primary Key |
+| `filename` | `VARCHAR(255)` | No | - | Original uploaded PDF filename |
+| `raw_text` | `TEXT` | No | - | Plain text extracted via PyMuPDF |
+| `skills` | `JSONB` | No | `'[]'::jsonb` | JSON array of normalized technical skills |
+| `uploaded_at` | `TIMESTAMPTZ` | No | `now()` | Upload timestamp |
 
 ---
 
-### `resumes`
+### 2.3 Table: `scrape_runs`
 
-Holds the single active resume.
+Append-only execution log for scraper runs per source.
 
-Row is replaced on every upload — only one row is expected to exist at any time.
+| Column | Data Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `gen_random_uuid()` | Primary Key |
+| `source` | `VARCHAR(50)` | No | - | Scraper source identifier (`remoteok`, `yc_jobs`) |
+| `jobs_found` | `INTEGER` | No | `0` | Raw jobs retrieved from source |
+| `jobs_new` | `INTEGER` | No | `0` | Newly inserted jobs after deduplication |
+| `error` | `TEXT` | Yes | `NULL` | Error log message if scraper failed |
+| `started_at` | `TIMESTAMPTZ` | No | - | Scrape start timestamp |
+| `completed_at` | `TIMESTAMPTZ` | Yes | `NULL` | Scrape completion timestamp |
 
-| Column        | Type         | Constraints                   | Description                        |
-| ------------- | ------------ | ----------------------------- | ---------------------------------- |
-| `id`          | UUID         | PK, default gen_random_uuid() | Primary key                        |
-| `filename`    | VARCHAR(255) | NOT NULL                      | Original uploaded filename         |
-| `raw_text`    | TEXT         | NOT NULL                      | Full extracted text from PDF       |
-| `skills`      | JSONB        | NOT NULL                      | Array of skill strings from Gemini |
-| `uploaded_at` | TIMESTAMPTZ  | NOT NULL, default now()       | Upload timestamp                   |
-
-No foreign keys — resume is standalone. Job scoring reads from the active resume at call time; result is stored on the job, so there's no live dependency after scoring runs.
-
----
-
-### `scrape_runs`
-
-Log of every sync attempt.
-
-Gives visibility into what ran, when, and whether it succeeded.
-
-| Column         | Type        | Constraints                   | Description                                    |
-| -------------- | ----------- | ----------------------------- | ---------------------------------------------- |
-| `id`           | UUID        | PK, default gen_random_uuid() | Primary key                                    |
-| `source`       | VARCHAR(50) | NOT NULL                      | `remoteok` or `yc_jobs`                        |
-| `jobs_found`   | INTEGER     | NOT NULL, default 0           | Total jobs returned by source                  |
-| `jobs_new`     | INTEGER     | NOT NULL, default 0           | Jobs actually inserted (deduped)               |
-| `error`        | TEXT        | NULLABLE                      | Error message if run failed, else null         |
-| `started_at`   | TIMESTAMPTZ | NOT NULL                      | When scrape began                              |
-| `completed_at` | TIMESTAMPTZ | NULLABLE                      | When scrape finished (null if errored mid-run) |
+**Indexes on `scrape_runs`:**
+- `idx_scrape_runs_source_started` ON `scrape_runs(source, started_at)`
 
 ---
 
-### Index
+### 2.4 Table: `scoring_runs`
 
-```sql
-CREATE INDEX idx_scrape_runs_source_started
-ON scrape_runs(source, started_at DESC);
-```
+Tracks persistent background auto-scoring batches scheduled after job ingestion.
+
+| Column | Data Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `gen_random_uuid()` | Primary Key |
+| `status` | `VARCHAR(20)` | No | `'running'` | Batch status (`running`, `completed`) |
+| `total_jobs` | `INTEGER` | No | - | Total jobs scheduled for scoring in batch |
+| `scored_jobs` | `INTEGER` | No | `0` | Count of jobs successfully scored |
+| `failed_jobs` | `INTEGER` | No | `0` | Count of jobs that failed scoring permanently |
+| `created_at` | `TIMESTAMPTZ` | No | `now()` | Batch creation timestamp |
+| `completed_at` | `TIMESTAMPTZ` | Yes | `NULL` | Timestamp when status flipped to `'completed'` |
+
+**Indexes on `scoring_runs`:**
+- `idx_scoring_runs_status` ON `scoring_runs(status)`
 
 ---
 
-## Migration Workflow
+## 3. Migration History
 
-```bash
-# Create new migration
-alembic revision --autogenerate -m "describe the change"
+All migrations are located in `backend/alembic/versions/`:
 
-# Apply all pending migrations
-alembic upgrade head
-
-# Roll back one step
-alembic downgrade -1
-
-# Show current state
-alembic current
-```
-
-Migrations live in:
-
-```text
-backend/alembic/versions/
-```
-
-Never edit a migration that has already been executed.
-
-Always create a new migration for schema changes.
+1. **`cc9c2e74a08d_initial_schema.py`** (Revision `cc9c2e74a08d`)
+   - Created `jobs`, `resumes`, and `scrape_runs` tables with initial indexes.
+2. **`63d3ec745a23_add_job_lifecycle_fields.py`** (Revision `63d3ec745a23`)
+   - Added `last_seen_at`, `missing_sync_count`, and `expired_at` columns to `jobs`.
+   - Created `idx_jobs_expired_at` index.
+3. **`68abbd5b8e5a_add_scoring_runs_table.py`** (Revision `68abbd5b8e5a`)
+   - Created `scoring_runs` table and `idx_scoring_runs_status` index.

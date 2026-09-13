@@ -1,68 +1,88 @@
-# Testing
+# Testing Strategy & Verification Guide
 
-This document covers the current manual verification flow for the Interview Preparation Generator feature.
-
-## Scope
-
-The Interview Preparation Generator is a stateless, on-demand AI flow that runs from the job detail page.
-
-It should be verified against:
-
-- a saved job record
-- an uploaded active resume
-- the existing Gemini integration
-- the job detail page UI
-
-No database writes, no caching, and no background jobs are expected as part of this feature.
+This document covers the automated test suite (pytest) and manual verification procedures for **AI Internship Hunter**.
 
 ---
 
-## Manual Test Instructions
+## 1. Automated Test Suite (Pytest)
 
-### 1. Prepare the environment
+The backend includes a comprehensive pytest suite located in `backend/tests/`.
 
-1. Start PostgreSQL with Docker Compose.
-2. Start the FastAPI backend.
-3. Start the Next.js frontend.
-4. Upload a valid PDF resume.
-5. Sync or create at least one saved job.
+### 1.1 Test Suite Summary
 
-### 2. Run the interview-prep flow
+- **Total Test Items Collected**: **123 tests**
+- **Test Framework**: `pytest 8.3+` with `pytest-asyncio`, `pytest-mock`, `pytest-cov`
+- **Execution State without `TEST_DATABASE_URL`**:
+  - **13 Passed** (Non-database unit tests)
+  - **110 Skipped** (Database-dependent tests using PostgreSQL)
+- **Full Execution Requirement**: Running all 123 tests requires setting `TEST_DATABASE_URL` to a valid PostgreSQL instance.
 
-1. Open the job detail page for a saved job.
-2. Confirm the active resume exists.
-3. Click "Generate Interview Prep".
-4. Confirm the UI renders the result sections:
+### 1.2 Test Modules
+
+| Test File | Service / Area Tested | Key Coverage |
+|---|---|---|
+| `test_job_service.py` | `JobService` | Paginated listing, sorting, status/notes updates, deduplication (`upsert_jobs`), lifecycle aging, and expired job cleanup (`cleanup_expired_jobs`). |
+| `test_match_service.py` | `match_service` | Job match scoring, score cache hits/misses, stale score detection (`needs_rescore`), and recommendation label mapping. |
+| `test_resume_service.py` | `ResumeService` | PDF validation, text extraction mocking, Gemini skill extraction, single active resume replacement, and resume deletion. |
+| `test_scraper_service.py` | `ScraperService` | Scraper orchestration, error handling resilience, `ScrapeRun` logging, `ScoringRun` creation, and background auto-scoring lifecycle. |
+| `test_dashboard_service.py` | `DashboardService` | Single-pass aggregate metric calculation, match quality breakdown tiers, top matches filtering, and expired job exclusion. |
+| `test_resume_analysis_service.py` | `ResumeAnalysisService` | Resume Gap Analyzer prompt input handling, structured response validation, and active resume requirement checks. |
+
+### 1.3 Test Fixtures & External Mocks (`tests/conftest.py`)
+
+- **Database Fixtures**:
+  - `db_engine` (Session-scoped): Creates tables on PostgreSQL test database specified by `TEST_DATABASE_URL`.
+  - `db` (Function-scoped): Wraps each test in a transaction and rolls back on teardown for test isolation.
+  - `needs_db` marker: Automatically skips DB-dependent tests when `TEST_DATABASE_URL` is omitted.
+- **External Dependency Mocks**:
+  - `mock_gemini`: Mocks `GeminiClient` in `app.ai.gemini_client.GeminiClient` returning predictable skills or match scores. No real network or Gemini API calls occur during testing.
+  - `mock_fitz`: Mocks PyMuPDF `fitz` module for PDF text extraction.
+  - `fake_scraper`: Stub implementation of `BaseScraper` for testing scraper orchestration.
+
+### 1.4 Running Backend Tests
+
+```bash
+cd backend
+
+# Option A: Run unit tests only (13 passed, 110 skipped)
+python -m pytest
+
+# Option B: Run full test suite against PostgreSQL database (all 123 tests)
+export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/test_db"
+python -m pytest
+```
+
+### 1.5 Current Automated Test Suite Gaps
+- **Router / HTTP Integration Tests**: HTTP endpoints in `app/routers/` are not currently covered by FastAPI `TestClient` integration tests.
+- **Interview Prep Service Unit Tests**: `InterviewPrepService` currently lacks a dedicated `test_interview_prep_service.py` test file.
+- **Frontend Automated Tests**: Frontend does not contain automated Jest or React Testing Library suites (`npm run lint` and type checks available).
+
+---
+
+## 2. Manual Verification Workflows
+
+### 2.1 Interview Preparation Generator Flow
+1. Start PostgreSQL (`docker compose up -d`), FastAPI backend, and Next.js frontend.
+2. Upload a valid PDF resume at `/resume`.
+3. Open a saved job detail page (`/jobs/[id]`).
+4. Click **Generate Interview Prep**.
+5. Verify inline rendering of:
+   - Project Questions
    - Technical Questions
    - Behavioral Questions
-   - Project Questions
    - Topics To Revise
    - Interview Tips
+6. Verify failure behavior when no resume exists (HTTP 422 `NO_RESUME`).
 
-### 3. Validate expected behavior
+### 2.2 Resume Gap Analyzer Flow
+1. Navigate to `/resume-review`.
+2. Confirm active resume detection.
+3. Paste an external job description into the text area.
+4. Click **Analyze**.
+5. Confirm match score, summary, missing skills, strengths, improvement suggestions, and ATS tips render correctly.
 
-The API should:
-
-- return HTTP 200 on a successful request
-- return a JSON envelope with `data` and `error: null`
-- use the current job row for `job_id`, `title`, `company`, and `description`
-- use the active uploaded resume text for generation
-- return the result directly without saving or caching it
-
-### 4. Validate failure cases
-
-The feature should fail gracefully in these scenarios:
-
-- No active resume uploaded → HTTP 422 with `NO_RESUME`
-- Job ID does not exist → HTTP 404 with `NOT_FOUND`
-- Gemini request fails after retries → HTTP 502 with `INTERVIEW_PREP_ERROR`
-
----
-
-## Expected Outcome
-
-A successful run should produce a tailored, job-specific set of interview-prep guidance grounded in the resume and job description. The response should stay concise, structured, and immediately usable from the job detail page.
-
-## Notes
-
-This feature is intentionally V1 and isolated. It reuses the existing Gemini path and the active resume lookup; it does not introduce new persistence, infrastructure, or async processing.
+### 2.3 Background Scoring & Polling Flow
+1. Navigate to `/dashboard`.
+2. Click **Sync Jobs**.
+3. Confirm `ScoringRun` progress indicator shows live scoring progress.
+4. Verify polling stops automatically when status reaches `completed`.

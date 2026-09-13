@@ -1,54 +1,70 @@
 # API Specification
 
-**Base URL:** `http://localhost:8000`
-**Format:** JSON request/response bodies
-**Interactive Docs:** `http://localhost:8000/docs`
+**Base URL:** `http://localhost:8000`  
+**Format:** JSON Request & Response Bodies  
+**Interactive OpenAPI Docs:** `http://localhost:8000/docs`  
 
 ---
 
-# Conventions
+## Envelope Conventions
 
-All successful responses:
+All standard API responses follow a uniform `ApiResponse[T]` envelope structure:
 
+### Successful Response Envelope
 ```json
 {
-  "data": {},
+  "data": { ... },
   "error": null
 }
 ```
 
-All error responses:
-
+### Error Response Envelope
 ```json
 {
   "data": null,
   "error": {
-    "code": "NOT_FOUND",
-    "message": "Job not found"
+    "code": "ERROR_CODE_STRING",
+    "message": "Detailed error description string"
   }
 }
 ```
 
-Timestamps use ISO 8601 UTC format:
-
-```text
-2026-06-17T10:00:00Z
-```
-
-UUIDs are lowercase hyphenated strings.
-
-Nullable fields are returned as `null` and never omitted.
+### Serialization Rules
+- **Timestamps**: Serialized in ISO 8601 UTC format (e.g., `2026-08-05T14:30:00Z`).
+- **Identifiers**: Primary keys are lowercase hyphenated UUID strings.
+- **Nullable Fields**: Explicitly serialized as `null` (never omitted from JSON).
 
 ---
 
-# Health
+## Registered Endpoints Index (16 Endpoints)
 
-## GET /api/health
+| Category | Method | Path | Summary |
+|---|---|---|---|
+| Health | `GET` | `/api/health` | Liveness and database connectivity check |
+| Jobs | `GET` | `/api/jobs` | Filtered, sorted, paginated job listing |
+| Jobs | `GET` | `/api/jobs/{job_id}` | Detailed job listing by ID |
+| Jobs | `POST` | `/api/jobs/{job_id}/score` | Score job against active resume |
+| Jobs | `PATCH` | `/api/jobs/{job_id}` | Update job application status or notes |
+| Jobs | `DELETE` | `/api/jobs/{job_id}` | Delete job listing |
+| Interview Prep | `POST` | `/api/jobs/{job_id}/interview-prep` | Generate AI interview preparation material |
+| Scraper | `POST` | `/api/scraper/run` | Trigger job collection across all scrapers |
+| Scraper | `GET` | `/api/scraper/status` | Get latest scrape run result per source |
+| Scraper | `GET` | `/api/scraper/scoring-status` | Poll background auto-scoring run progress |
+| Resume | `POST` | `/api/resume` | Upload PDF resume, extract text and skills |
+| Resume | `GET` | `/api/resume` | Get current active resume |
+| Resume | `DELETE` | `/api/resume` | Delete active resume |
+| Resume | `GET` | `/api/resume/{resume_id}` | Get resume by ID |
+| Resume Analysis | `POST` | `/api/resume/analyze` | Analyze active resume against pasted job text |
+| Dashboard | `GET` | `/api/dashboard/stats` | Get aggregate recommendation dashboard metrics |
 
-Checks application and database health.
+---
 
-### Response 200
+## 1. Health
 
+### GET /api/health
+Checks application status and PostgreSQL database connectivity.
+
+**Response 200 (Healthy):**
 ```json
 {
   "status": "ok",
@@ -56,8 +72,7 @@ Checks application and database health.
 }
 ```
 
-### Response 503
-
+**Response 503 (Database Unreachable):**
 ```json
 {
   "status": "degraded",
@@ -67,139 +82,46 @@ Checks application and database health.
 
 ---
 
-# Scraper
+## 2. Jobs Router (`/api/jobs`)
 
-## POST /api/scraper/run
+### GET /api/jobs
+Returns a paginated, filtered, and sorted list of job listings.
 
-Run all configured job sources synchronously.
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | integer | `1` | Page number (ge=1) |
+| `page_size` | integer | `20` | Items per page (ge=1, le=100) |
+| `sort_by` | string | `created_at` | Sort column (`created_at`, `posted_at`, `match_score`) |
+| `order` | string | `desc` | Sort order (`asc`, `desc`) |
+| `status` | string | `null` | Filter by status (`saved`, `applied`, `interview`, `offer`, `rejected`) |
+| `source` | string | `null` | Filter by scraper source (`remoteok`, `yc_jobs`) |
+| `scored` | boolean | `null` | Filter by scoring state (`true` = scored, `false` = unscored) |
+| `include_expired` | boolean | `false` | Include expired jobs (`expired_at IS NOT NULL`) in results |
 
-Sources:
-
-* RemoteOK API
-* YC Jobs
-
-### Response 200
-
+**Response 200:**
 ```json
 {
   "data": {
-    "runs": [
+    "jobs": [
       {
+        "id": "c1f7b8a0-2d3e-4f5a-6b7c-8d9e0f1a2b3c",
+        "title": "Backend Engineering Intern",
+        "company": "Acme Corp",
+        "company_url": "https://example.com",
+        "url": "https://example.com/jobs/backend-intern-1",
         "source": "remoteok",
-        "jobs_found": 45,
-        "jobs_new": 12,
-        "error": null,
-        "started_at": "2026-06-17T10:00:00Z",
-        "completed_at": "2026-06-17T10:00:03Z"
+        "location": "Remote",
+        "status": "saved",
+        "match_score": 85,
+        "needs_rescore": false,
+        "expired_at": null,
+        "posted_at": "2026-08-01T00:00:00Z",
+        "created_at": "2026-08-02T10:00:00Z",
+        "updated_at": "2026-08-02T10:00:00Z"
       }
     ],
-    "total_new": 12,
-    "total_scored": 12
-  },
-  "error": null
-}
-```
-
-One source failing must not stop other sources.
-
-Newly inserted jobs are scheduled for background auto-scoring against the
-active resume (Phase 5 — Feature 4). The HTTP response returns immediately,
-so `total_scored` is always `0` in this response. Pre-existing jobs are never
-rescored by a sync. If no resume is uploaded, background scoring is skipped.
-
----
-
-## GET /api/scraper/status
-
-Returns the latest scrape run for each source.
-
-### Response 200
-
-```json
-{
-  "data": [
-    {
-      "source": "remoteok",
-      "jobs_found": 45,
-      "jobs_new": 12,
-      "error": null,
-      "started_at": "2026-06-17T10:00:00Z",
-      "completed_at": "2026-06-17T10:00:03Z"
-    }
-  ],
-  "error": null
-}
-```
-
----
-
-## GET /api/scraper/scoring-status
-
-Returns progress for one background auto-scoring batch created by `POST /api/scraper/run`.
-
-### Query Parameters
-
-| Param | Type | Required |
-| ----- | ---- | -------- |
-| run_id | string | yes |
-
-### Response 200
-
-```json
-{
-  "data": {
-    "status": "running",
-    "total": 12,
-    "scored": 4,
-    "failed": 2,
-    "pending": 6
-  },
-  "error": null
-}
-```
-
-### Notes
-
-* `status` is `running` until every job in the scoring batch has either been scored or permanently failed.
-* `failed` counts jobs that could not be scored due to a permanent Gemini error, a missing job, or the resume being removed before scoring completed.
-* `pending` is computed as `total - scored - failed`.
-* Poll this endpoint after `POST /api/scraper/run` when `scoring_run_id` is returned in the sync response.
-
----
-
-# Jobs
-
-## GET /api/jobs
-
-Returns jobs with filtering, sorting and pagination.
-
-### Query Parameters
-
-| Param     | Type    | Default    |
-| --------- | ------- | ---------- |
-| page      | integer | 1          |
-| page_size | integer | 20         |
-| sort_by   | string  | created_at |
-| order     | string  | desc       |
-| status    | string  | null       |
-| source    | string  | null       |
-| scored    | boolean | null       |
-
-### Valid sort_by
-
-```text
-created_at
-posted_at
-match_score
-```
-
-### Response 200
-
-```json
-{
-  "data": {
-    "jobs": [],
-    "total": 120,
+    "total": 45,
     "page": 1,
     "page_size": 20
   },
@@ -207,86 +129,81 @@ match_score
 }
 ```
 
-### Notes
-
-List endpoint intentionally omits:
-
-* description
-* notes
-* match_summary
-
-Use Job Detail endpoint for full information.
-
----
-
-## GET /api/jobs/{id}
-
-Returns a complete job record.
-
-### Response 200
-
-```json
-{
-  "data": {
-    "id": "uuid",
-    "title": "Backend Intern",
-    "company": "Acme",
-    "company_url": "https://example.com",
-    "description": "Job description",
-    "url": "https://job-url.com",
-    "source": "remoteok",
-    "location": "Remote",
-
-    "status": "saved",
-    "notes": null,
-
-    "match_score": 82,
-    "missing_skills": ["Docker"],
-    "match_summary": "Strong backend fit.",
-    "matched_at": "2026-06-17T10:00:00Z",
-
-    "resume_uploaded_at": "2026-06-16T09:00:00Z",
-
-    "posted_at": "2026-06-15T00:00:00Z",
-    "created_at": "2026-06-17T10:00:00Z",
-    "updated_at": "2026-06-17T10:00:00Z"
-  },
-  "error": null
-}
-```
-
-### Response 404
-
+**Response 422 (Invalid Parameter):**
 ```json
 {
   "data": null,
   "error": {
-    "code": "NOT_FOUND",
-    "message": "Job not found"
+    "code": "INVALID_PARAM",
+    "message": "Invalid sort_by 'invalid'. Must be one of: created_at, match_score, posted_at"
   }
 }
 ```
 
 ---
 
-## POST /api/jobs/{id}/score
+### GET /api/jobs/{job_id}
+Fetches complete detail for a single job listing.
 
-Runs Gemini job matching.
+**Path Parameters:**
+- `job_id` (UUID, required): Job primary key.
 
-Uses cached results when available.
-
-Requires an active resume.
-
-### Response 200
-
+**Response 200:**
 ```json
 {
   "data": {
-    "match_score": 82,
-    "missing_skills": ["Docker", "GraphQL"],
-    "match_summary": "Strong fit.",
-    "matched_at": "2026-06-17T10:00:00Z",
+    "id": "c1f7b8a0-2d3e-4f5a-6b7c-8d9e0f1a2b3c",
+    "title": "Backend Engineering Intern",
+    "company": "Acme Corp",
+    "company_url": "https://example.com",
+    "description": "Full job description text...",
+    "url": "https://example.com/jobs/backend-intern-1",
+    "source": "remoteok",
+    "location": "Remote",
+    "status": "saved",
+    "notes": "Spoke with recruiter.",
+    "match_score": 85,
+    "missing_skills": ["Docker", "Kubernetes"],
+    "match_summary": "Strong Python fit. Missing container orchestration skills.",
+    "matched_at": "2026-08-02T10:05:00Z",
+    "needs_rescore": false,
+    "resume_uploaded_at": "2026-08-01T09:00:00Z",
+    "expired_at": null,
+    "posted_at": "2026-08-01T00:00:00Z",
+    "created_at": "2026-08-02T10:00:00Z",
+    "updated_at": "2026-08-02T10:05:00Z"
+  },
+  "error": null
+}
+```
 
+**Response 404 (Not Found):**
+```json
+{
+  "data": null,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Job c1f7b8a0-2d3e-4f5a-6b7c-8d9e0f1a2b3c not found"
+  }
+}
+```
+
+---
+
+### POST /api/jobs/{job_id}/score
+Scores a job against the active resume using Gemini AI. Returns cached result if score is fresh.
+
+**Path Parameters:**
+- `job_id` (UUID, required): Job primary key.
+
+**Response 200:**
+```json
+{
+  "data": {
+    "match_score": 85,
+    "missing_skills": ["Docker", "Kubernetes"],
+    "match_summary": "Strong Python fit. Missing container orchestration skills.",
+    "matched_at": "2026-08-02T10:05:00Z",
     "cached": true,
     "needs_rescore": false,
     "recommendation_label": "Strong Match"
@@ -295,25 +212,7 @@ Requires an active resume.
 }
 ```
 
-### Example When Resume Changed
-
-```json
-{
-  "data": {
-    "match_score": 82,
-    "missing_skills": ["Docker", "GraphQL"],
-    "match_summary": "Strong fit.",
-    "matched_at": "2026-06-10T10:00:00Z",
-
-    "cached": true,
-    "needs_rescore": true
-  },
-  "error": null
-}
-```
-
-### Response 422
-
+**Response 422 (No Active Resume):**
 ```json
 {
   "data": null,
@@ -324,70 +223,116 @@ Requires an active resume.
 }
 ```
 
-### Response 404
-
+**Response 502 (AI Error):**
 ```json
 {
   "data": null,
   "error": {
-    "code": "NOT_FOUND",
-    "message": "Job not found"
+    "code": "AI_ERROR",
+    "message": "Gemini match_job failed after 3 attempts: ..."
   }
 }
 ```
 
 ---
 
-## POST /api/jobs/{job_id}/interview-prep
+### PATCH /api/jobs/{job_id}
+Updates job application tracking status and/or free-text notes.
 
-Generates AI interview preparation material for a job using the active uploaded resume plus the selected job's title, company, and description.
+**Path Parameters:**
+- `job_id` (UUID, required): Job primary key.
 
-This endpoint is stateless. It takes no request body. The job context comes from the URL path, and the resume context comes from the currently active resume upload.
+**Request Body:**
+```json
+{
+  "status": "applied",
+  "notes": "Applied via company portal on Aug 3."
+}
+```
 
-### Request
+**Response 200:**
+```json
+{
+  "data": {
+    "id": "c1f7b8a0-2d3e-4f5a-6b7c-8d9e0f1a2b3c",
+    "title": "Backend Engineering Intern",
+    "company": "Acme Corp",
+    "company_url": "https://example.com",
+    "description": "Full job description text...",
+    "url": "https://example.com/jobs/backend-intern-1",
+    "source": "remoteok",
+    "location": "Remote",
+    "status": "applied",
+    "notes": "Applied via company portal on Aug 3.",
+    "match_score": 85,
+    "missing_skills": ["Docker", "Kubernetes"],
+    "match_summary": "Strong Python fit. Missing container orchestration skills.",
+    "matched_at": "2026-08-02T10:05:00Z",
+    "posted_at": "2026-08-01T00:00:00Z",
+    "created_at": "2026-08-02T10:00:00Z",
+    "updated_at": "2026-08-03T14:20:00Z"
+  },
+  "error": null
+}
+```
 
-No JSON body.
+**Response 422 (Invalid Status):**
+```json
+{
+  "data": null,
+  "error": {
+    "code": "INVALID_STATUS",
+    "message": "Invalid status 'submitted'. Must be one of: applied, interview, offer, rejected, saved"
+  }
+}
+```
 
-### Response 200
+---
 
+### DELETE /api/jobs/{job_id}
+Permanently deletes a job listing.
+
+**Path Parameters:**
+- `job_id` (UUID, required): Job primary key.
+
+**Response 204:** No content.
+
+---
+
+### POST /api/jobs/{job_id}/interview-prep
+Generates AI interview preparation questions and tips for a saved job using the active resume.
+
+**Path Parameters:**
+- `job_id` (UUID, required): Job primary key.
+
+**Response 200:**
 ```json
 {
   "data": {
     "project_questions": [
-      "Tell me about a project where you used FastAPI in production."
+      "In your FastAPI project, how did you handle database transaction rollbacks during failure?",
+      "Why did you choose PostgreSQL over a Document store for skill indexing?"
     ],
     "technical_questions": [
-      "How would you design a retry strategy for an API endpoint?"
+      "Explain the difference between synchronous and asynchronous tasks in FastAPI.",
+      "How do Docker container networks communicate with PostgreSQL instances?"
     ],
     "behavioral_questions": [
-      "Describe a time you handled ambiguity in a project."
+      "Describe a situation where a background sync failed and how you communicated the issue."
     ],
     "topics_to_revise": [
-      "Asynchronous task handling",
-      "SQL joins and indexing"
+      "Docker Compose container networking",
+      "PostgreSQL JSONB indexing techniques"
     ],
     "interview_tips": [
-      "Be ready to walk through your most relevant project end-to-end."
+      "Highlight your hands-on experience building custom FastAPI exception envelopes."
     ]
   },
   "error": null
 }
 ```
 
-### Response 404
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Job <uuid> not found"
-  }
-}
-```
-
-### Response 422
-
+**Response 422 (No Active Resume):**
 ```json
 {
   "data": null,
@@ -398,123 +343,226 @@ No JSON body.
 }
 ```
 
-### Response 502
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "INTERVIEW_PREP_ERROR",
-    "message": "Interview prep generation failed. Please try again."
-  }
-}
-```
-
 ---
 
-## PATCH /api/jobs/{id}
+## 3. Scraper Router (`/api/scraper`)
 
-Updates status and/or notes.
+### POST /api/scraper/run
+Triggers on-demand job collection from RemoteOK and YC Jobs. Schedules background auto-scoring when new jobs are inserted.
 
-### Request
-
-```json
-{
-  "status": "applied",
-  "notes": "Submitted application."
-}
-```
-
-Both fields are optional.
-
-### Valid Status Values
-
-```text
-saved
-applied
-interview
-offer
-rejected
-```
-
-### Response 200
-
+**Response 200:**
 ```json
 {
   "data": {
-    "id": "uuid",
-    "status": "applied",
-    "notes": "Submitted application."
+    "runs": [
+      {
+        "source": "remoteok",
+        "jobs_found": 30,
+        "jobs_new": 5,
+        "error": null,
+        "started_at": "2026-08-05T10:00:00Z",
+        "completed_at": "2026-08-05T10:00:02Z"
+      },
+      {
+        "source": "yc_jobs",
+        "jobs_found": 15,
+        "jobs_new": 2,
+        "error": null,
+        "started_at": "2026-08-05T10:00:02Z",
+        "completed_at": "2026-08-05T10:00:10Z"
+      }
+    ],
+    "total_new": 7,
+    "total_scored": 0,
+    "new_job_ids": ["uuid1", "uuid2", "uuid3", "uuid4", "uuid5", "uuid6", "uuid7"],
+    "scoring_run_id": "a9b8c7d6-e5f4-3a2b-1c0d-9e8f7a6b5c4d"
   },
   "error": null
 }
 ```
 
-### Response 422
+---
 
+### GET /api/scraper/status
+Returns the most recent scrape run result per configured source.
+
+**Response 200:**
+```json
+{
+  "data": [
+    {
+      "source": "remoteok",
+      "jobs_found": 30,
+      "jobs_new": 5,
+      "error": null,
+      "started_at": "2026-08-05T10:00:00Z",
+      "completed_at": "2026-08-05T10:00:02Z"
+    }
+  ],
+  "error": null
+}
+```
+
+---
+
+### GET /api/scraper/scoring-status
+Returns progress for one background auto-scoring batch (`ScoringRun`).
+
+**Query Parameters:**
+- `run_id` (UUID, required): `scoring_run_id` returned from `POST /api/scraper/run`.
+
+**Response 200:**
+```json
+{
+  "data": {
+    "status": "running",
+    "total": 7,
+    "scored": 3,
+    "failed": 0,
+    "pending": 4
+  },
+  "error": null
+}
+```
+
+---
+
+## 4. Resume Router (`/api/resume`)
+
+### POST /api/resume
+Uploads a PDF resume, extracts text via PyMuPDF, and extracts skills via Gemini AI. Replaces any existing active resume.
+
+**Request:** `multipart/form-data` with `file` field containing PDF document.
+
+**Response 200:**
+```json
+{
+  "data": {
+    "id": "e5f4d3c2-b1a0-9f8e-7d6c-5b4a3f2e1d0c",
+    "filename": "candidate_resume.pdf",
+    "skills": ["Python", "FastAPI", "PostgreSQL", "React", "TypeScript"],
+    "uploaded_at": "2026-08-01T09:00:00Z"
+  },
+  "error": null
+}
+```
+
+**Response 422 (Invalid File):**
 ```json
 {
   "data": null,
   "error": {
-    "code": "INVALID_STATUS",
-    "message": "Invalid status"
+    "code": "INVALID_FILE",
+    "message": "Only PDF files are supported"
   }
 }
 ```
 
 ---
 
-## DELETE /api/jobs/{id}
+### GET /api/resume
+Returns current active resume details.
 
-Permanently removes a job record.
+**Response 200:**
+```json
+{
+  "data": {
+    "id": "e5f4d3c2-b1a0-9f8e-7d6c-5b4a3f2e1d0c",
+    "filename": "candidate_resume.pdf",
+    "skills": ["Python", "FastAPI", "PostgreSQL", "React", "TypeScript"],
+    "uploaded_at": "2026-08-01T09:00:00Z"
+  },
+  "error": null
+}
+```
 
-### Response 204
-
-No response body.
-
-### Response 404
-
+**Response 404 (No Active Resume):**
 ```json
 {
   "data": null,
   "error": {
-    "code": "NOT_FOUND",
-    "message": "Job not found"
+    "code": "NO_RESUME",
+    "message": "No active resume found"
   }
 }
 ```
 
 ---
 
-# Dashboard
+### DELETE /api/resume
+Deletes active resume.
 
-## GET /api/dashboard/stats
+**Response 204:** No content.
 
-Returns aggregate statistics for the AI-powered recommendation dashboard
-(Phase 5). Computed with a single aggregate SQL query plus one indexed
-top-N query — no N+1 queries regardless of job count.
+---
 
-### Response 200
+### GET /api/resume/{resume_id}
+Fetches a specific resume by primary key UUID.
 
+**Response 200:** Same structure as `GET /api/resume`.
+
+---
+
+## 5. Resume Analysis Router (`/api/resume`)
+
+### POST /api/resume/analyze
+Evaluates active resume against a pasted job description (Resume Gap Analyzer).
+
+**Request Body:**
+```json
+{
+  "job_description": "We are seeking a Software Engineer Intern with experience in Python and Docker..."
+}
+```
+
+**Response 200:**
+```json
+{
+  "data": {
+    "match_score": 75,
+    "summary": "Good overall alignment with core Python requirements. Main gap is containerization.",
+    "missing_skills": ["Docker", "Kubernetes"],
+    "strengths": ["Python", "FastAPI", "PostgreSQL"],
+    "suggestions": [
+      "Add a project section showcasing Docker container deployment.",
+      "Quantify API performance improvements in previous project bullet points."
+    ],
+    "ats_tips": [
+      "Ensure exact term 'Docker' is included under technical skills.",
+      "Use standard section header 'Technical Skills' for ATS parsers."
+    ]
+  },
+  "error": null
+}
+```
+
+---
+
+## 6. Dashboard Router (`/api/dashboard`)
+
+### GET /api/dashboard/stats
+Returns aggregate metrics and top matches for recommendation dashboard. Excludes expired jobs (`expired_at IS NOT NULL`).
+
+**Response 200:**
 ```json
 {
   "data": {
     "total_jobs": 120,
-    "scored_jobs": 48,
-    "average_match_score": 71.4,
-    "best_match_score": 96,
-    "applications_submitted": 5,
+    "scored_jobs": 40,
+    "average_match_score": 78.5,
+    "best_match_score": 95,
+    "applications_submitted": 8,
     "quality_breakdown": {
-      "excellent": 6,
-      "good": 14,
-      "possible": 18,
-      "weak": 10
+      "excellent": 5,
+      "good": 15,
+      "possible": 12,
+      "weak": 8
     },
     "top_matches": [
       {
-        "id": "uuid",
-        "title": "Frontend Engineer",
-        "company": "Acme",
+        "id": "c1f7b8a0-2d3e-4f5a-6b7c-8d9e0f1a2b3c",
+        "title": "Backend Engineering Intern",
+        "company": "Acme Corp",
         "match_score": 95,
         "source": "remoteok",
         "status": "saved",
@@ -525,275 +573,3 @@ top-N query — no N+1 queries regardless of job count.
   "error": null
 }
 ```
-
-### Notes
-
-* `quality_breakdown` buckets every **scored** job: Excellent (>= 90),
-  Good (75-89), Possible (60-74), Weak (< 60). Unscored jobs are excluded.
-* `top_matches` returns the top 5 scored jobs sorted descending by
-  `match_score`. Unscored jobs are excluded.
-* `recommendation_label` is derived from `match_score`: 95-100
-  "Excellent Match", 80-94 "Strong Match", 65-79 "Potential Match",
-  below 65 "Low Match". It is also returned on `JobListItem`,
-  `JobResponse`, and the score endpoint response below.
-
----
-
-# Resume
-
-## POST /api/resume
-
-Uploads a PDF resume.
-
-
-Process:
-
-```text
-PDF
-↓
-PyMuPDF
-↓
-Extract Text
-↓
-Gemini
-↓
-Skills
-↓
-Save Resume
-```
-
-### Validation
-
-* PDF only
-* Maximum file size: 5 MB
-
-### Request
-
-```text
-multipart/form-data
-```
-
-Field:
-
-```text
-file
-```
-
-### Response 200
-
-```json
-{
-  "data": {
-    "id": "uuid",
-    "filename": "resume.pdf",
-    "skills": [
-      "Python",
-      "FastAPI",
-      "PostgreSQL",
-      "Next.js"
-    ],
-    "uploaded_at": "2026-06-17T10:00:00Z"
-  },
-  "error": null
-}
-```
-
-### Response 422
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "INVALID_FILE",
-    "message": "File must be a PDF under 5 MB"
-  }
-}
-```
-
----
-
-## GET /api/resume
-
-Returns the active resume.
-
-### Response 200
-
-```json
-{
-  "data": {
-    "id": "uuid",
-    "filename": "resume.pdf",
-    "skills": [
-      "Python",
-      "FastAPI",
-      "PostgreSQL"
-    ],
-    "uploaded_at": "2026-06-17T10:00:00Z"
-  },
-  "error": null
-}
-```
-
-### Response 404
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "NO_RESUME",
-    "message": "No resume uploaded"
-  }
-}
-```
-
----
-
-## DELETE /api/resume
-
-Deletes the active resume.
-
-### Response 204
-
-No response body.
-
-### Response 404
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "NO_RESUME",
-    "message": "No resume uploaded"
-  }
-}
-```
-
----
-
-## GET /api/resume/{id}
-
-Returns a specific resume by ID. Since only one resume ever exists at a time, this is mainly useful for confirming a specific upload's ID after the fact — `GET /api/resume` (no ID) is the endpoint the frontend uses day-to-day.
-
-### Response 200
-
-Same shape as `GET /api/resume`.
-
-### Response 404
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Resume {id} not found"
-  }
-}
-```
-
----
-
-# Resume Analysis (Resume Gap Analyzer)
-
-## POST /api/resume/analyze
-
-Analyzes the currently active uploaded resume against a pasted job description. Returns a match score, summary, missing skills, existing strengths, resume improvement suggestions, and ATS optimization tips.
-
-Does not upload a new resume and does not affect existing job match scores.
-
-### Request
-
-```json
-{
-  "job_description": "Full plain text of the job description..."
-}
-```
-
-### Response 200
-
-```json
-{
-  "data": {
-    "match_score": 78,
-    "summary": "Strong alignment on backend systems. Primary gaps are DevOps and Kubernetes experience.",
-    "missing_skills": [
-      "Kubernetes",
-      "Docker Compose",
-      "CI/CD Pipelines"
-    ],
-    "strengths": [
-      "FastAPI",
-      "PostgreSQL",
-      "REST APIs",
-      "Python"
-    ],
-    "suggestions": [
-      "Highlight any containerization experience in your projects section",
-      "Add keywords like 'infrastructure' and 'deployment' where relevant",
-      "Consider adding a DevOps project or learning experience"
-    ],
-    "ats_tips": [
-      "Use 'Kubernetes' not 'K8s' for ATS matching",
-      "Match exact titles from the job description (e.g., 'Backend Engineer')",
-      "Include both full names and abbreviations for technologies (e.g., 'PostgreSQL (Postgres)')"
-    ]
-  },
-  "error": null
-}
-```
-
-### Response 422 (No Resume)
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "NO_RESUME",
-    "message": "Upload a resume before running analysis."
-  }
-}
-```
-
-### Response 422 (Empty Job Description)
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "EMPTY_JOB_DESCRIPTION",
-    "message": "job_description must not be empty"
-  }
-}
-```
-
-### Response 502 (AI Error)
-
-```json
-{
-  "data": null,
-  "error": {
-    "code": "ANALYSIS_ERROR",
-    "message": "Resume analysis failed. Please try again."
-  }
-}
-```
-
----
-
-# Error Codes
-
-| Code           | Status | Where it's raised                                    |
-| -------------- | ------ | ------------------------------------------------------ |
-| NOT_FOUND      | 404    | Job or job ID not found                                |
-| NO_RESUME      | 404    | `GET/DELETE /api/resume` when no resume is uploaded    |
-| NO_RESUME      | 422    | `POST /api/jobs/{id}/score` or `POST /api/resume/analyze` when no resume is uploaded — scoring/analysis are write operations that require a resume as input, so it's treated as a validation failure rather than a missing resource |
-| INVALID_FILE   | 422    | Resume upload — not a PDF, or over 5 MB                |
-| INVALID_STATUS | 422    | `PATCH /api/jobs/{id}` with an invalid status value    |
-| INVALID_PARAM  | 422    | `GET /api/jobs` with an invalid `sort_by`/`order`      |
-| EMPTY_JOB_DESCRIPTION | 422 | `POST /api/resume/analyze` with empty job description |
-| VALIDATION_ERROR | 422  | Request body fails Pydantic validation                 |
-| EXTRACTION_ERROR | 500  | PyMuPDF or Gemini extraction failure during upload      |
-| AI_ERROR       | 502    | Gemini API call failed after all retries                |
-| ANALYSIS_ERROR | 502    | Resume analysis failed in `POST /api/resume/analyze` |
-| INTERNAL_ERROR | 500    | Unhandled exception (message never leaks internals)     |
-
-Note: `NO_RESUME` intentionally maps to two different status codes depending on context — this is not a bug. On the resume resource itself, "no resume" is a 404 (the resource doesn't exist). On the scoring endpoint, "no resume" is a 422 (the request can't be validated without one).

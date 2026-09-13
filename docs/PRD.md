@@ -1,257 +1,120 @@
-# Product Requirements Document
+# Product Requirements Document (PRD)
 
-**Project:** AI Internship Hunter  
-**Version:** 1.0 MVP  
-**Scope:** Personal use
-
-> **Implementation status:** All seven capabilities described below (Job Collection, Resume Upload, Job Scoring, Application Tracking, Recommendation Dashboard, Resume Gap Analyzer, Interview Preparation Generator) are implemented in the current codebase. See `docs/PROJECT_STATUS.md` for what remains open (limitations, tech debt, ideas beyond this PRD's scope).
+**Project:** AI Internship Hunter / Job Hunter  
+**Version:** 1.0  
+**Scope:** Personal Use  
 
 ---
 
-## Problem
+## 1. Problem Statement
 
-Internship hunting is manual and unstructured. Browsing job boards, reading descriptions, mentally comparing them to your resume, and then remembering which ones you applied to — all of it happens in your head or across a mess of browser tabs and spreadsheet rows.
+Internship hunting is manually intensive and fragmented. Candidates spend hours across multiple job boards, manually scanning listings, evaluating technical fit against their resume in their heads, and tracking applications in disconnected spreadsheets or browser tabs.
 
-The result: good opportunities get missed, weak ones get time, and the overall process is slower than it needs to be.
-
----
-
-## Goal
-
-Build a personal tool that automates job discovery, ranks opportunities by resume fit using AI, and tracks application status — replacing the browser-tab-and-spreadsheet workflow with one focused system.
-
-Secondary goal: produce a portfolio-quality project that demonstrates full-stack development, AI integration, and thoughtful system design.
+This leads to missed high-alignment opportunities, wasted time on low-fit roles, and disorganized application tracking.
 
 ---
 
-## Users
+## 2. Product Vision & Goals
 
-One user. You. No auth, no accounts, no multi-tenancy.
+Build an intelligent personal job discovery and application management system that:
+1. **Automates Discovery**: Aggregates entry-level and internship listings from multiple sources in one place.
+2. **Ranks by Compatibility**: Evaluates job descriptions against the candidate's resume using AI to surface match scores and technical skill gaps.
+3. **Streamlines Application Tracking**: Provides a unified pipeline (`saved` → `applied` → `interview` → `offer` / `rejected`) with notes and status management.
+4. **Accelerates Preparation**: Offers on-demand AI tools for resume gap analysis and job-specific interview preparation.
 
----
-
-## MVP Scope
-
-Four capabilities and nothing else.
-
-## Technology Stack
-
-Frontend:
-- Next.js 15
-- TypeScript
-- Tailwind CSS
-- Custom component library (no shadcn/ui — built by hand)
-
-Backend:
-- FastAPI
-- PostgreSQL
-- SQLAlchemy
-- Alembic
-
-AI:
-- Gemini API
-
-Scraping:
-- RemoteOK API
-- Playwright (YC Jobs)
-
-## MVP Constraints
-
-- Single user only
-- Single active resume only
-- Manual sync only
-- No background workers
-- No authentication
-- No scheduled jobs
-
-### 1. Job Collection
-
-**What:** Pull job listings from two sources on demand.
-
-**Sources:**
-- RemoteOK — via their public JSON API (`remoteok.com/api`). No scraping, no ToS concerns.
-- YC Jobs (Work at a Startup) — via Playwright headless browser.
-
-**Behaviour:**
-- User triggers a sync manually via a "Sync Jobs" button in the UI.
-- Each source runs sequentially. Results are saved. Duplicate URLs are skipped.
-- After sync, a status summary shows: source, jobs found, jobs new, any errors.
-- Fields stored per job: `title`, `company`, `description`, `url`, `source`, `location`, `posted_at`.
-
-**Out of scope:** Scheduled/automatic syncing. Wellfound. LinkedIn. Any source requiring login.
+**Secondary Goal**: Maintain a clean, production-grade architectural baseline suitable for personal portfolio demonstration and future multi-tenant expansion.
 
 ---
 
-### 2. Resume Upload
+## 3. User Persona
 
-**What:** Upload a PDF resume. Extract skills. Store for use in scoring.
-
-**Behaviour:**
-- User uploads a PDF on the `/resume` page.
-- Backend extracts raw text using PyMuPDF.
-- Gemini receives the raw text and returns a flat list of skills.
-- Skills and raw text are saved. Previous resume is replaced.
-- Only one resume exists at any time. No versioning.
-
-**Out of scope:** Resume editing in UI. Multiple versions. Resume builder.
+- **Target User**: Single candidate / student / early-career software engineer.
+- **Scope**: Single-user deployment. No authentication, multi-tenancy, or multi-user accounts in current scope.
 
 ---
 
-### 3. Job Scoring
+## 4. Product Capabilities
 
-**What:** For any job, run an AI match analysis against the current resume.
+### 4.1 Job Collection & Synchronization (Implemented)
+- **Source Aggregation**: Collect job listings from RemoteOK and Y Combinator Work at a Startup.
+- **Canonical Deduplication**: Deduplicate listings across sources using canonical job URLs.
+- **On-Demand Sync**: Trigger synchronization on demand via the UI.
+- **Metadata Storage**: Store title, company, company URL, location, source, description, and source posting dates.
 
-**Behaviour:**
-- User clicks "Score" on a job (in list or detail view).
-- Backend checks if score already exists → returns cached result if yes.
-- If no cache: sends job description + resume skills to Gemini.
-- Gemini returns: `match_score` (0–100), `missing_skills` (up to 5), `match_summary` (2 sentences).
-- Results stored on the job record. Displayed in job detail view.
-- Job list is sortable by score.
-- **Implemented beyond original scope:** newly synced jobs are scored automatically right after a sync completes, so the dashboard has fresh data without a manual click per job. This runs after the sync response is returned; it doesn't block the sync itself.
+### 4.2 Resume Upload & Parsing (Implemented)
+- **PDF Upload**: Single active resume supported (uploading a new resume replaces the active resume).
+- **Text & Skill Extraction**: Automatically extract plain text and normalized technical skills via AI.
+- **Validation**: Enforce valid PDF file type and non-empty text extraction requirements.
 
-**Out of scope:** Score history over time. Multiple resume comparisons.
+### 4.3 Persistent Match Scoring (Implemented)
+- **Fit Evaluation**: Generate fit scores (0–100), missing technical skills (up to 5 items), and two-sentence alignment summaries using AI.
+- **Background Processing**: Synchronously queue auto-scoring after scrapers run without blocking initial sync responses.
+- **Batch Tracking**: Persist scoring progress and terminal states so frontends can display live progress and stop polling cleanly upon completion.
+- **Stale Score Detection**: Detect when a job score was generated against an older resume version ("Needs Re-score").
 
----
+### 4.4 Job Lifecycle & Expiration (Implemented)
+- **Missing Sync Tracking**: Track consecutive scraper syncs where a job's URL was no longer present.
+- **Expiration Flagging**: Mark jobs as expired after 2 consecutive missing syncs.
+- **Filtered Display**: Exclude expired jobs from default job listings and recommendation dashboard calculations while allowing explicit inclusion via filters.
+- **Un-annotated Job Cleanup**: Support automated management commands to purge un-annotated, saved expired jobs older than N days.
 
-### 4. Application Tracking
+### 4.5 Application Pipeline Tracking (Implemented)
+- **Pipeline Stages**: Support status transitions: `saved` → `applied` → `interview` → `offer` / `rejected`.
+- **User Annotations**: Allow free-text notes per job listing for recruiter contact information, interview dates, and notes.
 
-**What:** Track status and notes per job.
+### 4.6 Recommendation Dashboard (Implemented)
+- **Aggregate Analytics**: Display key application metrics: total active jobs, scored job count, average/best match score, and applications submitted.
+- **Match Quality Breakdown**: Categorize scored jobs into tiers (Excellent, Good, Possible, Weak).
+- **Top Matches**: Surface the top 5 highest-scoring active jobs with recommendation labels.
 
-**Statuses:** `saved` → `applied` → `interview` → `offer` / `rejected`
+### 4.7 Resume Gap Analyzer (Implemented)
+- **On-Demand Analysis**: Allow candidate to paste any job description and compare it against their active resume.
+- **Actionable Feedback**: Provide match score, overall fit summary, missing skills, existing strengths, concrete resume improvement suggestions, and ATS optimization tips.
+- **Stateless Execution**: Operate independently without creating persistent job records or modifying existing match scores.
 
-**Behaviour:**
-- Every job has a `status` field, defaulting to `saved`.
-- User changes status via dropdown in the job card or detail view.
-- Free-text `notes` field per job for anything relevant (contact name, next step, etc.).
-- No kanban board. Status lives on the job card directly.
-
-**Out of scope:** Reminders, calendar integration, email tracking, follow-up automation.
-
----
-
-### 5. Recommendation Dashboard
-
-*(Added after the original 4-capability MVP scope was defined; implemented once auto-scoring made a summary view worthwhile.)*
-
-**What:** A landing page (`/`) summarizing the whole pipeline at a glance.
-
-**Behaviour:**
-- Total jobs, scored jobs, average match score, best match score, applications submitted.
-- Match-quality breakdown: Excellent (≥90) / Good (75-89) / Possible (60-74) / Weak (<60), computed over scored jobs only.
-- Top 5 matches by score, each with a plain-language recommendation label (Excellent/Strong/Potential/Low Match).
-- Sync Jobs button lives here, not just on the jobs page.
-
-**Out of scope:** Configurable alert thresholds. Historical trend charts.
+### 4.8 AI Interview Preparation Generator (Implemented)
+- **Job-Grounded Material**: Generate tailored interview preparation material for a saved job using the candidate's active resume and the job listing.
+- **Structured Categories**: Provide project-based questions, technical questions, behavioral questions, technical revision topics, and strategic interview tips.
+- **Inline Display**: Render results directly on the job detail page without requiring persistent storage.
 
 ---
 
-### 6. Resume Gap Analyzer
+## 5. User Flows
 
-*(Added as an isolated feature after MVP. Uses existing infrastructure (active resume fetch, Gemini client) but operates independently of job scoring and tracking.)*
+### Flow 1: Resume Setup & Synchronization
+1. Candidate uploads PDF resume.
+2. Candidate triggers job synchronization.
+3. System scrapers run, insert new job listings, and launch background scoring.
+4. Candidate views live scoring progress until completed.
 
-**What:** Analyze any job description (pasted by the user, not necessarily from the database) against the active resume and receive structured improvement feedback.
+### Flow 2: Evaluating & Tracking Jobs
+1. Candidate views top matches on Recommendation Dashboard (`/dashboard`).
+2. Candidate filters job listing (`/jobs`) by match score or status.
+3. Candidate reviews detailed breakdown, updates status to `applied`, and adds application notes.
 
-**Behaviour:**
-- User navigates to `/resume-review` page.
-- Page checks for active resume on mount. If none exists, shows resume upload CTA.
-- User pastes any job description into a text area.
-- User clicks "Analyze" button.
-- Gemini analyzes the resume against the job description and returns:
-  - `match_score` (0–100)
-  - `summary` (1-2 sentences on overall fit)
-  - `missing_skills` (up to 5 skills required by job but not on resume)
-  - `strengths` (up to 5 skills/experience on resume matching the job)
-  - `suggestions` (up to 5 actionable resume improvements for this specific role)
-  - `ats_tips` (up to 5 ATS optimization tips for this job description)
-- Results display in real-time with a clean, structured UI.
-- Does not modify the active resume.
-- Does not create job records or affect job scores.
-- Does not persist analysis results (stateless per request).
-
-**Out of scope:** Bulk analysis, analysis history, resume editing suggestions, cover letter generation.
+### Flow 3: Tailoring Resume & Preparing for Interviews
+1. Candidate uses Resume Gap Analyzer (`/resume-review`) with external job text for instant improvement feedback.
+2. Candidate opens saved job detail page (`/jobs/[id]`) and generates tailored interview preparation guidance.
 
 ---
 
-### 7. Interview Preparation Generator
+## 6. Success Criteria
 
-*(Added as an isolated feature after the Resume Gap Analyzer. It reuses the existing active resume and Gemini flow, but operates only from a saved job detail view.)*
-
-**What:** Generate tailored interview preparation material for a selected job using the active resume and the job's title, company, and description.
-
-**Behaviour:**
-- User opens a job detail page after a job has been saved in the database.
-- User clicks "Generate Interview Prep" on the job detail page.
-- Backend resolves the job by ID and the active resume by the existing resume upload flow.
-- Gemini returns structured guidance in five sections:
-  - `technical_questions`
-  - `behavioral_questions`
-  - `project_questions`
-  - `topics_to_revise`
-  - `interview_tips`
-- Results render inline in the job detail page.
-- The request is stateless: nothing is saved, cached, queued, or persisted.
-
-**Out of scope:** Interview history, saved interview prep results, background generation, new infrastructure.
-
----
-
-## User Flows
-
-### Flow 1 — First time setup
-1. Open app (lands on `/`, the dashboard)
-2. Navigate to `/resume`
-3. Upload PDF
-4. View extracted skills list
-5. Navigate to `/jobs`, or click "Sync Jobs" from the dashboard
-6. Jobs appear in list; new jobs are scored automatically in the background
-
-### Flow 2 — Daily use
-1. Open `/` — check dashboard for new top matches since last visit
-2. Click "Sync Jobs" if needed
-3. Browse `/jobs`, sorted by score, or drill into a specific job
-4. Click a job → read match analysis
-5. Update status / add notes
-
-### Flow 3 — Scoring a job
-1. On job card or detail: click "Score"
-2. Loading state while Gemini runs (or instant if cached)
-3. Score badge, missing skills list, and summary appear
-
-### Flow 4 — Generating interview preparation
-1. Open `/jobs/[id]` for a saved job
-2. Ensure an active resume is uploaded
-3. Click "Generate Interview Prep"
-4. Review the generated sections: technical questions, behavioral questions, project questions, topics to revise, and interview tips
-5. Regenerate as needed without any persistence or background processing
-
----
-
-## Success Criteria
-
-| Criterion | Measure |
+| Criterion | Target Metric |
 |---|---|
-| Jobs collected | Sync pulls at least 20 relevant jobs per run |
-| Skills extracted | Gemini returns ≥10 skills from a standard resume PDF |
-| Scoring works | Match score + missing skills display for any scored job |
-| Caching works | Re-clicking "Score" returns instantly with no new API call |
-| Tracking works | Status and notes update persists across page refreshes |
-| Interview prep works | Clicking "Generate Interview Prep" on a job detail page returns the expected five-section response when a resume exists |
-| No resume guard | If no active resume exists, interview prep generation returns a clean validation error instead of silently proceeding |
-| No crashes | Scraper failure on one source doesn't prevent the other from completing |
+| Discovery Efficiency | Aggregates >20 listings per sync attempt across active sources |
+| Parsing Accuracy | Extracts technical skills cleanly from standard PDF resume layouts |
+| Scoring Responsiveness | Background scoring tracks progress to completion without stalling |
+| Pipeline Integrity | Job status transitions and notes persist reliably across sessions |
+| Error Resilience | Scraper or AI service degradation fails gracefully without breaking app UI |
 
 ---
 
-## Non-Requirements
+## 7. Explicit Out-of-Scope Capabilities (Future Phase Candidates)
 
-These are explicitly not part of this MVP:
-
-- Authentication or user accounts
-- Mobile-optimised layout
-- Email or notification system
-- Auto-apply functionality
-- Browser extension
-- Wellfound scraping
-- Resume version history
+- Multi-user authentication & user account isolation
+- ATS Resume Optimizer (auto-editing/tailoring resume PDFs)
+- Automated application auto-fill / browser extension submitters
 - Cover letter generation
-- Scheduled background jobs
+- Scheduled cron syncing built into main app server process
+- Email / SMS application reminder notifications
