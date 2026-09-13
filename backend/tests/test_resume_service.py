@@ -158,10 +158,7 @@ class TestExtractSkillsSafe:
 # DB tests
 # ---------------------------------------------------------------------------
 
-skip_no_db = pytest.mark.skipif(
-    not __import__("os").environ.get("TEST_DATABASE_URL"),
-    reason="TEST_DATABASE_URL not set",
-)
+skip_no_db = needs_db
 
 
 @skip_no_db

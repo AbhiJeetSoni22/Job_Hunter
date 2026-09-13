@@ -29,16 +29,58 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.sql.elements import TextClause
+from sqlalchemy.pool import StaticPool
+from fastapi.testclient import TestClient
+
 # ---------------------------------------------------------------------------
 # Skip marker — applied to every fixture / test that needs a real DB
 # ---------------------------------------------------------------------------
 
-_DB_URL = os.environ.get("TEST_DATABASE_URL", "")
+_DB_URL = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
 
 needs_db = pytest.mark.skipif(
-    not _DB_URL,
-    reason="TEST_DATABASE_URL not set — skipping database tests",
+    False,
+    reason="TEST_DATABASE_URL not set",
 )
+
+
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+
+# Patch PostgreSQL UUID bind processor for SQLite compatibility (accepts string or UUID)
+_orig_uuid_bind_processor = PG_UUID.bind_processor
+
+def _sqlite_uuid_bind_processor(self, dialect):
+    if dialect.name == "sqlite":
+        def process(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                return value
+            return str(value)
+        return process
+    return _orig_uuid_bind_processor(self, dialect)
+
+PG_UUID.bind_processor = _sqlite_uuid_bind_processor
+
+# SQLite JSONB and DDL default compilation rules
+@compiles(JSONB, "sqlite")
+def compile_jsonb_sqlite(type_, compiler, **kw):
+    return "JSON"
+
+
+@compiles(TextClause, "sqlite")
+def compile_text_sqlite(element, compiler, **kw):
+    t = element.text
+    if "gen_random_uuid()" in t:
+        t = t.replace("gen_random_uuid()", "(lower(hex(randomblob(16))))")
+    if "now()" in t:
+        t = t.replace("now()", "CURRENT_TIMESTAMP")
+    if "::jsonb" in t:
+        t = t.replace("::jsonb", "")
+    return t
 
 
 # ---------------------------------------------------------------------------
@@ -51,29 +93,30 @@ def db_engine():
     Create a SQLAlchemy engine bound to TEST_DATABASE_URL.
 
     Creates all ORM tables before tests run; drops them on teardown.
-    Skipped when TEST_DATABASE_URL is absent.
     """
-    if not _DB_URL:
-        pytest.skip("TEST_DATABASE_URL not set")
-
-    # Import Base after we know we have a DB — avoids config errors
     from app.database import Base  # noqa: PLC0415
 
     # Import all models so their tables are registered on Base.metadata
     import app.models.job        # noqa: F401
     import app.models.resume     # noqa: F401
     import app.models.scrape_run # noqa: F401
+    import app.models.scoring_run # noqa: F401
+    import app.models.user       # noqa: F401
 
-    if "test" not in _DB_URL.lower():
-        raise RuntimeError(
-    "Refusing to run tests against non-test database"
-    )
+    if "sqlite" in _DB_URL.lower():
+        engine = create_engine(
+            _DB_URL,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        if "test" not in _DB_URL.lower():
+            raise RuntimeError("Refusing to run tests against non-test database")
 
-    engine = create_engine(_DB_URL, pool_pre_ping=True)
+        engine = create_engine(_DB_URL, pool_pre_ping=True)
 
-    # Ensure gen_random_uuid() is available (pgcrypto or pg >= 13 built-in)
-    with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
 
     Base.metadata.create_all(engine)
     yield engine
@@ -120,7 +163,7 @@ def sample_job(db):
     from app.models.job import Job  # noqa: PLC0415
 
     job = Job(
-        id=str(uuid.uuid4()),
+        id=uuid.uuid4(),
         title="Backend Engineer",
         company="Acme Corp",
         description="Build APIs with FastAPI and PostgreSQL.",
@@ -145,7 +188,7 @@ def scored_job(db):
 
     now = datetime.now(timezone.utc)
     job = Job(
-        id=str(uuid.uuid4()),
+        id=uuid.uuid4(),
         title="ML Engineer",
         company="DeepMind",
         description="Research and productionise ML models.",
@@ -174,6 +217,7 @@ def sample_resume(db):
     from app.models.resume import Resume  # noqa: PLC0415
 
     resume = Resume(
+        id=uuid.uuid4(),
         filename="john_doe_resume.pdf",
         raw_text="Python FastAPI PostgreSQL React TypeScript " * 10,
         skills=["Python", "FastAPI", "PostgreSQL", "React", "TypeScript"],
@@ -301,3 +345,20 @@ def fake_scraper():
         ),
     ])
     return scraper
+
+
+@pytest.fixture()
+def client(db):
+    """
+    FastAPI TestClient fixture with overridden DB session.
+    """
+    from app.main import app  # noqa: PLC0415
+    from app.database import get_db   # noqa: PLC0415
+
+    def _override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()

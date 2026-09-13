@@ -65,14 +65,14 @@ class UserService:
         normalized_email = data.email.strip().lower()
 
         if self.get_by_email(normalized_email) is not None:
-            logger.info("Registration failed — email already exists: %s", normalized_email)
+            logger.info("Registration failed — duplicate email")
             raise DuplicateEmailError(f"An account with email '{normalized_email}' already exists")
 
         pw_hash = hash_password(data.password)
         now = datetime.now(timezone.utc)
 
         user = User(
-            id=str(uuid.uuid4()),
+            id=uuid.uuid4(),
             name=data.name.strip(),
             email=normalized_email,
             password_hash=pw_hash,
@@ -84,7 +84,7 @@ class UserService:
         self._db.commit()
         self._db.refresh(user)
 
-        logger.info("Successfully registered user id=%s email=%s", user.id, user.email)
+        logger.info("Successfully registered user id=%s", user.id)
         return user
 
     def authenticate_user(self, data: UserLoginRequest) -> User:
@@ -98,16 +98,12 @@ class UserService:
         normalized_email = data.email.strip().lower()
         user = self.get_by_email(normalized_email)
 
-        if user is None:
-            logger.info("Auth failed — user not found for email: %s", normalized_email)
-            raise InvalidCredentialsError("Invalid email or password")
-
-        if not verify_password(data.password, user.password_hash):
-            logger.info("Auth failed — password mismatch for user id=%s", user.id)
+        if user is None or not verify_password(data.password, user.password_hash):
+            logger.info("Authentication failed — invalid credentials")
             raise InvalidCredentialsError("Invalid email or password")
 
         if not user.is_active:
-            logger.warning("Auth failed — inactive user id=%s", user.id)
+            logger.warning("Authentication failed — inactive user id=%s", user.id)
             raise InactiveUserError("User account is inactive")
 
         logger.info("Successfully authenticated user id=%s", user.id)
@@ -120,4 +116,9 @@ class UserService:
 
     def get_by_id(self, user_id: uuid.UUID | str) -> User | None:
         """Fetch a User by ID UUID/string, or None if not found."""
-        return self._db.get(User, str(user_id))
+        if isinstance(user_id, str):
+            try:
+                user_id = uuid.UUID(user_id)
+            except ValueError:
+                return None
+        return self._db.get(User, user_id)

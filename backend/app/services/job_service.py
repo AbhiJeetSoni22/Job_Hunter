@@ -210,7 +210,7 @@ class JobService:
                 continue
 
             job = Job(
-                id=str(uuid.uuid4()),
+                id=uuid.uuid4(),
                 title=data.title,
                 company=data.company,
                 company_url=data.company_url,

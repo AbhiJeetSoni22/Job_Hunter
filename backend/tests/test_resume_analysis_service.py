@@ -39,10 +39,10 @@ def _patch_gemini(result: dict | None = None, *, raises: Exception | None = None
         mock_instance.analyze_resume_gap.side_effect = raises
     else:
         mock_instance.analyze_resume_gap.return_value = result or GEMINI_GAP_RESULT
-        return patch(
-    "app.services.resume_analysis_service.GeminiClient",
-    return_value=mock_instance,
-)
+    return patch(
+        "app.services.resume_analysis_service.GeminiClient",
+        return_value=mock_instance,
+    )
 
 
 class TestValidAnalysis:

@@ -7,6 +7,7 @@ Provides:
 """
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -97,10 +98,12 @@ def decode_access_token(token: str) -> dict[str, Any]:
     """
     Decode and validate a JWT access token.
 
+    Validates signature, expiration, token type ("access"), and UUID subject format.
+
     Returns the payload dictionary if valid.
     Raises:
       - jwt.ExpiredSignatureError: if the token has expired
-      - jwt.InvalidTokenError: if the signature or structure is invalid
+      - jwt.InvalidTokenError: if the signature, structure, type, or subject claim is invalid
     """
     settings = get_settings()
     payload = jwt.decode(
@@ -108,4 +111,17 @@ def decode_access_token(token: str) -> dict[str, Any]:
         settings.JWT_SECRET_KEY,
         algorithms=[settings.JWT_ALGORITHM],
     )
+
+    if payload.get("type") != "access":
+        raise jwt.InvalidTokenError("Invalid token type")
+
+    sub = payload.get("sub")
+    if not sub:
+        raise jwt.InvalidTokenError("Missing subject claim")
+
+    try:
+        uuid.UUID(str(sub))
+    except (ValueError, TypeError, AttributeError):
+        raise jwt.InvalidTokenError("Invalid subject UUID format")
+
     return payload

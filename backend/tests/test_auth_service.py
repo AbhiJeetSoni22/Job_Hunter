@@ -208,17 +208,19 @@ def test_11_login_inactive_user(db):
 
 def test_12_jwt_generation():
     """12. JWT access token is generated successfully."""
-    token = create_access_token(data={"sub": "test-user-id", "email": "test@example.com"})
+    valid_uuid = str(uuid.uuid4())
+    token = create_access_token(data={"sub": valid_uuid, "email": "test@example.com"})
     assert isinstance(token, str)
     assert len(token) > 20
 
 
 def test_13_jwt_contains_appropriate_claims():
     """13. Generated JWT contains sub, email, iat, exp, and type claims."""
-    token = create_access_token(data={"sub": "user-uuid-123", "email": "claim@example.com"})
+    valid_uuid = str(uuid.uuid4())
+    token = create_access_token(data={"sub": valid_uuid, "email": "claim@example.com"})
     payload = decode_access_token(token)
 
-    assert payload["sub"] == "user-uuid-123"
+    assert payload["sub"] == valid_uuid
     assert payload["email"] == "claim@example.com"
     assert payload["type"] == "access"
     assert "iat" in payload
@@ -229,7 +231,7 @@ def test_14_expired_invalid_token_decoding():
     """14. Expired or tampered JWT tokens raise ExpiredSignatureError / InvalidTokenError."""
     # Test expired token
     expired_token = create_access_token(
-        data={"sub": "user-123"},
+        data={"sub": str(uuid.uuid4())},
         expires_delta=timedelta(seconds=-10),
     )
     with pytest.raises(jwt.ExpiredSignatureError):
@@ -316,7 +318,7 @@ def test_19_expired_jwt_token(db_engine):
     from fastapi.security import HTTPAuthorizationCredentials
 
     expired_token = create_access_token(
-        data={"sub": "user-123"},
+        data={"sub": str(uuid.uuid4())},
         expires_delta=timedelta(seconds=-60),
     )
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=expired_token)
@@ -394,3 +396,42 @@ def test_24_cannot_authenticate_using_plaintext_as_stored_hash():
     """24. Passing plaintext password directly as password_hash fails verification."""
     plain = "MySecretPass123!"
     assert verify_password(plain, plain) is False
+
+
+def test_25_jwt_token_type_validation():
+    """25. Token with missing or incorrect 'type' claim raises InvalidTokenError."""
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+
+    # Missing type claim
+    token1 = jwt.encode(
+        {"sub": str(uuid.uuid4()), "iat": now, "exp": now + timedelta(minutes=10)},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_access_token(token1)
+
+    # Wrong type claim
+    token2 = jwt.encode(
+        {"sub": str(uuid.uuid4()), "type": "refresh", "iat": now, "exp": now + timedelta(minutes=10)},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_access_token(token2)
+
+
+def test_26_jwt_malformed_subject_uuid_validation():
+    """26. Token with malformed non-UUID 'sub' claim raises InvalidTokenError."""
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+
+    token = jwt.encode(
+        {"sub": "not-a-valid-uuid", "type": "access", "iat": now, "exp": now + timedelta(minutes=10)},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    with pytest.raises(jwt.InvalidTokenError):
+        decode_access_token(token)
+

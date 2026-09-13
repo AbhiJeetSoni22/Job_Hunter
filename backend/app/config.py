@@ -7,6 +7,7 @@ a clear error at startup if the variable is missing — not at call time.
 """
 
 from functools import lru_cache
+from typing import Any
 
 from pydantic import PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -57,6 +58,28 @@ class Settings(BaseSettings):
         if v.upper() not in allowed:
             raise ValueError(f"LOG_LEVEL must be one of {allowed}")
         return v.upper()
+
+    @field_validator("JWT_SECRET_KEY")
+    @classmethod
+    def validate_jwt_secret_key(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("JWT_SECRET_KEY must not be empty")
+        return v
+
+    def model_post_init(self, __context: Any) -> None:
+        """Validate production security configuration after model initialization."""
+        insecure_defaults = {
+            "dev-insecure-jwt-secret-key-change-this-in-production",
+            "dev-insecure-jwt-secret-key-change-in-production",
+            "secret",
+            "changeme",
+        }
+        if self.APP_ENV in {"production", "prod"}:
+            if not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY.lower().strip() in insecure_defaults:
+                raise ValueError(
+                    "JWT_SECRET_KEY is insecure or unset for production environment! "
+                    "Set a strong secret in environment variables."
+                )
 
     @property
     def cors_origins_list(self) -> list[str]:

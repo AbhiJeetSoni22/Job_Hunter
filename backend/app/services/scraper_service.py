@@ -97,7 +97,7 @@ class ScraperService:
         updates this same row (by id, via its own fresh session) as it
         scores each job.
         """
-        run = ScoringRun(status="running", total_jobs=total_jobs)
+        run = ScoringRun(id=uuid.uuid4(), status="running", total_jobs=total_jobs)
         self._db.add(run)
         self._db.commit()
         self._db.refresh(run)
@@ -292,6 +292,7 @@ class ScraperService:
     ) -> ScrapeRun:
         """Insert a ScrapeRun row and return it."""
         run = ScrapeRun(
+            id=uuid.uuid4(),
             source=source,
             jobs_found=jobs_found,
             jobs_new=jobs_new,

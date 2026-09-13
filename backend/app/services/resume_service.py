@@ -533,6 +533,7 @@ class ResumeService:
             self._db.flush()  # Ensure delete is sent before insert
 
         resume = Resume(
+            id=uuid.uuid4(),
             filename=filename,
             raw_text=raw_text,
             skills=skills,
