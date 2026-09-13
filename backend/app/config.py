@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    # ── JWT Authentication ──────────────────────────────────────────────────
+    JWT_SECRET_KEY: str = "dev-insecure-jwt-secret-key-change-this-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days (10080 minutes)
+
     # ── Application ────────────────────────────────────────────────────────
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"

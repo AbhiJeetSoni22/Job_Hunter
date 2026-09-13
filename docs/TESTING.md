@@ -10,17 +10,18 @@ The backend includes a comprehensive pytest suite located in `backend/tests/`.
 
 ### 1.1 Test Suite Summary
 
-- **Total Test Items Collected**: **123 tests**
+- **Total Test Items Collected**: **147 tests**
 - **Test Framework**: `pytest 8.3+` with `pytest-asyncio`, `pytest-mock`, `pytest-cov`
 - **Execution State without `TEST_DATABASE_URL`**:
-  - **13 Passed** (Non-database unit tests)
-  - **110 Skipped** (Database-dependent tests using PostgreSQL)
-- **Full Execution Requirement**: Running all 123 tests requires setting `TEST_DATABASE_URL` to a valid PostgreSQL instance.
+  - **22 Passed** (Non-database unit tests)
+  - **125 Skipped** (Database-dependent tests using PostgreSQL)
+- **Full Execution Requirement**: Running all 147 tests requires setting `TEST_DATABASE_URL` to a valid PostgreSQL instance.
 
 ### 1.2 Test Modules
 
 | Test File | Service / Area Tested | Key Coverage |
 |---|---|---|
+| `test_auth_service.py` | `UserService`, `security`, `dependencies` | Argon2id password security, PyJWT token generation/validation/expiration, email normalization, registration, login authentication, inactive user checks, and `get_current_user` dependency resolution. |
 | `test_job_service.py` | `JobService` | Paginated listing, sorting, status/notes updates, deduplication (`upsert_jobs`), lifecycle aging, and expired job cleanup (`cleanup_expired_jobs`). |
 | `test_match_service.py` | `match_service` | Job match scoring, score cache hits/misses, stale score detection (`needs_rescore`), and recommendation label mapping. |
 | `test_resume_service.py` | `ResumeService` | PDF validation, text extraction mocking, Gemini skill extraction, single active resume replacement, and resume deletion. |

@@ -28,10 +28,12 @@ from app.models.job import Job
 from app.models.resume import Resume
 from app.models.scrape_run import ScrapeRun
 from app.models.scoring_run import ScoringRun
+from app.models.user import User
 
 __all__ = [
     "Job",
     "Resume",
     "ScrapeRun",
     "ScoringRun",
+    "User",
 ]

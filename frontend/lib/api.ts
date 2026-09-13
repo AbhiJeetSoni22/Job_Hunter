@@ -32,6 +32,10 @@ import type {
   ScraperRunResult,
   ResumeAnalysisResponse,
   InterviewPrepResponse,
+  User,
+  UserRegisterRequest,
+  UserLoginRequest,
+  TokenResponse,
 } from "./types";
 
 // ── Client error class ────────────────────────────────────────────────────────
@@ -59,18 +63,31 @@ function baseUrl(): string {
   return "";
 }
 
+function getStoredToken(): string | null {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("token");
+  }
+  return null;
+}
+
 // ── Core fetch wrapper ────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${baseUrl()}${path}`;
 
+  const token = getStoredToken();
+  const authHeader: Record<string, string> = token
+    ? { Authorization: `Bearer ${token}` }
+    : {};
+
   // Build headers — never set Content-Type for FormData;
   // the browser must set it with the correct multipart boundary.
   const isFormData = init?.body instanceof FormData;
   const headers: HeadersInit = isFormData
-    ? { ...(init?.headers as Record<string, string>) }
+    ? { ...authHeader, ...(init?.headers as Record<string, string>) }
     : {
         "Content-Type": "application/json",
+        ...authHeader,
         ...(init?.headers as Record<string, string>),
       };
 
@@ -230,4 +247,24 @@ export async function analyzeResume(
     method: "POST",
     body: JSON.stringify({ job_description: jobDescription }),
   });
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export async function register(body: UserRegisterRequest): Promise<User> {
+  return apiFetch<User>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function login(body: UserLoginRequest): Promise<TokenResponse> {
+  return apiFetch<TokenResponse>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getMe(): Promise<User> {
+  return apiFetch<User>("/api/auth/me");
 }

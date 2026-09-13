@@ -8,8 +8,8 @@
 
 ## 1. Overview & Architectural Design Decisions
 
-- **Four Core Tables**: `jobs`, `resumes`, `scrape_runs`, `scoring_runs`.
-- **No Foreign Key Constraints**: No junction tables or foreign keys exist between tables. In a single-user system with one active resume, storing match data directly on the `Job` record eliminates join overhead without sacrificing integrity.
+- **Five Core Tables**: `jobs`, `resumes`, `scrape_runs`, `scoring_runs`, `users`.
+- **No Foreign Key Constraints**: No junction tables or foreign keys exist between tables. In Phase 1 Authentication Foundation, `users` table is introduced for user identity and credentials without modifying ownership of existing tables.
 - **Single Active Resume Model**: The `resumes` table stores at most one active resume row. A new PDF upload replaces the existing row.
 - **Application Tracking on `Job`**: Application pipeline state (`status`) and user notes (`notes`) live directly on the `Job` record.
 - **String Constants over DB Enums**: Enum-like fields (`status`, `source`, `scoring_runs.status`) are stored as `VARCHAR` rather than PostgreSQL native enum types, preventing database locks during schema updates. Pydantic schemas enforce runtime validation.
@@ -107,6 +107,26 @@ Tracks persistent background auto-scoring batches scheduled after job ingestion.
 
 ---
 
+### 2.5 Table: `users`
+
+Stores user identity, profile details, and Argon2id password hashes for Phase 1 Authentication Foundation.
+
+| Column | Data Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `gen_random_uuid()` | Primary Key |
+| `email` | `VARCHAR(255)` | No | - | User email address (UNIQUE constraint, normalized) |
+| `name` | `VARCHAR(255)` | No | - | User display name |
+| `password_hash` | `VARCHAR(255)` | No | - | Encoded Argon2id password hash |
+| `is_active` | `BOOLEAN` | No | `true` | User account active flag |
+| `created_at` | `TIMESTAMPTZ` | No | `now()` | Registration timestamp |
+| `updated_at` | `TIMESTAMPTZ` | No | `now()` | Account update timestamp |
+
+**Indexes on `users`:**
+- `idx_users_email` ON `users(email)`
+- UNIQUE constraint on `email`
+
+---
+
 ## 3. Migration History
 
 All migrations are located in `backend/alembic/versions/`:
@@ -118,3 +138,5 @@ All migrations are located in `backend/alembic/versions/`:
    - Created `idx_jobs_expired_at` index.
 3. **`68abbd5b8e5a_add_scoring_runs_table.py`** (Revision `68abbd5b8e5a`)
    - Created `scoring_runs` table and `idx_scoring_runs_status` index.
+4. **`7a1b2c3d4e5f_add_users_table.py`** (Revision `7a1b2c3d4e5f`)
+   - Created `users` table and `idx_users_email` index.

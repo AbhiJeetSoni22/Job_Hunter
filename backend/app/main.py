@@ -11,8 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import get_settings
-from app.routers import dashboard, health, jobs, resume, resume_analysis, scraper,interview_prep
-
+from app.routers import auth, dashboard, health, interview_prep, jobs, resume, resume_analysis, scraper
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +65,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
     return JSONResponse(
         status_code=exc.status_code,
+        headers=exc.headers if hasattr(exc, "headers") and exc.headers else None,
         content={"data": None, "error": {"code": code, "message": message}},
     )
 
@@ -122,6 +122,7 @@ def _status_to_code(status_code: int) -> str:
         403: "FORBIDDEN",
         404: "NOT_FOUND",
         405: "METHOD_NOT_ALLOWED",
+        409: "CONFLICT",
         422: "UNPROCESSABLE_ENTITY",
         429: "TOO_MANY_REQUESTS",
         500: "INTERNAL_ERROR",
@@ -137,6 +138,7 @@ def _status_to_code(status_code: int) -> str:
 # ---------------------------------------------------------------------------
 
 app.include_router(health.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(scraper.router, prefix="/api")
 app.include_router(resume.router, prefix="/api")

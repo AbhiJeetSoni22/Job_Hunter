@@ -36,11 +36,14 @@ Standard application API endpoints use the uniform `ApiResponse[T]` envelope str
 
 ---
 
-## Registered Endpoints Index (16 Endpoints)
+## Registered Endpoints Index (19 Endpoints)
 
 | Category | Method | Path | Summary |
 |---|---|---|---|
 | Health | `GET` | `/api/health` | Liveness and database connectivity check |
+| Auth | `POST` | `/api/auth/register` | Register a new user account |
+| Auth | `POST` | `/api/auth/login` | Authenticate user credentials and return JWT token |
+| Auth | `GET` | `/api/auth/me` | Retrieve authenticated user profile |
 | Jobs | `GET` | `/api/jobs` | Filtered, sorted, paginated job listing |
 | Jobs | `GET` | `/api/jobs/{job_id}` | Detailed job listing by ID |
 | Jobs | `POST` | `/api/jobs/{job_id}/score` | Score job against active resume |
@@ -77,6 +80,117 @@ Checks application status and PostgreSQL database connectivity.
 {
   "status": "degraded",
   "database": "unreachable"
+}
+```
+
+---
+
+## 1.1 Auth Router (`/api/auth`)
+
+### POST /api/auth/register
+Registers a new user account with Argon2id password hashing.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "name": "Jane Doe",
+  "password": "securepassword123"
+}
+```
+
+**Response 201 (Created):**
+```json
+{
+  "data": {
+    "id": "7a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d",
+    "email": "user@example.com",
+    "name": "Jane Doe",
+    "is_active": true,
+    "created_at": "2026-09-13T17:40:00Z",
+    "updated_at": "2026-09-13T17:40:00Z"
+  },
+  "error": null
+}
+```
+
+**Response 409 (Conflict - Duplicate Email):**
+```json
+{
+  "data": null,
+  "error": {
+    "code": "EMAIL_ALREADY_EXISTS",
+    "message": "User with this email already exists"
+  }
+}
+```
+
+---
+
+### POST /api/auth/login
+Authenticates user credentials and issues a PyJWT access token (valid for 7 days / 10080 minutes).
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "securepassword123"
+}
+```
+
+**Response 200 (OK):**
+```json
+{
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "token_type": "bearer"
+  },
+  "error": null
+}
+```
+
+**Response 401 (Unauthorized - Generic Credentials Error):**
+```json
+{
+  "data": null,
+  "error": {
+    "code": "INVALID_CREDENTIALS",
+    "message": "Invalid email or password"
+  }
+}
+```
+
+---
+
+### GET /api/auth/me
+Retrieves profile for the currently authenticated user based on `Authorization: Bearer <token>` header.
+
+**Headers:**
+`Authorization: Bearer <access_token>`
+
+**Response 200 (OK):**
+```json
+{
+  "data": {
+    "id": "7a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d",
+    "email": "user@example.com",
+    "name": "Jane Doe",
+    "is_active": true,
+    "created_at": "2026-09-13T17:40:00Z",
+    "updated_at": "2026-09-13T17:40:00Z"
+  },
+  "error": null
+}
+```
+
+**Response 401 (Unauthorized - Missing / Invalid Token):**
+```json
+{
+  "data": null,
+  "error": {
+    "code": "INVALID_TOKEN",
+    "message": "Invalid access token"
+  }
 }
 ```
 

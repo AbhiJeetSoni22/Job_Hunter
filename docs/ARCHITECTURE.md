@@ -24,10 +24,11 @@ This is the authoritative technical reference for **how the system works interna
 
 ## 1. High-Level Architecture
 
-AI Internship Hunter is a personal, single-user job discovery platform built with FastAPI, Next.js 15, PostgreSQL, and Google Gemini AI.
+AI Internship Hunter is an AI-powered job discovery platform built with FastAPI, Next.js 15, PostgreSQL, and Google Gemini AI, currently featuring Phase 1 Authentication Foundation.
 
 **System Constraints & Boundaries:**
-- **Single-User Scope**: No multi-tenant authentication, user management, or JWT session layer.
+- **Authentication Foundation**: User accounts, password security via Argon2id, PyJWT access tokens (7-day default expiry), and reusable `get_current_user` FastAPI dependency.
+- **Phase 1 Resource Boundaries**: Existing jobs, resumes, scrape_runs, and scoring_runs tables remain shared/unmodified (no resource ownership migrations in Phase 1).
 - **No External Task Queue / Message Broker**: No Redis, Celery, RabbitMQ, or external worker processes.
 - **No Built-in In-Process Scheduler**: Scraping and cleanup are invoked on-demand via HTTP or external CLI commands (`python -m app.cleanup`).
 - **Asynchronous Execution Model**: Post-sync auto-scoring runs after HTTP response transmission using FastAPI `BackgroundTasks`, with live progress persisted in PostgreSQL for client polling.
@@ -35,16 +36,19 @@ AI Internship Hunter is a personal, single-user job discovery platform built wit
 ```text
 Browser (Next.js 15 Client Components)
     │
-    │ HTTP / JSON via lib/api.ts (Proxy rewrite /api/* -> Backend)
+    │ HTTP / JSON via lib/api.ts (Authorization: Bearer <token>)
     ▼
 FastAPI Application (app/main.py)
     ├── Routers (app/routers/)          ← Validation & HTTP response mapping only
+    ├── Core/Security (app/core/)       ← Argon2id hashing & PyJWT token handling
+    ├── Dependencies (app/dependencies) ← get_current_user dependency
     ├── Services (app/services/)        ← Business rules & transaction management
     ├── Scrapers (app/scrapers/)        ← RemoteOK API (httpx) + YC Jobs (Playwright)
     └── AI Layer (app/ai/)              ← GeminiClient + 4 Prompt Templates
     │
     ▼
 PostgreSQL 16 Database
+    ├── users                           ← Candidate identity & Argon2id password hash
     ├── jobs                            ← Job listings, match scores, lifecycle fields
     ├── resumes                         ← Active candidate resume & extracted skills
     ├── scrape_runs                     ← Scraper execution logs
@@ -55,7 +59,7 @@ PostgreSQL 16 Database
 
 ## 2. Backend Architecture
 
-The backend follows a strict layered architecture: **Routers → Services → AI Client / Scrapers / ORM Models**.
+The backend follows a strict layered architecture: **Routers → Services → Core / AI Client / Scrapers / ORM Models**.
 
 ### 2.1 Routers (`app/routers/`)
 
@@ -64,6 +68,7 @@ Routers contain **zero business logic** and **zero database queries**. They hand
 | Router | Path Prefix | Endpoints | Responsibility |
 |---|---|---|---|
 | `health.py` | `/api` | `GET /health` | Liveness & PostgreSQL connection status |
+| `auth.py` | `/api/auth` | `POST /register`, `POST /login`, `GET /me` | User registration, authentication, JWT token issuance, and profile resolution |
 | `jobs.py` | `/api/jobs` | `GET /`, `GET /{id}`, `POST /{id}/score`, `PATCH /{id}`, `DELETE /{id}` | Job listing, detail, scoring, updates, deletion |
 | `scraper.py` | `/api/scraper` | `POST /run`, `GET /status`, `GET /scoring-status` | Scraping trigger, source status, scoring run polling |
 | `resume.py` | `/api/resume` | `POST /`, `GET /`, `DELETE /`, `GET /{resume_id}` | Resume PDF upload, active resume lookup, deletion |
