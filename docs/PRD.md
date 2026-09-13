@@ -48,7 +48,7 @@ Build an intelligent personal job discovery and application management system th
 
 ### 4.3 Persistent Match Scoring (Implemented)
 - **Fit Evaluation**: Generate fit scores (0–100), missing technical skills (up to 5 items), and two-sentence alignment summaries using AI.
-- **Background Processing**: Synchronously queue auto-scoring after scrapers run without blocking initial sync responses.
+- **Background Processing**: Persistently track and schedule auto-scoring in a FastAPI background task without blocking the initial sync response.
 - **Batch Tracking**: Persist scoring progress and terminal states so frontends can display live progress and stop polling cleanly upon completion.
 - **Stale Score Detection**: Detect when a job score was generated against an older resume version ("Needs Re-score").
 
@@ -56,7 +56,7 @@ Build an intelligent personal job discovery and application management system th
 - **Missing Sync Tracking**: Track consecutive scraper syncs where a job's URL was no longer present.
 - **Expiration Flagging**: Mark jobs as expired after 2 consecutive missing syncs.
 - **Filtered Display**: Exclude expired jobs from default job listings and recommendation dashboard calculations while allowing explicit inclusion via filters.
-- **Un-annotated Job Cleanup**: Support automated management commands to purge un-annotated, saved expired jobs older than N days.
+- **Un-annotated Job Cleanup**: Support an on-demand management command to purge un-annotated, saved expired jobs older than N days.
 
 ### 4.5 Application Pipeline Tracking (Implemented)
 - **Pipeline Stages**: Support status transitions: `saved` → `applied` → `interview` → `offer` / `rejected`.

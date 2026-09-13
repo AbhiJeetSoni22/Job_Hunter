@@ -8,7 +8,7 @@
 
 ## Envelope Conventions
 
-All standard API responses follow a uniform `ApiResponse[T]` envelope structure:
+Standard application API endpoints use the uniform `ApiResponse[T]` envelope structure. `GET /api/health` is a deliberate exception and returns a dedicated health payload.
 
 ### Successful Response Envelope
 ```json
