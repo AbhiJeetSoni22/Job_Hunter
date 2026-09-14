@@ -22,18 +22,18 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
-
-from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.sql.elements import TextClause
-from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+from sqlalchemy.sql.elements import TextClause
 
 # ---------------------------------------------------------------------------
 # Skip marker — applied to every fixture / test that needs a real DB
@@ -47,10 +47,9 @@ needs_db = pytest.mark.skipif(
 )
 
 
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-
 # Patch PostgreSQL UUID bind processor for SQLite compatibility (accepts string or UUID)
 _orig_uuid_bind_processor = PG_UUID.bind_processor
+
 
 def _sqlite_uuid_bind_processor(self, dialect):
     if dialect.name == "sqlite":
@@ -62,6 +61,7 @@ def _sqlite_uuid_bind_processor(self, dialect):
             return str(value)
         return process
     return _orig_uuid_bind_processor(self, dialect)
+
 
 PG_UUID.bind_processor = _sqlite_uuid_bind_processor
 
@@ -94,14 +94,13 @@ def db_engine():
 
     Creates all ORM tables before tests run; drops them on teardown.
     """
-    from app.database import Base  # noqa: PLC0415
-
     # Import all models so their tables are registered on Base.metadata
-    import app.models.job        # noqa: F401
-    import app.models.resume     # noqa: F401
-    import app.models.scrape_run # noqa: F401
-    import app.models.scoring_run # noqa: F401
-    import app.models.user       # noqa: F401
+    import app.models.job  # noqa: F401
+    import app.models.resume  # noqa: F401
+    import app.models.scoring_run  # noqa: F401
+    import app.models.scrape_run  # noqa: F401
+    import app.models.user  # noqa: F401
+    from app.database import Base  # noqa: PLC0415
 
     if "sqlite" in _DB_URL.lower():
         engine = create_engine(
@@ -170,8 +169,8 @@ def sample_job(db):
         url="https://example.com/jobs/backend-1",
         source="remoteok",
         status="saved",
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
     db.add(job)
     db.commit()
@@ -186,7 +185,7 @@ def scored_job(db):
     """
     from app.models.job import Job  # noqa: PLC0415
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     job = Job(
         id=uuid.uuid4(),
         title="ML Engineer",
@@ -352,8 +351,8 @@ def client(db):
     """
     FastAPI TestClient fixture with overridden DB session.
     """
+    from app.database import get_db  # noqa: PLC0415
     from app.main import app  # noqa: PLC0415
-    from app.database import get_db   # noqa: PLC0415
 
     def _override_get_db():
         yield db

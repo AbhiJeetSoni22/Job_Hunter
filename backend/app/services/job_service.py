@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
@@ -136,7 +136,7 @@ class JobService:
         if body.notes is not None:
             job.notes = body.notes
 
-        job.updated_at = datetime.now(timezone.utc)
+        job.updated_at = datetime.now(UTC)
         self.db.add(job)
         self.db.commit()
         self.db.refresh(job)
@@ -186,7 +186,7 @@ class JobService:
         this batch's URLs, one query to bulk-load this source's active jobs
         missing from the batch. No per-job queries — no N+1.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         batch_source = source or (jobs[0].source if jobs else None)
 
         urls = [data.url for data in jobs]
@@ -228,7 +228,7 @@ class JobService:
             self.db.add(job)
             new_count += 1
             if new_job_ids is not None:
-                new_job_ids.append(job.id)
+                new_job_ids.append(str(job.id))
             logger.debug("upsert new job url=%s", data.url)
 
         if batch_source is not None:
@@ -253,7 +253,7 @@ class JobService:
         Anything the user acted on (status changed, or notes added) is
         kept forever, regardless of expiry age.
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
         stmt = select(Job).where(
             Job.expired_at.isnot(None),

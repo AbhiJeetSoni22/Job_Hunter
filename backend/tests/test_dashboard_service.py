@@ -17,7 +17,7 @@ Skip gracefully when TEST_DATABASE_URL is absent.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -29,9 +29,9 @@ pytestmark = needs_db
 def _make_job(db, *, score=None, status="saved", title="Job", company="Co", source="remoteok"):
     from app.models.job import Job  # noqa: PLC0415
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     job = Job(
-        id=str(uuid.uuid4()),
+        id=uuid.uuid4(),
         title=title,
         company=company,
         description="desc",
