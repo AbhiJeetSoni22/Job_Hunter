@@ -26,10 +26,14 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
+
+# Load environment variables from .env file if present
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Skip marker & safety guard — canonical PostgreSQL test DB validation
