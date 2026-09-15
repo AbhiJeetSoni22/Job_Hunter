@@ -28,59 +28,43 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
-from sqlalchemy.sql.elements import TextClause
 
 # ---------------------------------------------------------------------------
-# Skip marker — applied to every fixture / test that needs a real DB
+# Skip marker & safety guard — canonical PostgreSQL test DB validation
 # ---------------------------------------------------------------------------
 
-_DB_URL = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
+_TEST_DB_URL = os.environ.get("TEST_DATABASE_URL")
 
 needs_db = pytest.mark.skipif(
-    False,
-    reason="TEST_DATABASE_URL not set",
+    not _TEST_DB_URL,
+    reason="TEST_DATABASE_URL environment variable is not set",
 )
 
 
-# Patch PostgreSQL UUID bind processor for SQLite compatibility (accepts string or UUID)
-_orig_uuid_bind_processor = PG_UUID.bind_processor
+def validate_test_database_url(url_str: str) -> None:
+    """
+    Strict safety guard verifying TEST_DATABASE_URL connects to PostgreSQL
+    and specifies a dedicated test database name (must contain 'test').
+    """
+    if not url_str or not url_str.strip():
+        raise ValueError("TEST_DATABASE_URL environment variable is empty or unset.")
 
+    parsed = make_url(url_str)
 
-def _sqlite_uuid_bind_processor(self, dialect):
-    if dialect.name == "sqlite":
-        def process(value):
-            if value is None:
-                return None
-            if isinstance(value, str):
-                return value
-            return str(value)
-        return process
-    return _orig_uuid_bind_processor(self, dialect)
+    if not parsed.drivername.startswith("postgresql"):
+        raise ValueError(
+            f"TEST_DATABASE_URL must be a PostgreSQL connection string (got '{parsed.drivername}'). "
+            "SQLite and non-PostgreSQL databases are not supported for tests."
+        )
 
-
-PG_UUID.bind_processor = _sqlite_uuid_bind_processor
-
-# SQLite JSONB and DDL default compilation rules
-@compiles(JSONB, "sqlite")
-def compile_jsonb_sqlite(type_, compiler, **kw):
-    return "JSON"
-
-
-@compiles(TextClause, "sqlite")
-def compile_text_sqlite(element, compiler, **kw):
-    t = element.text
-    if "gen_random_uuid()" in t:
-        t = t.replace("gen_random_uuid()", "(lower(hex(randomblob(16))))")
-    if "now()" in t:
-        t = t.replace("now()", "CURRENT_TIMESTAMP")
-    if "::jsonb" in t:
-        t = t.replace("::jsonb", "")
-    return t
+    db_name = parsed.database
+    if not db_name or "test" not in db_name.lower():
+        raise ValueError(
+            f"Refusing to run tests against non-test database '{db_name}'. "
+            "Database name must contain 'test' (e.g., 'test_db')."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -92,8 +76,14 @@ def db_engine():
     """
     Create a SQLAlchemy engine bound to TEST_DATABASE_URL.
 
-    Creates all ORM tables before tests run; drops them on teardown.
+    Validates PostgreSQL connection string and database safety guard before running.
+    Creates all ORM tables before tests run; drops engine on teardown.
     """
+    if not _TEST_DB_URL:
+        pytest.skip("TEST_DATABASE_URL environment variable is not set")
+
+    validate_test_database_url(_TEST_DB_URL)
+
     # Import all models so their tables are registered on Base.metadata
     import app.models.job  # noqa: F401
     import app.models.resume  # noqa: F401
@@ -102,20 +92,10 @@ def db_engine():
     import app.models.user  # noqa: F401
     from app.database import Base  # noqa: PLC0415
 
-    if "sqlite" in _DB_URL.lower():
-        engine = create_engine(
-            _DB_URL,
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-    else:
-        if "test" not in _DB_URL.lower():
-            raise RuntimeError("Refusing to run tests against non-test database")
+    engine = create_engine(_TEST_DB_URL, pool_pre_ping=True)
 
-        engine = create_engine(_DB_URL, pool_pre_ping=True)
-
-        with engine.begin() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
 
     Base.metadata.create_all(engine)
     yield engine

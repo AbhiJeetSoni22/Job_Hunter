@@ -198,3 +198,53 @@ def test_http_get_me_expired_token(client, db):
     json_data = response.json()
     assert json_data["data"] is None
     assert json_data["error"]["code"] == "TOKEN_EXPIRED"
+
+
+def test_http_get_me_invalid_token_type(client):
+    """GET /api/auth/me with wrong token 'type' claim returns 401 INVALID_TOKEN."""
+    import uuid
+    from datetime import datetime, timezone
+    import jwt
+    from app.config import get_settings
+
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    wrong_type_token = jwt.encode(
+        {"sub": str(uuid.uuid4()), "type": "refresh", "iat": now, "exp": now + timedelta(minutes=10)},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+    response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {wrong_type_token}"},
+    )
+    assert response.status_code == 401
+    json_data = response.json()
+    assert json_data["data"] is None
+    assert json_data["error"]["code"] == "INVALID_TOKEN"
+
+
+def test_http_get_me_invalid_uuid_subject(client):
+    """GET /api/auth/me with non-UUID 'sub' claim returns 401 INVALID_TOKEN."""
+    from datetime import datetime, timezone
+    import jwt
+    from app.config import get_settings
+
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    malformed_sub_token = jwt.encode(
+        {"sub": "invalid-non-uuid-string", "type": "access", "iat": now, "exp": now + timedelta(minutes=10)},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+    response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {malformed_sub_token}"},
+    )
+    assert response.status_code == 401
+    json_data = response.json()
+    assert json_data["data"] is None
+    assert json_data["error"]["code"] == "INVALID_TOKEN"
+
