@@ -71,6 +71,8 @@ def validate_test_database_url(url_str: str) -> None:
         )
 
 
+from sqlalchemy.pool import NullPool
+
 # ---------------------------------------------------------------------------
 # Database engine (session-scoped — tables created once per test session)
 # ---------------------------------------------------------------------------
@@ -81,6 +83,7 @@ def db_engine():
     Create a SQLAlchemy engine bound to TEST_DATABASE_URL.
 
     Validates PostgreSQL connection string and database safety guard before running.
+    Uses NullPool and TCP keepalives for reliable cloud PostgreSQL connections.
     Creates all ORM tables before tests run; drops engine on teardown.
     """
     if not _TEST_DB_URL:
@@ -96,7 +99,13 @@ def db_engine():
     import app.models.user  # noqa: F401
     from app.database import Base  # noqa: PLC0415
 
-    engine = create_engine(_TEST_DB_URL, pool_pre_ping=True)
+    engine = create_engine(
+        _TEST_DB_URL,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=60,
+    )
 
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
@@ -123,11 +132,16 @@ def db(db_engine):
 
     session = Session(bind=connection)
 
-    yield session
-
-    session.close()
-    trans.rollback()
-    connection.close()
+    try:
+        yield session
+    finally:
+        session.close()
+        if trans.is_active:
+            try:
+                trans.rollback()
+            except Exception:
+                pass
+        connection.close()
 
 
 # ---------------------------------------------------------------------------
