@@ -2,24 +2,26 @@
 tests/test_test_setup.py — Verification tests for test infrastructure & safety guards.
 """
 
+from __future__ import annotations
+
 import pytest
 
 from tests.conftest import validate_test_database_url
 
 
-def test_validate_test_database_url_valid():
+def test_validate_test_database_url_valid() -> None:
     """Valid PostgreSQL connection string with test database name passes."""
     validate_test_database_url("postgresql://user:pass@localhost:5432/test_db")
     validate_test_database_url("postgresql+psycopg2://user:pass@localhost:5432/my_test_db?sslmode=require")
 
 
-def test_validate_test_database_url_rejects_empty():
+def test_validate_test_database_url_rejects_empty() -> None:
     """Empty or unset URL string raises ValueError."""
     with pytest.raises(ValueError, match="empty or unset"):
         validate_test_database_url("")
 
 
-def test_validate_test_database_url_rejects_sqlite():
+def test_validate_test_database_url_rejects_sqlite() -> None:
     """SQLite connection strings are explicitly rejected."""
     with pytest.raises(ValueError, match="PostgreSQL connection string"):
         validate_test_database_url("sqlite:///:memory:")
@@ -28,13 +30,13 @@ def test_validate_test_database_url_rejects_sqlite():
         validate_test_database_url("sqlite:///test_db.sqlite")
 
 
-def test_validate_test_database_url_rejects_non_postgres():
+def test_validate_test_database_url_rejects_non_postgres() -> None:
     """Non-PostgreSQL connection strings (MySQL, Oracle) are rejected."""
     with pytest.raises(ValueError, match="PostgreSQL connection string"):
         validate_test_database_url("mysql://user:pass@localhost:3306/test_db")
 
 
-def test_validate_test_database_url_rejects_non_test_db():
+def test_validate_test_database_url_rejects_non_test_db() -> None:
     """PostgreSQL DSN pointing to non-test database name (e.g. production/neondb) is rejected."""
     with pytest.raises(ValueError, match="Refusing to run tests against non-test database"):
         validate_test_database_url("postgresql://user:pass@localhost:5432/production_db")
