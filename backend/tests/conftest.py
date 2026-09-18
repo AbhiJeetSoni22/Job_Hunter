@@ -112,6 +112,13 @@ def db_engine() -> Generator[Engine, None, None]:
     engine = create_engine(
         _TEST_DB_URL,
         poolclass=NullPool,
+        pool_pre_ping=True,
+        connect_args={
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        },
     )
 
     with engine.begin() as conn:
