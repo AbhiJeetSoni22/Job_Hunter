@@ -16,6 +16,8 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from typing import Any, cast
+
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -279,7 +281,7 @@ class JobService:
         job.last_seen_at = now
         job.missing_sync_count = 0
         if job.expired_at is not None:
-            job.expired_at = None  # reappeared — active again
+            job.expired_at = cast(datetime | None, None)  # reappeared — active again
 
     def _age_missing_jobs(
         self,

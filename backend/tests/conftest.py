@@ -22,15 +22,27 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Generator
+from contextlib import suppress
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
+
+if TYPE_CHECKING:
+    from app.models.job import Job
+    from app.models.resume import Resume
+    from app.schemas.job import JobUpsertData
+    from app.services.job_service import JobService
+    from app.services.resume_service import ResumeService
+    from app.services.scraper_service import ScraperService
 
 # Load environment variables from .env file if present
 load_dotenv()
@@ -71,19 +83,17 @@ def validate_test_database_url(url_str: str) -> None:
         )
 
 
-from sqlalchemy.pool import NullPool
-
 # ---------------------------------------------------------------------------
 # Database engine (session-scoped — tables created once per test session)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
-def db_engine():
+def db_engine() -> Generator[Engine, None, None]:
     """
     Create a SQLAlchemy engine bound to TEST_DATABASE_URL.
 
     Validates PostgreSQL connection string and database safety guard before running.
-    Uses NullPool and TCP keepalives for reliable cloud PostgreSQL connections.
+    Uses NullPool for reliable cloud and local PostgreSQL test connections.
     Creates all ORM tables before tests run; drops engine on teardown.
     """
     if not _TEST_DB_URL:
@@ -101,10 +111,7 @@ def db_engine():
 
     engine = create_engine(
         _TEST_DB_URL,
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        pool_recycle=60,
+        poolclass=NullPool,
     )
 
     with engine.begin() as conn:
@@ -120,7 +127,7 @@ def db_engine():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def db(db_engine):
+def db(db_engine: Engine) -> Generator[Session, None, None]:
     """
     Yield a SQLAlchemy Session wrapped in a savepoint.
 
@@ -137,10 +144,8 @@ def db(db_engine):
     finally:
         session.close()
         if trans.is_active:
-            try:
+            with suppress(Exception):
                 trans.rollback()
-            except Exception:
-                pass
         connection.close()
 
 
@@ -149,7 +154,7 @@ def db(db_engine):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def sample_job(db):
+def sample_job(db: Session) -> Job:
     """
     Insert and return a minimal valid Job ORM instance.
 
@@ -177,7 +182,7 @@ def sample_job(db):
 
 
 @pytest.fixture()
-def scored_job(db):
+def scored_job(db: Session) -> Job:
     """
     Insert and return a Job that has already been scored by Gemini.
     """
@@ -207,7 +212,7 @@ def scored_job(db):
 
 
 @pytest.fixture()
-def sample_resume(db):
+def sample_resume(db: Session) -> Resume:
     """
     Insert and return a minimal valid Resume ORM instance.
     """
@@ -230,19 +235,19 @@ def sample_resume(db):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def job_service(db):
+def job_service(db: Session) -> JobService:
     from app.services.job_service import JobService  # noqa: PLC0415
     return JobService(db)
 
 
 @pytest.fixture()
-def resume_service(db):
+def resume_service(db: Session) -> ResumeService:
     from app.services.resume_service import ResumeService  # noqa: PLC0415
     return ResumeService(db)
 
 
 @pytest.fixture()
-def scraper_service(db):
+def scraper_service(db: Session) -> ScraperService:
     from app.services.scraper_service import ScraperService  # noqa: PLC0415
     return ScraperService(db)
 
@@ -252,7 +257,7 @@ def scraper_service(db):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def mock_gemini():
+def mock_gemini() -> Generator[MagicMock, None, None]:
     """
     Patch GeminiClient at its definition module so all imports see the mock.
 
@@ -261,7 +266,7 @@ def mock_gemini():
       - match_job()       → MatchResult dict
     """
     with patch("app.ai.gemini_client.GeminiClient") as MockClass:
-        instance = MockClass.return_value
+        instance: MagicMock = MockClass.return_value
         instance.extract_skills.return_value = ["Python", "FastAPI"]
         instance.match_job.return_value = {
             "match_score": 75,
@@ -272,7 +277,7 @@ def mock_gemini():
 
 
 @pytest.fixture()
-def mock_fitz():
+def mock_fitz() -> Generator[MagicMock, None, None]:
     """
     Patch fitz (PyMuPDF) so PDF extraction works without a real PDF.
 
@@ -287,9 +292,9 @@ def mock_fitz():
 
         # Build mock document
         mock_doc = MagicMock()
-        mock_doc.__len__ = lambda self: 2
+        mock_doc.__len__.return_value = 2
         mock_doc.is_encrypted = False
-        mock_doc.__getitem__ = lambda self, idx: mock_page
+        mock_doc.__getitem__.return_value = mock_page
 
         # fitz.open(...) returns the mock doc
         mock_fitz_module.open.return_value = mock_doc
@@ -305,22 +310,22 @@ class FakeScraper:
     Configurable: set .raises to an Exception to simulate failure.
     """
 
-    def __init__(self, source: str = "remoteok", *, raises: Exception | None = None):
+    def __init__(self, source: str = "remoteok", *, raises: Exception | None = None) -> None:
         self.source = source
         self.raises = raises
-        self._jobs_returned: list = []
+        self._jobs_returned: list[JobUpsertData] = []
 
-    def set_jobs(self, jobs: list):
+    def set_jobs(self, jobs: list[JobUpsertData]) -> None:
         self._jobs_returned = jobs
 
-    def run(self):
+    def run(self) -> list[JobUpsertData]:
         if self.raises is not None:
             raise self.raises
         return self._jobs_returned
 
 
 @pytest.fixture()
-def fake_scraper():
+def fake_scraper() -> FakeScraper:
     """Return a FakeScraper pre-loaded with two jobs."""
     from app.schemas.job import JobUpsertData  # noqa: PLC0415
 
@@ -345,17 +350,19 @@ def fake_scraper():
 
 
 @pytest.fixture()
-def client(db):
+def client(db: Session) -> Generator[TestClient, None, None]:
     """
     FastAPI TestClient fixture with overridden DB session.
     """
     from app.database import get_db  # noqa: PLC0415
     from app.main import app  # noqa: PLC0415
 
-    def _override_get_db():
+    def _override_get_db() -> Generator[Session, None, None]:
         yield db
 
     app.dependency_overrides[get_db] = _override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
