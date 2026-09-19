@@ -268,3 +268,10 @@ export async function login(body: UserLoginRequest): Promise<TokenResponse> {
 export async function getMe(): Promise<User> {
   return apiFetch<User>("/api/auth/me");
 }
+
+export async function exchangeGoogleCode(code: string): Promise<TokenResponse> {
+  return apiFetch<TokenResponse>("/api/auth/google/exchange", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}

@@ -9,6 +9,7 @@ interface AuthContextType {
   loading: boolean;
   login: (credentials: UserLoginRequest) => Promise<void>;
   register: (data: UserRegisterRequest) => Promise<void>;
+  loginWithToken: (token: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -35,11 +36,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadUser();
   }, []);
 
-  const login = async (credentials: UserLoginRequest) => {
-    const res = await apiLogin(credentials);
-    localStorage.setItem("token", res.access_token);
+  const loginWithToken = async (token: string) => {
+    localStorage.setItem("token", token);
     const userData = await getMe();
     setUser(userData);
+  };
+
+  const login = async (credentials: UserLoginRequest) => {
+    const res = await apiLogin(credentials);
+    await loginWithToken(res.access_token);
   };
 
   const register = async (data: UserRegisterRequest) => {
@@ -53,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, loginWithToken, logout }}>
       {children}
     </AuthContext.Provider>
   );

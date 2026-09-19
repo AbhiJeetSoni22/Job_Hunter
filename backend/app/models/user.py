@@ -50,10 +50,17 @@ class User(Base):
         doc="User's unique email address (normalized to lowercase).",
     )
 
-    password_hash: Mapped[str] = mapped_column(
+    password_hash: Mapped[str | None] = mapped_column(
         Text,
-        nullable=False,
-        doc="Argon2id/bcrypt password hash string. Plaintext passwords must NEVER be stored.",
+        nullable=True,
+        doc="Argon2id/bcrypt password hash string. Null for Google-only accounts. Plaintext passwords must NEVER be stored.",
+    )
+
+    google_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        unique=True,
+        doc="Google OAuth stable subject identifier ('sub'). Null for email/password-only accounts.",
     )
 
     # ── Status ───────────────────────────────────────────────────────────────

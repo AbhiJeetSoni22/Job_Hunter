@@ -38,6 +38,10 @@ export interface TokenResponse {
   token_type: string;
 }
 
+export interface GoogleExchangeRequest {
+  code: string;
+}
+
 // ── Resume ────────────────────────────────────────────────────────────────────
 
 export interface Resume {

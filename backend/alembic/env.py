@@ -35,9 +35,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Override sqlalchemy.url with the value from pydantic settings
+# Override sqlalchemy.url with the value from environment or pydantic settings
+import os
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url_str)
+db_url = os.environ.get("ALEMBIC_DATABASE_URL") or os.environ.get("DATABASE_URL") or settings.database_url_str
+config.set_main_option("sqlalchemy.url", str(db_url))
 
 # Target metadata for autogenerate support
 target_metadata = Base.metadata

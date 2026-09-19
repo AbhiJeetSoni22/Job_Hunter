@@ -7,7 +7,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-
 # ── Inbound Requests ─────────────────────────────────────────────────────────
 
 class UserRegisterRequest(BaseModel):
@@ -33,6 +32,12 @@ class UserLoginRequest(BaseModel):
     @classmethod
     def normalize_email(cls, v: str) -> str:
         return v.strip().lower()
+
+
+class GoogleExchangeRequest(BaseModel):
+    """Payload for POST /api/auth/google/exchange."""
+
+    code: str = Field(..., min_length=1, description="Temporary single-use handoff authorization code")
 
 
 # ── Outbound Responses ────────────────────────────────────────────────────────

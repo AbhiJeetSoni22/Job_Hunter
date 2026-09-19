@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days (10080 minutes)
 
+    # ── Google OAuth 2.0 / OpenID Connect ───────────────────────────────────
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/auth/google/callback"
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # ── Application ────────────────────────────────────────────────────────
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
@@ -75,12 +81,14 @@ class Settings(BaseSettings):
             "secret",
             "changeme",
         }
-        if self.APP_ENV in {"production", "prod"}:
-            if not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY.lower().strip() in insecure_defaults:
-                raise ValueError(
-                    "JWT_SECRET_KEY is insecure or unset for production environment! "
-                    "Set a strong secret in environment variables."
-                )
+        if (
+            self.APP_ENV in {"production", "prod"}
+            and (not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY.lower().strip() in insecure_defaults)
+        ):
+            raise ValueError(
+                "JWT_SECRET_KEY is insecure or unset for production environment! "
+                "Set a strong secret in environment variables."
+            )
 
     @property
     def cors_origins_list(self) -> list[str]:
