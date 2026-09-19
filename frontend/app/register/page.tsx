@@ -71,7 +71,14 @@ function RegisterContent() {
       </p>
 
       {error && (
-        <div className="p-3 mb-4 rounded text-sm bg-red-950/40 border border-red-800 text-red-300">
+        <div
+          className="p-3 mb-4 rounded text-sm"
+          style={{
+            background: "rgba(220, 38, 38, 0.08)",
+            border: "1px solid rgba(220, 38, 38, 0.25)",
+            color: "var(--color-red)",
+          }}
+        >
           {error}
         </div>
       )}
@@ -81,7 +88,7 @@ function RegisterContent() {
         href="/api/auth/google"
         className="w-full py-2.5 px-4 rounded-md text-sm font-medium flex items-center justify-center border transition-colors hover:opacity-90 cursor-pointer"
         style={{
-          background: "var(--color-surface-hover, rgba(255,255,255,0.05))",
+          background: "var(--color-surface-hover)",
           borderColor: "var(--color-border)",
           color: "var(--color-text)",
         }}

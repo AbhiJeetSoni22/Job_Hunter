@@ -170,7 +170,7 @@ export default function LandingPage() {
             className="absolute -inset-8 rounded-full"
             style={{
               background:
-                "radial-gradient(circle at 30% 20%, rgba(99,102,241,0.25), transparent 60%)",
+                "radial-gradient(circle at 30% 20%, rgba(203, 41, 87, 0.15), transparent 60%)",
               filter: "blur(10px)",
             }}
           />

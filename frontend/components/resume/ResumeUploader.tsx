@@ -79,15 +79,15 @@ export const ResumeUploader = forwardRef<ResumeUploaderHandle, ResumeUploaderPro
         style={{
           border: `2px dashed ${isActive ? "var(--color-accent)" : "var(--color-border)"}`,
           background: isActive
-            ? "linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(99,102,241,0.02) 100%)"
+            ? "linear-gradient(135deg, rgba(203,41,87,0.08) 0%, rgba(203,41,87,0.02) 100%)"
             : "var(--color-bg)",
           cursor: loading ? "not-allowed" : "pointer",
           opacity: loading ? 0.55 : 1,
           pointerEvents: loading ? "none" : "auto",
           transition: "border-color 200ms, background 200ms, opacity 200ms, box-shadow 200ms",
           boxShadow: isActive
-            ? "0 0 0 4px rgba(99,102,241,0.1), inset 0 1px 0 rgba(255,255,255,0.03)"
-            : "inset 0 1px 0 rgba(255,255,255,0.02)",
+            ? "0 0 0 4px rgba(203,41,87,0.1)"
+            : undefined,
         }}
         aria-busy={loading}
       >
@@ -95,10 +95,10 @@ export const ResumeUploader = forwardRef<ResumeUploaderHandle, ResumeUploaderPro
           className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform duration-200 ${isActive ? "scale-105" : ""}`}
           style={{
             background: isActive
-              ? "rgba(99,102,241,0.2)"
-              : "rgba(99,102,241,0.1)",
-            color: "var(--color-accent-h)",
-            border: `1px solid ${isActive ? "rgba(99,102,241,0.4)" : "rgba(99,102,241,0.2)"}`,
+              ? "rgba(203,41,87,0.15)"
+              : "rgba(203,41,87,0.08)",
+            color: "var(--color-accent)",
+            border: `1px solid ${isActive ? "rgba(203,41,87,0.35)" : "rgba(203,41,87,0.15)"}`,
           }}
         >
           <UploadCloudIcon />

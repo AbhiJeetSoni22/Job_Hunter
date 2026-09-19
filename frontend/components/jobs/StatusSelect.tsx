@@ -15,7 +15,7 @@ interface StatusSelectProps {
 const CONFIG: Record<JobStatus, { label: string; bg: string; text: string }> = {
   saved: {
     label: "Saved",
-    bg: "rgba(75,83,99,0.25)",
+    bg: "rgba(0,0,0,0.06)",
     text: "var(--color-subtle)",
   },
   applied: {
@@ -25,8 +25,8 @@ const CONFIG: Record<JobStatus, { label: string; bg: string; text: string }> = {
   },
   interview: {
     label: "Interview",
-    bg: "rgba(99,102,241,0.2)",
-    text: "var(--color-accent-h)",
+    bg: "rgba(203,41,87,0.12)",
+    text: "var(--color-accent)",
   },
   offer: {
     label: "Offer",

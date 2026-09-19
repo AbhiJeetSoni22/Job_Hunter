@@ -25,9 +25,9 @@ export function SkillChip({
             border: `1px solid ${colors.border}`,
           }
         : {
-            background: "rgba(99,102,241,0.12)",
-            color: "var(--color-accent-h)",
-            border: "1px solid rgba(99,102,241,0.3)",
+            background: "rgba(203,41,87,0.08)",
+            color: "var(--color-accent)",
+            border: "1px solid rgba(203,41,87,0.25)",
           };
 
   return (

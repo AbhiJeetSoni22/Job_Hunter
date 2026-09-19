@@ -40,7 +40,7 @@ function Toast({ toast, onDismiss }: { toast: ToastMessage; onDismiss: (id: numb
         display: "flex",
         alignItems: "flex-start",
         gap: "0.5rem",
-        boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
         minWidth: "260px",
         maxWidth: "380px",
         fontSize: "0.85rem",

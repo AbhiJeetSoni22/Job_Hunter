@@ -24,15 +24,15 @@ export function ResumeEmptyPanel({ onUploadClick }: ResumeEmptyPanelProps) {
         className="px-6 py-8 text-center"
         style={{
           background:
-            "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(99,102,241,0.12) 0%, transparent 70%)",
+            "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(203, 41, 87, 0.08) 0%, transparent 70%)",
         }}
       >
         <div
           className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center text-2xl mb-4"
           style={{
-            background: "rgba(99,102,241,0.15)",
-            border: "1px solid rgba(99,102,241,0.25)",
-            boxShadow: "0 0 40px -10px rgba(99,102,241,0.4)",
+            background: "rgba(203, 41, 87, 0.1)",
+            border: "1px solid rgba(203, 41, 87, 0.25)",
+            boxShadow: "0 0 40px -10px rgba(203, 41, 87, 0.25)",
           }}
         >
           🎯

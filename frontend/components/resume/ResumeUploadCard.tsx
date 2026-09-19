@@ -32,7 +32,7 @@ export function ResumeUploadCard({
         style={{
           borderBottom: "1px solid var(--color-border)",
           background:
-            "linear-gradient(135deg, rgba(99,102,241,0.08) 0%, transparent 60%)",
+            "linear-gradient(135deg, rgba(203, 41, 87, 0.05) 0%, transparent 60%)",
         }}
       >
         <h2

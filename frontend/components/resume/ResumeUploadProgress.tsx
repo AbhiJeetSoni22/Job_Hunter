@@ -154,9 +154,9 @@ function StepNode({
           width: "1.75rem",
           height: "1.75rem",
           borderRadius: "9999px",
-          background: "rgba(99,102,241,0.2)",
+          background: "rgba(203, 41, 87, 0.15)",
           border: "1.5px solid var(--color-accent)",
-          boxShadow: "0 0 12px rgba(99,102,241,0.35)",
+          boxShadow: "0 0 12px rgba(203, 41, 87, 0.35)",
         }}
         aria-hidden="true"
       >
@@ -284,7 +284,7 @@ export function ResumeUploadProgress({
         style={{
           borderBottom: "1px solid var(--color-border)",
           background:
-            "linear-gradient(135deg, rgba(99,102,241,0.1) 0%, transparent 55%)",
+            "linear-gradient(135deg, rgba(203, 41, 87, 0.06) 0%, transparent 55%)",
         }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -292,9 +292,9 @@ export function ResumeUploadProgress({
             <div
               className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${status === "uploading" ? "upload-agent-glow" : ""}`}
               style={{
-                background: "rgba(99,102,241,0.15)",
-                color: "var(--color-accent-h)",
-                border: "1px solid rgba(99,102,241,0.25)",
+                background: "rgba(203, 41, 87, 0.1)",
+                color: "var(--color-accent)",
+                border: "1px solid rgba(203, 41, 87, 0.25)",
               }}
             >
               <AgentIcon />
@@ -354,7 +354,7 @@ export function ResumeUploadProgress({
                       : "linear-gradient(90deg, var(--color-accent), var(--color-accent-h))",
                 boxShadow:
                   status === "uploading"
-                    ? "0 0 12px rgba(99,102,241,0.5)"
+                    ? "0 0 12px rgba(203, 41, 87, 0.4)"
                     : undefined,
               }}
             />

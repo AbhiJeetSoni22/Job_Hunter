@@ -68,7 +68,14 @@ function CallbackContent() {
         className="max-w-md mx-auto mt-16 p-6 rounded-xl border shadow-sm text-center"
         style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
       >
-        <div className="w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center bg-red-950/40 text-red-400 border border-red-800">
+        <div
+          className="w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center font-bold"
+          style={{
+            background: "rgba(220, 38, 38, 0.1)",
+            color: "var(--color-red)",
+            border: "1px solid rgba(220, 38, 38, 0.25)",
+          }}
+        >
           ✕
         </div>
         <h1 className="text-xl font-bold mb-2" style={{ color: "var(--color-text)" }}>

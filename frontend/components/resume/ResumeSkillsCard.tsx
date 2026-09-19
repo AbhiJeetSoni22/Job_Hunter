@@ -19,9 +19,9 @@ const CATEGORY_COLORS: Record<
     border: "rgba(56,189,248,0.25)",
   },
   Backend: {
-    bg: "rgba(99,102,241,0.12)",
-    text: "var(--color-accent-h)",
-    border: "rgba(99,102,241,0.3)",
+    bg: "rgba(203,41,87,0.08)",
+    text: "var(--color-accent)",
+    border: "rgba(203,41,87,0.25)",
   },
   Database: {
     bg: "rgba(34,197,94,0.1)",
@@ -39,9 +39,9 @@ const CATEGORY_COLORS: Record<
     border: "rgba(168,85,247,0.3)",
   },
   Other: {
-    bg: "rgba(75,83,99,0.2)",
+    bg: "rgba(0,0,0,0.05)",
     text: "var(--color-subtle)",
-    border: "rgba(75,83,99,0.35)",
+    border: "var(--color-border)",
   },
 };
 

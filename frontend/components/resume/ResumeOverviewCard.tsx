@@ -97,9 +97,9 @@ export function ResumeOverviewCard({
           <div
             className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{
-              background: "rgba(99,102,241,0.12)",
-              color: "var(--color-accent-h)",
-              border: "1px solid rgba(99,102,241,0.2)",
+              background: "rgba(203, 41, 87, 0.08)",
+              color: "var(--color-accent)",
+              border: "1px solid rgba(203, 41, 87, 0.2)",
             }}
           >
             <FileIcon />
