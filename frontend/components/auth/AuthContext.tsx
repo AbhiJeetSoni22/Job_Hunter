@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { User, UserLoginRequest, UserRegisterRequest } from "@/lib/types";
 import { getMe, login as apiLogin, register as apiRegister } from "@/lib/api";
 
@@ -36,26 +36,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadUser();
   }, []);
 
-  const loginWithToken = async (token: string) => {
+  const loginWithToken = useCallback(async (token: string) => {
     localStorage.setItem("token", token);
     const userData = await getMe();
     setUser(userData);
-  };
+  }, []);
 
-  const login = async (credentials: UserLoginRequest) => {
+  const login = useCallback(async (credentials: UserLoginRequest) => {
     const res = await apiLogin(credentials);
     await loginWithToken(res.access_token);
-  };
+  }, [loginWithToken]);
 
-  const register = async (data: UserRegisterRequest) => {
+  const register = useCallback(async (data: UserRegisterRequest) => {
     await apiRegister(data);
     await login({ email: data.email, password: data.password });
-  };
+  }, [login]);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem("token");
     setUser(null);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, register, loginWithToken, logout }}>
