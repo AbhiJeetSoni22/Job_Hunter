@@ -1,6 +1,6 @@
 # AI Internship Hunter
 
-A personal, single-user tool that discovers software-engineering internships from multiple sources, scores them against your resume with Google Gemini, and tracks your application pipeline end to end.
+An AI-powered job discovery platform that discovers software-engineering internships and jobs from multiple sources, scores them against each user's resume with Google Gemini, and tracks application pipelines with complete multi-user data isolation.
 
 > This README is generated from the actual codebase (backend `app/`, frontend `app/`, `alembic/versions/`, `tests/`). All descriptions reflect the current implementation.
 
@@ -23,7 +23,7 @@ A personal, single-user tool that discovers software-engineering internships fro
 
 ## Overview
 
-AI Internship Hunter is a FastAPI + Next.js application built for personal, single-user internship tracking. It:
+AI Internship Hunter is a FastAPI + Next.js application built with multi-user data isolation and authentication. It:
 
 1. Accepts a PDF resume, extracts text (PyMuPDF), and extracts a normalized skills list from it using Gemini AI.
 2. Scrapes internship and entry-level job listings from RemoteOK and Y Combinator's Work at a Startup, deduplicating listings by canonical URL.

@@ -3,18 +3,17 @@ Job ORM model.
 
 Maps to the `jobs` table defined in docs/DATABASE.md.
 
-Design decisions (from DATABASE.md):
-    - Match data (match_score, missing_skills, match_summary, matched_at,
-    resume_uploaded_at) lives directly on this table — not a separate
-    `matches` table. Single user, single resume: a join table adds
-    complexity with zero benefit.
-    - `status` and `notes` live here too. An `applications` table is the
-    right abstraction for multi-user systems; for personal use the job
-    record IS the application record.
-    - `resume_uploaded_at` mirrors the resume's uploaded_at at scoring time.
-    When resume.uploaded_at > job.resume_uploaded_at the UI can flag
-    "Needs Re-score" without touching every job automatically.
-    """
+Design decisions:
+    - Global scraped listing: Stores shared, deduplicated job metadata across all users.
+      Deduplicated globally by canonical `url` (UNIQUE constraint).
+    - User-specific state (application status, notes, AI match score, missing skills,
+      match summary, matched_at, resume_uploaded_at) lives in the `UserJob` relationship
+      model (`user_jobs` table), scoped strictly per user.
+    - Global Job records are never deleted when a user removes a job from their board;
+      only that user's `UserJob` relationship is removed.
+    - Cascades: If a global Job is deleted by system cleanup, all linked `user_jobs`
+      are automatically cascaded via foreign key ON DELETE CASCADE.
+"""
 
 import uuid
 from datetime import datetime

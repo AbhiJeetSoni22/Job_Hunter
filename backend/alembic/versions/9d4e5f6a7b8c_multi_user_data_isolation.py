@@ -9,8 +9,11 @@ Architecture changes:
 - Relocates user-specific columns (status, notes, match_score, missing_skills,
   match_summary, matched_at, resume_uploaded_at) from `jobs` to `user_jobs`.
 - Adds `user_id` foreign key (CASCADE) to `resumes` and `scoring_runs`.
-- Safe backfill: maps existing resume, scoring runs, and scored jobs to the owner
-  verified by resume text (abhisonijeet123@gmail.com) or earliest registered user.
+- Safe deterministic backfill: on single-user installations, maps existing resume,
+  scoring runs, and all legacy jobs to the single registered user account. Fails
+  clearly with an actionable error if ownership is ambiguous or missing, avoiding
+  silent data deletion or arbitrary assignment.
+- Reversible downgrade restoring job states from user_jobs.
 """
 
 from typing import Sequence, Union
@@ -65,19 +68,23 @@ def upgrade() -> None:
     # ── 4. Safe data backfill ──────────────────────────────────────────────
     conn = op.get_bind()
 
-    # Determine owner user for existing single-user data
-    # Priority: user matching verified resume email -> earliest registered user
-    target_user_id = conn.execute(
-        sa.text("SELECT id FROM users WHERE email = 'abhisonijeet123@gmail.com' LIMIT 1")
-    ).scalar()
+    # Inspect existing users
+    users = conn.execute(sa.text("SELECT id FROM users ORDER BY created_at ASC")).fetchall()
+    user_count = len(users)
 
-    if not target_user_id:
-        target_user_id = conn.execute(
-            sa.text("SELECT id FROM users ORDER BY created_at ASC LIMIT 1")
-        ).scalar()
+    # Inspect existing unassigned records in resumes and scoring_runs
+    unassigned_resumes = conn.execute(
+        sa.text("SELECT count(*) FROM resumes WHERE user_id IS NULL")
+    ).scalar() or 0
+    unassigned_scoring_runs = conn.execute(
+        sa.text("SELECT count(*) FROM scoring_runs WHERE user_id IS NULL")
+    ).scalar() or 0
 
-    if target_user_id:
-        # Backfill existing resume and scoring runs to the owner
+    if user_count == 1:
+        # Standard upgrade from single-user to multi-user: exactly one user account exists.
+        # Deterministically assign all unassigned resumes, scoring runs, and legacy jobs to this user.
+        target_user_id = users[0][0]
+
         conn.execute(
             sa.text("UPDATE resumes SET user_id = :uid WHERE user_id IS NULL"),
             {"uid": target_user_id},
@@ -87,7 +94,9 @@ def upgrade() -> None:
             {"uid": target_user_id},
         )
 
-        # Backfill user_jobs from existing jobs with non-default tracking or score data
+        # Backfill all existing jobs into user_jobs to preserve the legacy user's saved status,
+        # notes, and match evaluations. In the previous single-user architecture, all jobs in the
+        # database represented that single user's job board.
         conn.execute(
             sa.text("""
                 INSERT INTO user_jobs (
@@ -96,19 +105,38 @@ def upgrade() -> None:
                     resume_uploaded_at, created_at, updated_at
                 )
                 SELECT
-                    gen_random_uuid(), :uid, id, status, notes, match_score,
-                    missing_skills, match_summary, matched_at,
-                    resume_uploaded_at, now(), now()
+                    gen_random_uuid(), :uid, id,
+                    COALESCE(status, 'saved'),
+                    notes, match_score, missing_skills, match_summary, matched_at,
+                    resume_uploaded_at,
+                    COALESCE(created_at, now()),
+                    COALESCE(updated_at, now())
                 FROM jobs
-                WHERE status != 'saved' OR notes IS NOT NULL OR match_score IS NOT NULL
                 ON CONFLICT (user_id, job_id) DO NOTHING
             """),
             {"uid": target_user_id},
         )
+
+    elif user_count == 0:
+        # Fresh database or scraper-only database without registered users.
+        if unassigned_resumes > 0 or unassigned_scoring_runs > 0:
+            raise RuntimeError(
+                f"Migration aborted: Found existing unassigned records ({unassigned_resumes} resumes, "
+                f"{unassigned_scoring_runs} scoring runs) but no user accounts exist in the 'users' table. "
+                "Cannot determine data ownership without a user account, and refusing to silently delete data. "
+                "Please register the owner user account first or assign user_id manually before running this migration."
+            )
+        # If no resumes or scoring runs exist, fresh/empty DB — safe to proceed.
+
     else:
-        # If no user accounts exist (e.g. fresh database), remove unassociated resumes/scoring runs
-        conn.execute(sa.text("DELETE FROM resumes WHERE user_id IS NULL"))
-        conn.execute(sa.text("DELETE FROM scoring_runs WHERE user_id IS NULL"))
+        # Multiple users already exist.
+        if unassigned_resumes > 0 or unassigned_scoring_runs > 0:
+            raise RuntimeError(
+                f"Migration aborted: Found {user_count} users in the database and unassigned legacy data "
+                f"({unassigned_resumes} resumes, {unassigned_scoring_runs} scoring runs). "
+                "Automatic backfill cannot safely determine data ownership among multiple users. "
+                "Please manually assign user_id to existing resumes and scoring runs before running this migration."
+            )
 
     # ── 5. Set user_id columns to NOT NULL ─────────────────────────────────
     op.alter_column("resumes", "user_id", nullable=False)
@@ -127,7 +155,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Re-add columns to jobs
+    # 1. Re-add columns to jobs
     op.add_column("jobs", sa.Column("resume_uploaded_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column("jobs", sa.Column("matched_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column("jobs", sa.Column("match_summary", sa.Text(), nullable=True))
@@ -138,19 +166,37 @@ def downgrade() -> None:
     op.create_index("idx_jobs_status", "jobs", ["status"], unique=False)
     op.create_index("idx_jobs_score", "jobs", ["match_score"], unique=False)
 
-    # Drop user_jobs
+    # 2. Reversibly restore user_jobs data into jobs where practical
+    conn = op.get_bind()
+    conn.execute(
+        sa.text("""
+            UPDATE jobs j
+            SET
+                status = uj.status,
+                notes = uj.notes,
+                match_score = uj.match_score,
+                missing_skills = uj.missing_skills,
+                match_summary = uj.match_summary,
+                matched_at = uj.matched_at,
+                resume_uploaded_at = uj.resume_uploaded_at
+            FROM user_jobs uj
+            WHERE uj.job_id = j.id
+        """)
+    )
+
+    # 3. Drop user_jobs
     op.drop_index("idx_user_jobs_user_status", table_name="user_jobs")
     op.drop_index("idx_user_jobs_user_score", table_name="user_jobs")
     op.drop_index("idx_user_jobs_user_id", table_name="user_jobs")
     op.drop_index("idx_user_jobs_job_id", table_name="user_jobs")
     op.drop_table("user_jobs")
 
-    # Drop user_id from scoring_runs
+    # 4. Drop user_id from scoring_runs
     op.drop_index("idx_scoring_runs_user_created", table_name="scoring_runs")
     op.drop_constraint("fk_scoring_runs_user_id_users", "scoring_runs", type_="foreignkey")
     op.drop_column("scoring_runs", "user_id")
 
-    # Drop user_id from resumes
+    # 5. Drop user_id from resumes
     op.drop_index("idx_resumes_user_uploaded", table_name="resumes")
     op.drop_constraint("fk_resumes_user_id_users", "resumes", type_="foreignkey")
     op.drop_column("resumes", "user_id")

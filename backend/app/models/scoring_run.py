@@ -82,7 +82,6 @@ class ScoringRun(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
         doc="Foreign key to the user who triggered this scoring run.",
     )
 
@@ -140,6 +139,7 @@ class ScoringRun(Base):
 
     # ── Indexes ──────────────────────────────────────────────────────────────
     __table_args__ = (
+        Index("idx_scoring_runs_status", "status"),
         Index("idx_scoring_runs_user_created", "user_id", "created_at"),
     )
 

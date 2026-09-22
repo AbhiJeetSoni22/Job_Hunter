@@ -19,7 +19,7 @@ settings = get_settings()
 
 # ── Engine ─────────────────────────────────────────────────────────────────
 # pool_pre_ping=True  — test connection before use; handles DB restarts.
-# pool_size=5         — sufficient for single-user personal tool.
+# pool_size=5         — base connection pool size.
 # max_overflow=10     — allows burst above pool_size.
 engine = create_engine(
     settings.database_url_str,

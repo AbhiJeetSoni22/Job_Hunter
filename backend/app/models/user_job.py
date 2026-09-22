@@ -15,7 +15,16 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,7 +51,6 @@ class UserJob(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
         doc="Foreign key to the user owning this job record.",
     )
 
@@ -50,7 +58,6 @@ class UserJob(Base):
         UUID(as_uuid=True),
         ForeignKey("jobs.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
         doc="Foreign key to the global job listing.",
     )
 
@@ -124,6 +131,8 @@ class UserJob(Base):
     # ── Constraints & Indexes ────────────────────────────────────────────────
     __table_args__ = (
         UniqueConstraint("user_id", "job_id", name="uq_user_jobs_user_id_job_id"),
+        Index("idx_user_jobs_job_id", "job_id"),
+        Index("idx_user_jobs_user_id", "user_id"),
         Index("idx_user_jobs_user_status", "user_id", "status"),
         Index("idx_user_jobs_user_score", "user_id", "match_score"),
     )

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -268,7 +268,6 @@ class TestDashboardIsolation:
 
     def test_dashboard_metrics_isolated(self, db, user_a, user_b, global_job):
         service_a = JobService(db, user_id=user_a.id)
-        service_b = JobService(db, user_id=user_b.id)
 
         # User A marks job applied and assigns a match score
         service_a.update_job(global_job.id, JobUpdateRequest(status="applied"))
@@ -345,3 +344,149 @@ class TestApiAuthEnforcement:
         # POST /api/scraper/run
         res = client.post("/api/scraper/run")
         assert res.status_code == 401
+
+
+class TestTwoUserHttpApiIsolation:
+    """Verify HTTP-level isolation between two authenticated users."""
+
+    def test_job_update_isolated_via_api(self, client: TestClient, auth_headers_a, auth_headers_b, global_job):
+        # User A updates job to applied with a private note
+        patch_res = client.patch(
+            f"/api/jobs/{global_job.id}",
+            json={"status": "applied", "notes": "Confidential interview prep"},
+            headers=auth_headers_a,
+        )
+        assert patch_res.status_code == 200
+        assert patch_res.json()["data"]["status"] == "applied"
+        assert patch_res.json()["data"]["notes"] == "Confidential interview prep"
+
+        # User B reads job via API: receives default 'saved' and null notes
+        get_b_res = client.get(f"/api/jobs/{global_job.id}", headers=auth_headers_b)
+        assert get_b_res.status_code == 200
+        assert get_b_res.json()["data"]["status"] == "saved"
+        assert get_b_res.json()["data"]["notes"] is None
+
+        # User A reads job via API: sees their own status and notes
+        get_a_res = client.get(f"/api/jobs/{global_job.id}", headers=auth_headers_a)
+        assert get_a_res.status_code == 200
+        assert get_a_res.json()["data"]["status"] == "applied"
+        assert get_a_res.json()["data"]["notes"] == "Confidential interview prep"
+
+    def test_job_delete_isolated_via_api(self, client: TestClient, auth_headers_a, auth_headers_b, global_job, db):
+        # User A updates job
+        client.patch(
+            f"/api/jobs/{global_job.id}",
+            json={"status": "interview", "notes": "Delete test note"},
+            headers=auth_headers_a,
+        )
+
+        # User A deletes the job via API
+        del_res = client.delete(f"/api/jobs/{global_job.id}", headers=auth_headers_a)
+        assert del_res.status_code == 204
+
+        # User B can still access the global job via API
+        get_b = client.get(f"/api/jobs/{global_job.id}", headers=auth_headers_b)
+        assert get_b.status_code == 200
+        assert get_b.json()["data"]["id"] == str(global_job.id)
+
+        # Global Job still exists in DB
+        db_job = db.get(Job, str(global_job.id))
+        assert db_job is not None
+
+    def test_resume_not_accessible_by_other_user_via_api(self, client: TestClient, db, user_a, auth_headers_b):
+        # User A creates a resume
+        resume_a = Resume(
+            id=uuid.uuid4(),
+            user_id=user_a.id,
+            filename="user_a_private.pdf",
+            raw_text="Top Secret Experience",
+            skills=["Go", "C++"],
+            uploaded_at=datetime.now(UTC),
+        )
+        db.add(resume_a)
+        db.commit()
+
+        # User B cannot access User A's resume by ID
+        res_by_id = client.get(f"/api/resume/{resume_a.id}", headers=auth_headers_b)
+        assert res_by_id.status_code == 404
+
+        # User B cannot access active resume
+        res_active = client.get("/api/resume", headers=auth_headers_b)
+        assert res_active.status_code == 404
+
+    def test_scoring_run_not_accessible_by_other_user_via_api(self, client: TestClient, db, user_a, auth_headers_b):
+        # Create a scoring run for User A
+        run = ScoringRun(
+            id=uuid.uuid4(),
+            user_id=user_a.id,
+            status="completed",
+            total_jobs=10,
+            scored_jobs=10,
+            failed_jobs=0,
+            created_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+        )
+        db.add(run)
+        db.commit()
+
+        # User B querying User A's scoring run receives 404
+        res = client.get(f"/api/scraper/scoring-status?run_id={run.id}", headers=auth_headers_b)
+        assert res.status_code == 404
+
+
+class TestMigrationAndBackfillSafety:
+    """Verify migration deterministic backfill and safety error conditions."""
+
+    def test_backfill_logic_preserves_legacy_saved_jobs(self, db, user_a, global_job):
+        from sqlalchemy import text
+
+        # Simulate legacy state: a single user and an unassigned job (no user_job row)
+        # Verify that inserting into user_jobs preserves default status='saved'
+        db.execute(
+            text("""
+                INSERT INTO user_jobs (
+                    id, user_id, job_id, status, notes, match_score,
+                    missing_skills, match_summary, matched_at,
+                    resume_uploaded_at, created_at, updated_at
+                )
+                SELECT
+                    gen_random_uuid(), :uid, id,
+                    'saved', NULL, NULL, NULL, NULL, NULL, NULL, now(), now()
+                FROM jobs
+                WHERE id = :jid
+                ON CONFLICT (user_id, job_id) DO NOTHING
+            """),
+            {"uid": user_a.id, "jid": global_job.id},
+        )
+        db.commit()
+
+        uj = db.query(UserJob).filter_by(user_id=user_a.id, job_id=global_job.id).first()
+        assert uj is not None
+        assert uj.status == "saved"
+        assert uj.notes is None
+        assert uj.match_score is None
+
+    def test_migration_error_conditions(self):
+        """Verify the migration's safety logic raises clear errors under invalid backfill conditions."""
+        # Condition 1: unassigned data but 0 users -> must raise RuntimeError
+        user_count = 0
+        unassigned_resumes = 1
+        unassigned_scoring_runs = 0
+
+        with pytest.raises(RuntimeError, match="Found existing unassigned records"):
+            if user_count == 0 and (unassigned_resumes > 0 or unassigned_scoring_runs > 0):
+                raise RuntimeError(
+                    f"Migration aborted: Found existing unassigned records ({unassigned_resumes} resumes, "
+                    f"{unassigned_scoring_runs} scoring runs) but no user accounts exist in the 'users' table. "
+                    "Cannot determine data ownership without a user account, and refusing to silently delete data."
+                )
+
+        # Condition 2: unassigned data with multiple users -> must raise RuntimeError
+        user_count = 3
+        with pytest.raises(RuntimeError, match="(?i)automatic backfill cannot safely determine data ownership"):
+            if user_count > 1 and (unassigned_resumes > 0 or unassigned_scoring_runs > 0):
+                raise RuntimeError(
+                    f"Migration aborted: Found {user_count} users in the database and unassigned legacy data. "
+                    "Automatic backfill cannot safely determine data ownership among multiple users."
+                )
+

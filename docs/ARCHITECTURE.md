@@ -24,14 +24,16 @@ This is the authoritative technical reference for **how the system works interna
 
 ## 1. High-Level Architecture
 
-AI Internship Hunter is an AI-powered job discovery platform built with FastAPI, Next.js 15, PostgreSQL, and Google Gemini AI, currently featuring Phase 1 Authentication Foundation.
+AI Internship Hunter is an AI-powered job discovery and tracking platform built with FastAPI, Next.js 15, PostgreSQL 16, and Google Gemini AI, featuring complete multi-user data isolation and authentication.
 
-**System Constraints & Boundaries:**
-- **Authentication Foundation**: User accounts, password security via Argon2id, PyJWT access tokens (7-day default expiry), and reusable `get_current_user` FastAPI dependency.
-- **Phase 1 Resource Boundaries**: Existing jobs, resumes, scrape_runs, and scoring_runs tables remain shared/unmodified (no resource ownership migrations in Phase 1).
-- **No External Task Queue / Message Broker**: No Redis, Celery, RabbitMQ, or external worker processes.
-- **No Built-in In-Process Scheduler**: Scraping and cleanup are invoked on-demand via HTTP or external CLI commands (`python -m app.cleanup`).
-- **Asynchronous Execution Model**: Post-sync auto-scoring runs after HTTP response transmission using FastAPI `BackgroundTasks`, with live progress persisted in PostgreSQL for client polling.
+**System Architecture & Multi-User Data Isolation:**
+- **Authentication & Identity**: User accounts with Argon2id password hashing and Google OAuth, PyJWT access tokens (7-day default expiry), and reusable `CurrentUser` FastAPI dependency.
+- **Data Isolation Model**:
+  - `User` → `Resumes` (Each user has their own active resume; `user_id` FK CASCADE).
+  - `User` → `UserJobs` → global `Jobs` (User pipeline state, notes, and AI match scores live on `UserJob`; `Job` listings remain globally shared and deduplicated by URL).
+  - `User` → `ScoringRuns` (Background auto-scoring runs and progress are owned by the triggering user; `user_id` FK CASCADE).
+- **No External Task Queue / Message Broker**: Scoring batches execute via FastAPI `BackgroundTasks`, with state persisted in PostgreSQL for polling.
+- **Safe Job Deletion**: Removing a job from a user's board deletes only their `UserJob` record; global `Job` listings are never deleted by users.
 
 ```text
 Browser (Next.js 15 Client Components)
@@ -40,19 +42,20 @@ Browser (Next.js 15 Client Components)
     ▼
 FastAPI Application (app/main.py)
     ├── Routers (app/routers/)          ← Validation & HTTP response mapping only
-    ├── Core/Security (app/core/)       ← Argon2id hashing & PyJWT token handling
-    ├── Dependencies (app/dependencies) ← get_current_user dependency
-    ├── Services (app/services/)        ← Business rules & transaction management
+    ├── Core/Security (app/core/)       ← Argon2id, Google OAuth, & PyJWT handling
+    ├── Dependencies (app/dependencies) ← CurrentUser & get_active_resume
+    ├── Services (app/services/)        ← User-scoped business rules & transactions
     ├── Scrapers (app/scrapers/)        ← RemoteOK API (httpx) + YC Jobs (Playwright)
     └── AI Layer (app/ai/)              ← GeminiClient + 4 Prompt Templates
     │
     ▼
 PostgreSQL 16 Database
-    ├── users                           ← Candidate identity & Argon2id password hash
-    ├── jobs                            ← Job listings, match scores, lifecycle fields
-    ├── resumes                         ← Active candidate resume & extracted skills
-    ├── scrape_runs                     ← Scraper execution logs
-    └── scoring_runs                    ← Persistent background scoring batch progress
+    ├── users                           ← User identity, credentials, Google OAuth
+    ├── jobs                            ← Global deduplicated scraped job listings
+    ├── user_jobs                       ← Per-user status, notes, AI match scores
+    ├── resumes                         ← Per-user active resume & extracted skills
+    ├── scrape_runs                     ← Shared scraper execution logs
+    └── scoring_runs                    ← Per-user background auto-scoring batches
 ```
 
 ---
@@ -226,6 +229,9 @@ PostgreSQL 16 database configured via SQLAlchemy 2.x ORM models and managed by A
 1. `cc9c2e74a08d_initial_schema.py`: Created initial `jobs`, `resumes`, and `scrape_runs` tables.
 2. `63d3ec745a23_add_job_lifecycle_fields.py`: Added `last_seen_at`, `missing_sync_count`, `expired_at`, and `idx_jobs_expired_at`.
 3. `68abbd5b8e5a_add_scoring_runs_table.py`: Created `scoring_runs` table and `idx_scoring_runs_status`.
+4. `7a1b2c3d4e5f_add_users_table.py`: Created `users` table and `idx_users_email`.
+5. `8c3d4e5f6a7b_add_google_oauth_to_users.py`: Added Google OAuth identity columns to `users`.
+6. `9d4e5f6a7b8c_multi_user_data_isolation.py`: Created `user_jobs`, added `user_id` FKs to `resumes` and `scoring_runs`, relocated user-specific columns from `jobs` to `user_jobs`.
 
 ---
 
@@ -233,8 +239,9 @@ PostgreSQL 16 database configured via SQLAlchemy 2.x ORM models and managed by A
 
 ```text
 HTTP Request -> Next.js Proxy Rewrite -> FastAPI Router
+  -> CurrentUser Bearer Token JWT Resolution (dependencies.py)
   -> Pydantic Schema Validation
-  -> Service Business Method
+  -> User-Scoped Service Business Method (passing user_id)
   -> Database / Gemini AI / Scraper Execution
   -> Service Exception or Data Return
   -> FastAPI Router ApiResponse Wrapping -> Client Response
@@ -244,9 +251,9 @@ HTTP Request -> Next.js Proxy Rewrite -> FastAPI Router
 
 ## 9. Performance & Query Design
 
-- **Dashboard Aggregation**: `DashboardService.get_stats()` executes exactly **2 SQL queries** (one aggregate `CASE WHEN` query for totals/breakdowns, and one indexed query for top 5 matches). No N+1 queries.
+- **Dashboard Aggregation**: `DashboardService.get_stats()` executes user-scoped aggregate queries against `UserJob` and global `Job` counts. No N+1 queries.
 - **Upsert Efficiency**: `upsert_jobs` pre-loads existing jobs for incoming batch URLs using bulk `IN` queries.
-- **Database Indexing**: Indexes on `jobs.status`, `jobs.source`, `jobs.match_score`, `jobs.expired_at`, `scrape_runs(source, started_at)`, and `scoring_runs.status`.
+- **Database Indexing**: Indexes on `user_jobs(user_id, status)`, `user_jobs(user_id, match_score)`, `jobs.source`, `jobs.expired_at`, `resumes(user_id, uploaded_at)`, and `scoring_runs(user_id, created_at)`.
 
 ---
 
@@ -270,8 +277,8 @@ Standard Error Codes: `NOT_FOUND`, `INVALID_PARAM`, `INVALID_STATUS`, `NO_RESUME
 
 ## 11. Caching Strategy
 
-- **Job Match Score Cache**: Match scores are cached on `Job` records (`match_score`, `matched_at`, `resume_uploaded_at`).
-- **Stale Score Detection**: If `resume_uploaded_at` on the job record is older than the active resume's `uploaded_at`, `needs_rescore` resolves to `true`.
+- **Job Match Score Cache**: Match scores are cached on `UserJob` records (`match_score`, `matched_at`, `resume_uploaded_at`) strictly scoped to the user.
+- **Stale Score Detection**: If `resume_uploaded_at` on the `UserJob` record is older than the active resume's `uploaded_at`, `needs_rescore` resolves to `true`.
 - **Stateless AI Operations**: Resume Gap Analyzer and AI Interview Prep Generator are intentionally stateless and do not cache results.
 
 ---
@@ -281,21 +288,21 @@ Standard Error Codes: `NOT_FOUND`, `INVALID_PARAM`, `INVALID_STATUS`, `NO_RESUME
 ```
 Job_Hunter/
 ├── backend/
-│   ├── alembic/versions/          # 3 Alembic migrations
+│   ├── alembic/versions/          # 6 Alembic migrations
 │   ├── app/
 │   │   ├── main.py                # App factory & router registration
 │   │   ├── cleanup.py             # Expired job cleanup CLI script
-│   │   ├── models/                # job.py, resume.py, scrape_run.py, scoring_run.py
-│   │   ├── schemas/               # Pydantic schemas (job.py, resume.py, dashboard.py, etc.)
-│   │   ├── routers/               # health.py, jobs.py, scraper.py, resume.py, resume_analysis.py, interview_prep.py, dashboard.py
-│   │   ├── services/              # job_service.py, resume_service.py, match_service.py, scraper_service.py, etc.
+│   │   ├── models/                # user.py, job.py, user_job.py, resume.py, scrape_run.py, scoring_run.py
+│   │   ├── schemas/               # Pydantic schemas (job.py, resume.py, dashboard.py, user.py, etc.)
+│   │   ├── routers/               # auth.py, jobs.py, scraper.py, resume.py, resume_analysis.py, interview_prep.py, dashboard.py
+│   │   ├── services/              # user_service.py, job_service.py, resume_service.py, match_service.py, scraper_service.py, etc.
 │   │   ├── scrapers/              # base.py, remoteok.py, yc_jobs.py
 │   │   └── ai/                    # gemini_client.py, prompts.py
-│   └── tests/                     # Backend pytest suite (123 tests)
+│   └── tests/                     # Backend pytest suite (multi-user isolation, service tests)
 └── frontend/
-    ├── app/                       # Next.js pages (page.tsx, dashboard/, jobs/, resume/, resume-review/)
-    ├── components/                # ui/, jobs/, resume/, dashboard/, resume-review/, interview-prep/
-    └── lib/                       # api.ts, types.ts, navigationHistory.ts
+    ├── app/                       # Next.js pages (dashboard/, jobs/, resume/, login/, register/, auth/)
+    ├── components/                # ui/, jobs/, resume/, dashboard/, auth/
+    └── lib/                       # api.ts, types.ts, auth.ts
 ```
 
 ---

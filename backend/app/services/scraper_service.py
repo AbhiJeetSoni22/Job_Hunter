@@ -16,14 +16,14 @@ Architecture rules (ARCHITECTURE.md):
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import AIError
-from app.models.scrape_run import ScrapeRun, SCRAPER_SOURCE_VALUES
 from app.models.scoring_run import ScoringRun
-from app.schemas.job import JobUpsertData, ScrapeRunResponse, ScraperRunSummary
+from app.models.scrape_run import SCRAPER_SOURCE_VALUES, ScrapeRun
+from app.schemas.job import JobUpsertData, ScraperRunSummary, ScrapeRunResponse
 from app.services import match_service
 from app.services.job_service import JobService
 from app.services.match_service import JobNotFoundError, NoResumeError
@@ -168,7 +168,7 @@ class ScraperService:
 
             # ── Private helpers ────────────────────────────────────────────────────
 
-    def _run_one(self, scraper: "BaseScraper") -> tuple[ScrapeRunResponse, list[str]]:  # type: ignore[name-defined]
+    def _run_one(self, scraper: "BaseScraper") -> tuple[ScrapeRunResponse, list[str]]:
         """
         Execute a single scraper, upsert results, log the run.
 
@@ -179,7 +179,7 @@ class ScraperService:
         job ids (Phase 5 — Feature 4: auto-score new jobs).
         """
         source = scraper.source
-        started_at = datetime.now(tz=timezone.utc)
+        started_at = datetime.now(tz=UTC)
         jobs_found = 0
         jobs_new = 0
         error: str | None = None
@@ -201,7 +201,7 @@ class ScraperService:
             error = str(exc)
             logger.error("Scraper %s failed: %s", source, error, exc_info=True)
 
-        completed_at = datetime.now(tz=timezone.utc)
+        completed_at = datetime.now(tz=UTC)
 
         run = self._persist_run(
                 source=source,
@@ -218,7 +218,7 @@ class ScraperService:
         self,
         job_ids: list[str],
         scoring_run_id: uuid.UUID | None = None,
-        user_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | str | None = None,
     ) -> tuple[int, int]:
         """
         Score every newly inserted job against the user's active resume.
@@ -226,15 +226,18 @@ class ScraperService:
         if not job_ids:
             return 0, 0
 
-        if user_id is None:
+        uid = user_id or self._user_id
+        if uid is None:
             logger.warning("auto-score skipped — no user_id provided")
             return 0, len(job_ids)
+
+        resolved_user_id = self._resolve_user_id(uid)
 
         scored = 0
         failed = 0
         for index, job_id in enumerate(job_ids):
             try:
-                match_service.score_job(job_id, self._db, user_id=user_id)
+                match_service.score_job(job_id, self._db, user_id=resolved_user_id)
                 scored += 1
             except NoResumeError:
                 logger.info("auto-score stopped — no active resume")
@@ -279,7 +282,7 @@ class ScraperService:
         run.status = "completed"
         run.scored_jobs = scored
         run.failed_jobs = failed
-        run.completed_at = datetime.now(timezone.utc)
+        run.completed_at = datetime.now(UTC)
         self._db.commit()
 
     def _persist_run(

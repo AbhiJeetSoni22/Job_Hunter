@@ -25,6 +25,7 @@ import uuid
 from collections.abc import Generator
 from contextlib import suppress
 from datetime import UTC, datetime
+import time
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -122,8 +123,15 @@ def db_engine() -> Generator[Engine, None, None]:
         },
     )
 
-    with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+    for attempt in range(3):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+            break
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(1)
 
     Base.metadata.create_all(engine)
     yield engine
@@ -142,7 +150,16 @@ def db(db_engine: Engine) -> Generator[Session, None, None]:
     All changes made during a test are rolled back on teardown —
     each test starts with a clean database state.
     """
-    connection = db_engine.connect()
+    connection = None
+    for attempt in range(3):
+        try:
+            connection = db_engine.connect()
+            break
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(0.5 * (attempt + 1))
+
     trans = connection.begin()
 
     session = Session(bind=connection)

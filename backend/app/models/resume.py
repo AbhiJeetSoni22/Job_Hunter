@@ -3,19 +3,19 @@ Resume ORM model.
 
 Maps to the `resumes` table defined in docs/DATABASE.md.
 
-Design decisions (from DATABASE.md):
-  - No foreign keys. Resume is standalone. Job scoring reads the active
-    resume at call time and stores resume.uploaded_at on the job record
-    (as job.resume_uploaded_at). There is no live FK dependency after
-    scoring completes.
-  - Only one row is expected at any time. resume_service.upload_resume()
-    deletes the existing row before inserting a new one. No versioning,
-    no history, no soft delete — all out of MVP scope.
+Design decisions:
+  - User-scoped: Belongs to a user via `user_id` foreign key referencing `users.id`
+    with `ondelete="CASCADE"`.
+  - Active resume per user: Each user has their own active resume (the most
+    recently uploaded resume for that user). Uploading a new resume replaces that
+    user's previous active resume.
   - `skills` is JSONB: a flat array of normalised skill strings produced
-    by Gemini during upload. ["Python", "FastAPI", "PostgreSQL", ...]
+    by Gemini during upload: ["Python", "FastAPI", "PostgreSQL", ...]
   - `raw_text` stores the full PyMuPDF extraction. Kept so that if the
     Gemini skill extraction prompt is improved, re-extraction can run
     without re-uploading the PDF.
+  - Cross-user isolation: Resumes belonging to one user can never be accessed,
+    compared against, or deleted by another user.
 """
 
 import uuid
@@ -52,7 +52,6 @@ class Resume(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
         doc="Foreign key to the user owning this resume.",
     )
 

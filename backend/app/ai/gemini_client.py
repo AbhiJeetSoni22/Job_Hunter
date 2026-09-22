@@ -21,8 +21,8 @@ Architecture rule:
 
 google-generativeai import note:
   Installed as 'google-generativeai', imported as 'google.generativeai'.
-  The SDK is synchronous. For a personal-use single-user tool this is
-  sufficient — no async wrapping needed.
+  The SDK is synchronous; background tasks handle concurrency off the
+  main request thread without blocking HTTP responses.
 """
 
 import json
