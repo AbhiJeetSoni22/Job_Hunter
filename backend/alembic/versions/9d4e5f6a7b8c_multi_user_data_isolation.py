@@ -16,17 +16,18 @@ Architecture changes:
 - Reversible downgrade restoring job states from user_jobs.
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
+
 # revision identifiers, used by Alembic.
 revision: str = "9d4e5f6a7b8c"
-down_revision: Union[str, None] = "8c3d4e5f6a7b"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "8c3d4e5f6a7b"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -80,9 +81,31 @@ def upgrade() -> None:
         sa.text("SELECT count(*) FROM scoring_runs WHERE user_id IS NULL")
     ).scalar() or 0
 
+    # Inspect whether legacy user-specific job state exists in the jobs table before dropping columns.
+    # A job is considered to contain meaningful user-specific state if:
+    # - status is non-default (not 'saved', e.g. 'applied', 'interview', 'rejected', 'archived')
+    # - OR notes is not null
+    # - OR match_score is not null
+    # - OR missing_skills is not null
+    # - OR match_summary is not null
+    # - OR matched_at is not null
+    # - OR resume_uploaded_at is not null
+    meaningful_legacy_jobs = conn.execute(
+        sa.text("""
+            SELECT count(*) FROM jobs
+            WHERE (status IS NOT NULL AND status != 'saved')
+               OR notes IS NOT NULL
+               OR match_score IS NOT NULL
+               OR missing_skills IS NOT NULL
+               OR match_summary IS NOT NULL
+               OR matched_at IS NOT NULL
+               OR resume_uploaded_at IS NOT NULL
+        """)
+    ).scalar() or 0
+
     if user_count == 1:
-        # Standard upgrade from single-user to multi-user: exactly one user account exists.
-        # Deterministically assign all unassigned resumes, scoring runs, and legacy jobs to this user.
+        # Case 1: Standard upgrade from single-user to multi-user: exactly one user account exists.
+        # Treat that single user as the legacy owner.
         target_user_id = users[0][0]
 
         conn.execute(
@@ -96,7 +119,7 @@ def upgrade() -> None:
 
         # Backfill all existing jobs into user_jobs to preserve the legacy user's saved status,
         # notes, and match evaluations. In the previous single-user architecture, all jobs in the
-        # database represented that single user's job board.
+        # database represented that single user's job board (including status='saved' jobs).
         conn.execute(
             sa.text("""
                 INSERT INTO user_jobs (
@@ -118,25 +141,47 @@ def upgrade() -> None:
         )
 
     elif user_count == 0:
-        # Fresh database or scraper-only database without registered users.
-        if unassigned_resumes > 0 or unassigned_scoring_runs > 0:
+        # Case 2: Zero users exist.
+        # If any user-owned records (resumes, scoring runs) or meaningful user-specific job states exist,
+        # we cannot determine ownership without a user account. Refuse to discard or delete data.
+        has_unassigned_data = (
+            unassigned_resumes > 0
+            or unassigned_scoring_runs > 0
+            or meaningful_legacy_jobs > 0
+        )
+        if has_unassigned_data:
             raise RuntimeError(
-                f"Migration aborted: Found existing unassigned records ({unassigned_resumes} resumes, "
-                f"{unassigned_scoring_runs} scoring runs) but no user accounts exist in the 'users' table. "
-                "Cannot determine data ownership without a user account, and refusing to silently delete data. "
+                f"Migration aborted: Found existing legacy data requiring ownership ("
+                f"{unassigned_resumes} unassigned resumes, "
+                f"{unassigned_scoring_runs} unassigned scoring runs, "
+                f"{meaningful_legacy_jobs} jobs with user-specific state) "
+                "but no user accounts exist in the 'users' table. "
+                "Cannot determine data ownership without a user account, and refusing to silently delete or discard data. "
                 "Please register the owner user account first or assign user_id manually before running this migration."
             )
-        # If no resumes or scoring runs exist, fresh/empty DB — safe to proceed.
+        # Genuinely fresh/empty database or only raw scraped jobs (status='saved', no user state).
+        # Safe to proceed without populating user_jobs.
 
     else:
-        # Multiple users already exist.
-        if unassigned_resumes > 0 or unassigned_scoring_runs > 0:
+        # Case 3: Multiple users already exist.
+        # If unassigned resumes, scoring runs, or jobs with user-specific state exist,
+        # automatic backfill cannot determine ownership among multiple users.
+        has_unassigned_data = (
+            unassigned_resumes > 0
+            or unassigned_scoring_runs > 0
+            or meaningful_legacy_jobs > 0
+        )
+        if has_unassigned_data:
             raise RuntimeError(
-                f"Migration aborted: Found {user_count} users in the database and unassigned legacy data "
-                f"({unassigned_resumes} resumes, {unassigned_scoring_runs} scoring runs). "
+                f"Migration aborted: Found {user_count} users in the database and unassigned legacy data ("
+                f"{unassigned_resumes} unassigned resumes, "
+                f"{unassigned_scoring_runs} unassigned scoring runs, "
+                f"{meaningful_legacy_jobs} jobs with user-specific state). "
                 "Automatic backfill cannot safely determine data ownership among multiple users. "
-                "Please manually assign user_id to existing resumes and scoring runs before running this migration."
+                "Please manually assign user_id to existing records or resolve ownership before running this migration."
             )
+        # If there is no meaningful legacy user-specific job state (and no unassigned resumes/scoring runs),
+        # migration may proceed because there is nothing to migrate into user_jobs.
 
     # ── 5. Set user_id columns to NOT NULL ─────────────────────────────────
     op.alter_column("resumes", "user_id", nullable=False)

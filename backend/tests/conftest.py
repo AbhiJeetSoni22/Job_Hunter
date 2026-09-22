@@ -21,11 +21,11 @@ External mocks (always active, no real network calls):
 from __future__ import annotations
 
 import os
+import time
 import uuid
 from collections.abc import Generator
 from contextlib import suppress
 from datetime import UTC, datetime
-import time
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -40,6 +40,7 @@ from sqlalchemy.pool import NullPool
 if TYPE_CHECKING:
     from app.models.job import Job
     from app.models.resume import Resume
+    from app.models.user import User
     from app.schemas.job import JobUpsertData
     from app.services.job_service import JobService
     from app.services.resume_service import ResumeService
@@ -160,6 +161,7 @@ def db(db_engine: Engine) -> Generator[Session, None, None]:
                 raise
             time.sleep(0.5 * (attempt + 1))
 
+    assert connection is not None
     trans = connection.begin()
 
     session = Session(bind=connection)
@@ -179,7 +181,7 @@ def db(db_engine: Engine) -> Generator[Session, None, None]:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def sample_user(db: Session):
+def sample_user(db: Session) -> User:
     from app.models.user import User  # noqa: PLC0415
 
     user = User(
@@ -198,7 +200,7 @@ def sample_user(db: Session):
 
 
 @pytest.fixture()
-def auth_headers(sample_user) -> dict[str, str]:
+def auth_headers(sample_user: User) -> dict[str, str]:
     from app.core.security import create_access_token  # noqa: PLC0415
 
     token = create_access_token({"sub": str(sample_user.id), "email": sample_user.email})
@@ -229,7 +231,7 @@ def sample_job(db: Session) -> Job:
 
 
 @pytest.fixture()
-def scored_job(db: Session, sample_user) -> Job:
+def scored_job(db: Session, sample_user: User) -> Job:
     """
     Insert and return a Job that has already been scored for sample_user.
     """
@@ -268,14 +270,14 @@ def scored_job(db: Session, sample_user) -> Job:
     db.refresh(job)
 
     # Attach convenience attributes for tests expecting them
-    job.status = user_job.status
-    job.match_score = user_job.match_score
-    job.resume_uploaded_at = user_job.resume_uploaded_at
+    job.status = user_job.status  # type: ignore[attr-defined]
+    job.match_score = user_job.match_score  # type: ignore[attr-defined]
+    job.resume_uploaded_at = user_job.resume_uploaded_at  # type: ignore[attr-defined]
     return job
 
 
 @pytest.fixture()
-def sample_resume(db: Session, sample_user) -> Resume:
+def sample_resume(db: Session, sample_user: User) -> Resume:
     """
     Insert and return a minimal valid Resume ORM instance for sample_user.
     """
@@ -299,19 +301,19 @@ def sample_resume(db: Session, sample_user) -> Resume:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def job_service(db: Session, sample_user) -> JobService:
+def job_service(db: Session, sample_user: User) -> JobService:
     from app.services.job_service import JobService  # noqa: PLC0415
     return JobService(db, user_id=sample_user.id)
 
 
 @pytest.fixture()
-def resume_service(db: Session, sample_user) -> ResumeService:
+def resume_service(db: Session, sample_user: User) -> ResumeService:
     from app.services.resume_service import ResumeService  # noqa: PLC0415
     return ResumeService(db, user_id=sample_user.id)
 
 
 @pytest.fixture()
-def scraper_service(db: Session, sample_user) -> ScraperService:
+def scraper_service(db: Session, sample_user: User) -> ScraperService:
     from app.services.scraper_service import ScraperService  # noqa: PLC0415
     return ScraperService(db, user_id=sample_user.id)
 

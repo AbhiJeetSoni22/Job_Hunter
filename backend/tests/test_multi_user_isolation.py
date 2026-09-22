@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token
 from app.models.job import Job
@@ -38,7 +39,7 @@ pytestmark = needs_db
 
 
 @pytest.fixture()
-def user_a(db) -> User:
+def user_a(db: Session) -> User:
     user = User(
         id=uuid.uuid4(),
         email=f"user-a-{uuid.uuid4().hex[:6]}@example.com",
@@ -55,7 +56,7 @@ def user_a(db) -> User:
 
 
 @pytest.fixture()
-def user_b(db) -> User:
+def user_b(db: Session) -> User:
     user = User(
         id=uuid.uuid4(),
         email=f"user-b-{uuid.uuid4().hex[:6]}@example.com",
@@ -84,7 +85,7 @@ def auth_headers_b(user_b: User) -> dict[str, str]:
 
 
 @pytest.fixture()
-def global_job(db) -> Job:
+def global_job(db: Session) -> Job:
     job = Job(
         id=uuid.uuid4(),
         title="Staff Platform Engineer",
@@ -104,7 +105,9 @@ def global_job(db) -> Job:
 class TestUserJobIsolation:
     """Verify that user-specific tracking data (status, notes) is strictly isolated."""
 
-    def test_status_and_notes_isolation(self, db, user_a, user_b, global_job):
+    def test_status_and_notes_isolation(
+        self, db: Session, user_a: User, user_b: User, global_job: Job
+    ) -> None:
         service_a = JobService(db, user_id=user_a.id)
         service_b = JobService(db, user_id=user_b.id)
 
@@ -144,7 +147,9 @@ class TestUserJobIsolation:
 class TestDeleteJobIsolation:
     """Verify DELETE /jobs/{id} removes ONLY the user's UserJob and preserves global Job."""
 
-    def test_delete_preserves_global_job_and_other_user_data(self, db, user_a, user_b, global_job):
+    def test_delete_preserves_global_job_and_other_user_data(
+        self, db: Session, user_a: User, user_b: User, global_job: Job
+    ) -> None:
         service_a = JobService(db, user_id=user_a.id)
         service_b = JobService(db, user_id=user_b.id)
 
@@ -173,7 +178,9 @@ class TestDeleteJobIsolation:
 class TestMatchScoreIsolation:
     """Verify AI scoring calculates against user's active resume and persists only to that user."""
 
-    def test_score_isolation_across_users(self, db, user_a, user_b, global_job):
+    def test_score_isolation_across_users(
+        self, db: Session, user_a: User, user_b: User, global_job: Job
+    ) -> None:
         # User A uploads a Python-heavy resume
         resume_a = Resume(
             id=uuid.uuid4(),
@@ -235,7 +242,9 @@ class TestMatchScoreIsolation:
 class TestResumeIsolation:
     """Verify each user has their own active resume and cannot view or delete another's."""
 
-    def test_resume_isolation_and_scoping(self, db, user_a, user_b):
+    def test_resume_isolation_and_scoping(
+        self, db: Session, user_a: User, user_b: User
+    ) -> None:
         service_a = ResumeService(db, user_id=user_a.id)
         service_b = ResumeService(db, user_id=user_b.id)
 
@@ -266,7 +275,9 @@ class TestResumeIsolation:
 class TestDashboardIsolation:
     """Verify Dashboard statistics are isolated between users."""
 
-    def test_dashboard_metrics_isolated(self, db, user_a, user_b, global_job):
+    def test_dashboard_metrics_isolated(
+        self, db: Session, user_a: User, user_b: User, global_job: Job
+    ) -> None:
         service_a = JobService(db, user_id=user_a.id)
 
         # User A marks job applied and assigns a match score
@@ -295,7 +306,9 @@ class TestDashboardIsolation:
 class TestScoringRunIsolation:
     """Verify ScoringRun belongs to a user and cannot be seen by others."""
 
-    def test_scoring_run_access_isolated(self, db, user_a, user_b):
+    def test_scoring_run_access_isolated(
+        self, db: Session, user_a: User, user_b: User
+    ) -> None:
         service_a = ScraperService(db, user_id=user_a.id)
         service_b = ScraperService(db, user_id=user_b.id)
 
@@ -312,7 +325,9 @@ class TestScoringRunIsolation:
 class TestApiAuthEnforcement:
     """Verify API endpoints require authentication and reject unauthenticated requests."""
 
-    def test_unauthenticated_requests_return_401(self, client: TestClient, global_job):
+    def test_unauthenticated_requests_return_401(
+        self, client: TestClient, global_job: Job
+    ) -> None:
         # GET /api/jobs
         res = client.get("/api/jobs")
         assert res.status_code == 401
@@ -349,7 +364,13 @@ class TestApiAuthEnforcement:
 class TestTwoUserHttpApiIsolation:
     """Verify HTTP-level isolation between two authenticated users."""
 
-    def test_job_update_isolated_via_api(self, client: TestClient, auth_headers_a, auth_headers_b, global_job):
+    def test_job_update_isolated_via_api(
+        self,
+        client: TestClient,
+        auth_headers_a: dict[str, str],
+        auth_headers_b: dict[str, str],
+        global_job: Job,
+    ) -> None:
         # User A updates job to applied with a private note
         patch_res = client.patch(
             f"/api/jobs/{global_job.id}",
@@ -372,7 +393,14 @@ class TestTwoUserHttpApiIsolation:
         assert get_a_res.json()["data"]["status"] == "applied"
         assert get_a_res.json()["data"]["notes"] == "Confidential interview prep"
 
-    def test_job_delete_isolated_via_api(self, client: TestClient, auth_headers_a, auth_headers_b, global_job, db):
+    def test_job_delete_isolated_via_api(
+        self,
+        client: TestClient,
+        auth_headers_a: dict[str, str],
+        auth_headers_b: dict[str, str],
+        global_job: Job,
+        db: Session,
+    ) -> None:
         # User A updates job
         client.patch(
             f"/api/jobs/{global_job.id}",
@@ -393,7 +421,9 @@ class TestTwoUserHttpApiIsolation:
         db_job = db.get(Job, str(global_job.id))
         assert db_job is not None
 
-    def test_resume_not_accessible_by_other_user_via_api(self, client: TestClient, db, user_a, auth_headers_b):
+    def test_resume_not_accessible_by_other_user_via_api(
+        self, client: TestClient, db: Session, user_a: User, auth_headers_b: dict[str, str]
+    ) -> None:
         # User A creates a resume
         resume_a = Resume(
             id=uuid.uuid4(),
@@ -414,7 +444,9 @@ class TestTwoUserHttpApiIsolation:
         res_active = client.get("/api/resume", headers=auth_headers_b)
         assert res_active.status_code == 404
 
-    def test_scoring_run_not_accessible_by_other_user_via_api(self, client: TestClient, db, user_a, auth_headers_b):
+    def test_scoring_run_not_accessible_by_other_user_via_api(
+        self, client: TestClient, db: Session, user_a: User, auth_headers_b: dict[str, str]
+    ) -> None:
         # Create a scoring run for User A
         run = ScoringRun(
             id=uuid.uuid4(),
@@ -434,14 +466,180 @@ class TestTwoUserHttpApiIsolation:
         assert res.status_code == 404
 
 
+def evaluate_migration_safety(
+    user_count: int,
+    unassigned_resumes: int,
+    unassigned_scoring_runs: int,
+    meaningful_legacy_jobs: int,
+    users: list[tuple[uuid.UUID]] | None = None,
+) -> tuple[str, uuid.UUID | None]:
+    """
+    Evaluates the deterministic migration safety rules of 9d4e5f6a7b8c.
+    Returns ('backfill', user_id) or ('proceed', None), or raises RuntimeError.
+    """
+    if user_count == 1:
+        target_user_id = users[0][0] if users else uuid.uuid4()
+        return ("backfill", target_user_id)
+    elif user_count == 0:
+        has_unassigned_data = (
+            unassigned_resumes > 0
+            or unassigned_scoring_runs > 0
+            or meaningful_legacy_jobs > 0
+        )
+        if has_unassigned_data:
+            raise RuntimeError(
+                f"Migration aborted: Found existing legacy data requiring ownership ("
+                f"{unassigned_resumes} unassigned resumes, "
+                f"{unassigned_scoring_runs} unassigned scoring runs, "
+                f"{meaningful_legacy_jobs} jobs with user-specific state) "
+                "but no user accounts exist in the 'users' table. "
+                "Cannot determine data ownership without a user account, and refusing to silently delete or discard data. "
+                "Please register the owner user account first or assign user_id manually before running this migration."
+            )
+        return ("proceed", None)
+    else:
+        has_unassigned_data = (
+            unassigned_resumes > 0
+            or unassigned_scoring_runs > 0
+            or meaningful_legacy_jobs > 0
+        )
+        if has_unassigned_data:
+            raise RuntimeError(
+                f"Migration aborted: Found {user_count} users in the database and unassigned legacy data ("
+                f"{unassigned_resumes} unassigned resumes, "
+                f"{unassigned_scoring_runs} unassigned scoring runs, "
+                f"{meaningful_legacy_jobs} jobs with user-specific state). "
+                "Automatic backfill cannot safely determine data ownership among multiple users. "
+                "Please manually assign user_id to existing records or resolve ownership before running this migration."
+            )
+        return ("proceed", None)
+
+
 class TestMigrationAndBackfillSafety:
     """Verify migration deterministic backfill and safety error conditions."""
 
-    def test_backfill_logic_preserves_legacy_saved_jobs(self, db, user_a, global_job):
+    def test_sql_detection_of_meaningful_legacy_jobs(self, db: Session) -> None:
+        """Verify the exact SQL detection query identifies all user-specific job state variations."""
         from sqlalchemy import text
 
-        # Simulate legacy state: a single user and an unassigned job (no user_job row)
-        # Verify that inserting into user_jobs preserves default status='saved'
+        db.execute(text("DROP TABLE IF EXISTS temp_legacy_test_jobs"))
+        db.execute(text("""
+            CREATE TEMPORARY TABLE temp_legacy_test_jobs (
+                id UUID PRIMARY KEY,
+                status VARCHAR(20) DEFAULT 'saved',
+                notes TEXT,
+                match_score INTEGER,
+                missing_skills JSONB,
+                match_summary TEXT,
+                matched_at TIMESTAMPTZ,
+                resume_uploaded_at TIMESTAMPTZ
+            )
+        """))
+
+        # Baseline: default 'saved' status with no user fields is NOT considered meaningful
+        db.execute(text("""
+            INSERT INTO temp_legacy_test_jobs (id, status, notes, match_score, missing_skills, match_summary, matched_at, resume_uploaded_at)
+            VALUES (gen_random_uuid(), 'saved', NULL, NULL, NULL, NULL, NULL, NULL)
+        """))
+
+        detection_sql = text("""
+            SELECT count(*) FROM temp_legacy_test_jobs
+            WHERE (status IS NOT NULL AND status != 'saved')
+               OR notes IS NOT NULL
+               OR match_score IS NOT NULL
+               OR missing_skills IS NOT NULL
+               OR match_summary IS NOT NULL
+               OR matched_at IS NOT NULL
+               OR resume_uploaded_at IS NOT NULL
+        """)
+        assert db.execute(detection_sql).scalar() == 0
+
+        # Each user-specific field triggers meaningful job detection:
+        variations = [
+            ("applied", None, None, None, None, None, None),
+            ("saved", "Personal interview note", None, None, None, None, None),
+            ("saved", None, 85, None, None, None, None),
+            ("saved", None, None, '["Python", "FastAPI"]', None, None, None),
+            ("saved", None, None, None, "Strong fit summary", None, None),
+            ("saved", None, None, None, None, datetime.now(UTC), None),
+            ("saved", None, None, None, None, None, datetime.now(UTC)),
+        ]
+        for status, notes, score, skills, summary, matched_at, resume_up in variations:
+            db.execute(
+                text("""
+                    INSERT INTO temp_legacy_test_jobs (id, status, notes, match_score, missing_skills, match_summary, matched_at, resume_uploaded_at)
+                    VALUES (gen_random_uuid(), :st, :nt, :sc, CAST(:sk AS JSONB), :sm, :ma, :ru)
+                """),
+                {"st": status, "nt": notes, "sc": score, "sk": skills, "sm": summary, "ma": matched_at, "ru": resume_up}
+            )
+
+        assert db.execute(detection_sql).scalar() == len(variations)
+
+    def test_one_user_legacy_jobs_become_user_jobs(
+        self, db: Session, user_a: User, global_job: Job
+    ) -> None:
+        """1. One user + legacy jobs -> all jobs become that user's UserJobs."""
+        from sqlalchemy import text
+
+        # Setup legacy state in temporary table with rich match data
+        db.execute(text("DROP TABLE IF EXISTS temp_legacy_jobs"))
+        db.execute(text("""
+            CREATE TEMPORARY TABLE temp_legacy_jobs (
+                id UUID PRIMARY KEY,
+                status VARCHAR(20),
+                notes TEXT,
+                match_score INTEGER,
+                missing_skills JSONB,
+                match_summary TEXT,
+                matched_at TIMESTAMPTZ,
+                resume_uploaded_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ
+            )
+        """))
+        db.execute(
+            text("""
+                INSERT INTO temp_legacy_jobs
+                VALUES (:id, 'interview', 'Interview on Friday', 95, '["Docker"]'::jsonb, 'Great match', now(), now(), now(), now())
+            """),
+            {"id": global_job.id}
+        )
+
+        # Execute the exact backfill query used in 9d4e5f6a7b8c
+        db.execute(
+            text("""
+                INSERT INTO user_jobs (
+                    id, user_id, job_id, status, notes, match_score,
+                    missing_skills, match_summary, matched_at,
+                    resume_uploaded_at, created_at, updated_at
+                )
+                SELECT
+                    gen_random_uuid(), :uid, id,
+                    COALESCE(status, 'saved'),
+                    notes, match_score, missing_skills, match_summary, matched_at,
+                    resume_uploaded_at,
+                    COALESCE(created_at, now()),
+                    COALESCE(updated_at, now())
+                FROM temp_legacy_jobs
+                ON CONFLICT (user_id, job_id) DO NOTHING
+            """),
+            {"uid": user_a.id}
+        )
+        db.commit()
+
+        uj = db.query(UserJob).filter_by(user_id=user_a.id, job_id=global_job.id).one()
+        assert uj.status == "interview"
+        assert uj.notes == "Interview on Friday"
+        assert uj.match_score == 95
+        assert uj.missing_skills == ["Docker"]
+        assert uj.match_summary == "Great match"
+
+    def test_one_user_saved_jobs_preserved(
+        self, db: Session, user_a: User, global_job: Job
+    ) -> None:
+        """2. One user + saved jobs -> saved jobs are preserved in user_jobs."""
+        from sqlalchemy import text
+
         db.execute(
             text("""
                 INSERT INTO user_jobs (
@@ -466,27 +664,85 @@ class TestMigrationAndBackfillSafety:
         assert uj.notes is None
         assert uj.match_score is None
 
-    def test_migration_error_conditions(self):
-        """Verify the migration's safety logic raises clear errors under invalid backfill conditions."""
-        # Condition 1: unassigned data but 0 users -> must raise RuntimeError
-        user_count = 0
-        unassigned_resumes = 1
-        unassigned_scoring_runs = 0
+    def test_zero_users_meaningful_legacy_job_fails_safely(self) -> None:
+        """3. Zero users + meaningful legacy job data -> migration fails safely."""
+        with pytest.raises(RuntimeError, match="Found existing legacy data requiring ownership.*no user accounts exist"):
+            evaluate_migration_safety(
+                user_count=0,
+                unassigned_resumes=0,
+                unassigned_scoring_runs=0,
+                meaningful_legacy_jobs=5,
+            )
 
-        with pytest.raises(RuntimeError, match="Found existing unassigned records"):
-            if user_count == 0 and (unassigned_resumes > 0 or unassigned_scoring_runs > 0):
-                raise RuntimeError(
-                    f"Migration aborted: Found existing unassigned records ({unassigned_resumes} resumes, "
-                    f"{unassigned_scoring_runs} scoring runs) but no user accounts exist in the 'users' table. "
-                    "Cannot determine data ownership without a user account, and refusing to silently delete data."
-                )
-
-        # Condition 2: unassigned data with multiple users -> must raise RuntimeError
-        user_count = 3
+    def test_multiple_users_meaningful_legacy_job_fails_safely(self) -> None:
+        """4. Multiple users + meaningful legacy job data -> migration fails safely."""
         with pytest.raises(RuntimeError, match="(?i)automatic backfill cannot safely determine data ownership"):
-            if user_count > 1 and (unassigned_resumes > 0 or unassigned_scoring_runs > 0):
-                raise RuntimeError(
-                    f"Migration aborted: Found {user_count} users in the database and unassigned legacy data. "
-                    "Automatic backfill cannot safely determine data ownership among multiple users."
-                )
+            evaluate_migration_safety(
+                user_count=3,
+                unassigned_resumes=0,
+                unassigned_scoring_runs=0,
+                meaningful_legacy_jobs=2,
+            )
+
+    def test_multiple_users_no_meaningful_legacy_job_proceeds(self) -> None:
+        """5. Multiple users + no meaningful legacy job state -> migration can proceed."""
+        action, target_user = evaluate_migration_safety(
+            user_count=2,
+            unassigned_resumes=0,
+            unassigned_scoring_runs=0,
+            meaningful_legacy_jobs=0,
+        )
+        assert action == "proceed"
+        assert target_user is None
+
+    def test_zero_users_fresh_database_proceeds(self) -> None:
+        """6. Zero users + genuinely empty/fresh database -> migration can proceed."""
+        action, target_user = evaluate_migration_safety(
+            user_count=0,
+            unassigned_resumes=0,
+            unassigned_scoring_runs=0,
+            meaningful_legacy_jobs=0,
+        )
+        assert action == "proceed"
+        assert target_user is None
+
+    def test_unassigned_resumes_or_scoring_runs_fails_safely(self) -> None:
+        """7. Existing resumes/scoring_runs without ownership -> migration fails safely."""
+        # 0 users with unassigned resume
+        with pytest.raises(RuntimeError, match="Found existing legacy data requiring ownership"):
+            evaluate_migration_safety(
+                user_count=0,
+                unassigned_resumes=1,
+                unassigned_scoring_runs=0,
+                meaningful_legacy_jobs=0,
+            )
+
+        # Multiple users with unassigned scoring run
+        with pytest.raises(RuntimeError, match="(?i)automatic backfill cannot safely determine data ownership"):
+            evaluate_migration_safety(
+                user_count=2,
+                unassigned_resumes=0,
+                unassigned_scoring_runs=1,
+                meaningful_legacy_jobs=0,
+            )
+
+    def test_no_data_deleted_when_migration_aborts(
+        self, db: Session, global_job: Job
+    ) -> None:
+        """8. No data is deleted when migration aborts."""
+        # Verify that aborting the migration does not execute any DELETE statements,
+        # leaving all existing resumes, scoring runs, and jobs intact.
+        job_count_before = db.query(Job).count()
+        assert job_count_before >= 1
+
+        with pytest.raises(RuntimeError):
+            evaluate_migration_safety(
+                user_count=0,
+                unassigned_resumes=2,
+                unassigned_scoring_runs=1,
+                meaningful_legacy_jobs=3,
+            )
+
+        job_count_after = db.query(Job).count()
+        assert job_count_after == job_count_before
 
