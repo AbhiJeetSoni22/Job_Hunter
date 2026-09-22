@@ -22,20 +22,20 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, Text, text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 
 class Resume(Base):
     """
-    Represents the single active resume.
+    Represents the active resume of a user.
 
-    Created by resume_service.upload_resume().
+    Created by resume_service.upload_resume(file, user_id).
     Read by match_service.score_job() to get skills for Gemini.
-    Deleted and replaced on every new upload.
+    Scoped strictly per user.
     """
 
     __tablename__ = "resumes"
@@ -46,6 +46,14 @@ class Resume(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
         doc="Primary key — PostgreSQL-generated UUID.",
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Foreign key to the user owning this resume.",
     )
 
     # ── File metadata ────────────────────────────────────────────────────────
@@ -90,9 +98,17 @@ class Resume(Base):
         ),
     )
 
+    # ── Relationships ────────────────────────────────────────────────────────
+    user = relationship("User", back_populates="resumes")
+
+    # ── Indexes ──────────────────────────────────────────────────────────────
+    __table_args__ = (
+        Index("idx_resumes_user_uploaded", "user_id", "uploaded_at"),
+    )
+
     def __repr__(self) -> str:
         return (
-            f"<Resume id={self.id} filename={self.filename!r} "
+            f"<Resume id={self.id} user_id={self.user_id} filename={self.filename!r} "
             f"skills={len(self.skills)} uploaded_at={self.uploaded_at}>"
         )
 

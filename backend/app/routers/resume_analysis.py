@@ -23,7 +23,7 @@ Handles HTTP concerns for:
 from fastapi import APIRouter, status, HTTPException
 
 from app.ai.gemini_client import AIError
-from app.dependencies import DbSession
+from app.dependencies import CurrentUser, DbSession
 from app.schemas.job import ApiResponse
 from app.schemas.resume_analysis import ResumeAnalysisRequest, ResumeAnalysisResponse
 from app.services.resume_analysis_service import ResumeAnalysisService
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/resume", tags=["resume-analysis"])
     summary="Analyze the active resume against a job description",
     description=(
         "Runs the Resume Gap Analyzer against the currently active uploaded "
-        "resume and a supplied job description. Returns a match score, "
+        "resume of the user and a supplied job description. Returns a match score, "
         "summary, missing skills, existing strengths, resume improvement "
         "suggestions, and ATS optimization tips. Does not upload a new "
         "resume and does not affect existing job match scores."
@@ -48,10 +48,11 @@ router = APIRouter(prefix="/resume", tags=["resume-analysis"])
 )
 def analyze_resume(
     payload: ResumeAnalysisRequest,
+    user: CurrentUser,
     db: DbSession,
 ) -> ApiResponse[ResumeAnalysisResponse]:
     try:
-        result = ResumeAnalysisService(db).analyze(payload.job_description)
+        result = ResumeAnalysisService(db, user_id=user.id).analyze(payload.job_description)
     except LookupError as exc:
         raise HTTPException(
     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

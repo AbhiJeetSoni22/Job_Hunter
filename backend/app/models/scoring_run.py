@@ -40,9 +40,9 @@ Design decisions:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -55,7 +55,7 @@ SCORING_RUN_STATUS_VALUES: tuple[str, ...] = (
 class ScoringRun(Base):
     """
     Tracks one background auto-scoring batch (one POST /api/scraper/run
-    with new jobs to score).
+    with new jobs to score) for a specific user.
 
     Created by ScraperService.start_scoring_run() synchronously, in the
     same request that returns new_job_ids — before the background task
@@ -76,6 +76,14 @@ class ScoringRun(Base):
         server_default=text("gen_random_uuid()"),
         doc="Primary key — PostgreSQL-generated UUID. Returned to the "
         "frontend as ScraperRunSummary.scoring_run_id.",
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Foreign key to the user who triggered this scoring run.",
     )
 
     # ── Progress / terminal state ─────────────────────────────────────────────
@@ -127,9 +135,17 @@ class ScoringRun(Base):
         doc="Set once status becomes 'completed'. NULL while running.",
     )
 
+    # ── Relationships ────────────────────────────────────────────────────────
+    user = relationship("User", back_populates="scoring_runs")
+
+    # ── Indexes ──────────────────────────────────────────────────────────────
+    __table_args__ = (
+        Index("idx_scoring_runs_user_created", "user_id", "created_at"),
+    )
+
     def __repr__(self) -> str:
         return (
-            f"<ScoringRun id={self.id} status={self.status!r} "
+            f"<ScoringRun id={self.id} user_id={self.user_id} status={self.status!r} "
             f"scored={self.scored_jobs} failed={self.failed_jobs} "
             f"total={self.total_jobs}>"
         )

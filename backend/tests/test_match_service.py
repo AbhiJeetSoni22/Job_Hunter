@@ -103,15 +103,15 @@ class TestCacheMiss:
 
     def test_cache_miss_persists_score_to_db(self, db, sample_job, sample_resume):
         from app.services.match_service import score_job
-        from app.models.job import Job
+        from app.models.user_job import UserJob
 
         with _patch_gemini():
             score_job(str(sample_job.id), db)
 
-        refreshed = db.get(Job, str(sample_job.id))
-        assert refreshed.match_score == GEMINI_MATCH_RESULT["match_score"]
-        assert refreshed.missing_skills == GEMINI_MATCH_RESULT["missing_skills"]
-        assert refreshed.resume_uploaded_at == sample_resume.uploaded_at
+        user_job = db.query(UserJob).filter_by(job_id=sample_job.id, user_id=sample_resume.user_id).one()
+        assert user_job.match_score == GEMINI_MATCH_RESULT["match_score"]
+        assert user_job.missing_skills == GEMINI_MATCH_RESULT["missing_skills"]
+        assert user_job.resume_uploaded_at == sample_resume.uploaded_at
 
     def test_ai_error_propagates(self, db, sample_job, sample_resume):
         from app.services.match_service import score_job

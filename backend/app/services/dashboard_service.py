@@ -3,31 +3,26 @@ services/dashboard_service.py
 
 Aggregate statistics for the AI-powered recommendation dashboard.
 
-Phase 5:
-  - Feature 1: Top Matches      -> top 5 scored, active jobs, sorted desc,
-                                     excludes unscored and expired jobs
-  - Feature 2: Match Quality    -> Excellent / Good / Possible / Weak counts
-  - Feature 3: Dashboard Metrics -> Total Jobs, Scored Jobs, Average/Best score,
-                                     Applications Submitted
-
-Performance:
-  All counts, the average, and the best score are computed with a single
-  aggregate SQL query using CASE WHEN expressions — there is no per-row
-  iteration in Python. Top Matches is one additional query that hits the
-  existing idx_jobs_score index (ORDER BY match_score DESC LIMIT 5).
-  Two total queries, regardless of how many jobs exist — no N+1.
+Multi-user architecture:
+  - Scoped strictly to the authenticated user's UserJob records.
+  - total_jobs reports all globally active scraped jobs.
+  - scored_jobs, scores, applications_submitted, quality_breakdown, and top_matches
+    are all derived strictly from the authenticated user's UserJob entries.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import case, select
+import time
+import uuid
+
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
 
 from app.models.job import Job
+from app.models.user_job import UserJob
 from app.schemas.dashboard import DashboardStats, MatchQualityBreakdown, TopMatchItem
 from app.services.match_service import recommendation_label
-import time
+
 TOP_MATCHES_LIMIT = 5
 
 # Match-quality tier thresholds (Feature 2 — distinct from the
@@ -38,38 +33,49 @@ POSSIBLE_MIN = 60
 
 
 class DashboardService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, user_id: uuid.UUID | str | None = None) -> None:
         self.db = db
+        self.user_id = user_id
 
-    def get_stats(self) -> DashboardStats:
-        """Compute every dashboard metric with two total queries."""
+    def _resolve_user_id(self, user_id: uuid.UUID | str | None) -> uuid.UUID:
+        uid = user_id or self.user_id
+        if not uid:
+            raise ValueError("user_id is required for user-scoped dashboard statistics")
+        return uuid.UUID(str(uid)) if not isinstance(uid, uuid.UUID) else uid
+
+    def get_stats(self, user_id: uuid.UUID | None = None) -> DashboardStats:
+        """Compute every dashboard metric for the user with two total queries."""
+        uid = self._resolve_user_id(user_id)
         start = time.perf_counter()
-        print("Before SQL")
         aggregates = self.db.execute(
             select(
                 func.count(Job.id).label("total_jobs"),
-                func.count(Job.match_score).label("scored_jobs"),
-                func.avg(Job.match_score).label("average_match_score"),
-                func.max(Job.match_score).label("best_match_score"),
-                func.count(case((Job.status == "applied", 1))).label(
+                func.count(UserJob.match_score).label("scored_jobs"),
+                func.avg(UserJob.match_score).label("average_match_score"),
+                func.max(UserJob.match_score).label("best_match_score"),
+                func.count(case((UserJob.status == "applied", 1))).label(
                     "applications_submitted"
                 ),
-                func.count(case((Job.match_score >= EXCELLENT_MIN, 1))).label(
+                func.count(case((UserJob.match_score >= EXCELLENT_MIN, 1))).label(
                     "excellent"
                 ),
                 func.count(
-                    case((Job.match_score.between(GOOD_MIN, EXCELLENT_MIN - 1), 1))
+                    case((UserJob.match_score.between(GOOD_MIN, EXCELLENT_MIN - 1), 1))
                 ).label("good"),
                 func.count(
-                    case((Job.match_score.between(POSSIBLE_MIN, GOOD_MIN - 1), 1))
+                    case((UserJob.match_score.between(POSSIBLE_MIN, GOOD_MIN - 1), 1))
                 ).label("possible"),
-                func.count(case((Job.match_score < POSSIBLE_MIN, 1))).label("weak"),
-            ).where(Job.expired_at.is_(None))
+                func.count(case((UserJob.match_score < POSSIBLE_MIN, 1))).label("weak"),
+            )
+            .select_from(Job)
+            .outerjoin(
+                UserJob,
+                and_(UserJob.job_id == Job.id, UserJob.user_id == uid),
+            )
+            .where(Job.expired_at.is_(None))
         ).one()
-        print(f"Aggregate Query: {time.perf_counter() - start:.3f}s")
-        start = time.perf_counter()
-        top_matches = self._get_top_matches()
-        print(f"Top Matches Query: {time.perf_counter() - start:.3f}s")
+
+        top_matches = self._get_top_matches(uid)
         average = (
             round(float(aggregates.average_match_score), 1)
             if aggregates.average_match_score is not None
@@ -93,27 +99,35 @@ class DashboardService:
 
     # ── Private helpers ───────────────────────────────────────────────────
 
-    def _get_top_matches(self) -> list[TopMatchItem]:
+    def _get_top_matches(self, user_id: uuid.UUID) -> list[TopMatchItem]:
         """
-        Top 5 scored jobs, sorted descending by match_score.
+        Top 5 scored jobs for this user, sorted descending by match_score.
         Unscored jobs (match_score IS NULL) are excluded.
         """
-        rows = self.db.scalars(
-            select(Job)
-            .where(Job.match_score.isnot(None), Job.expired_at.is_(None))
-            .order_by(Job.match_score.desc())
+        rows = self.db.execute(
+            select(
+                Job.id,
+                Job.title,
+                Job.company,
+                UserJob.match_score,
+                Job.source,
+                func.coalesce(UserJob.status, "saved").label("status"),
+            )
+            .join(UserJob, and_(UserJob.job_id == Job.id, UserJob.user_id == user_id))
+            .where(UserJob.match_score.isnot(None), Job.expired_at.is_(None))
+            .order_by(UserJob.match_score.desc())
             .limit(TOP_MATCHES_LIMIT)
         ).all()
 
         return [
             TopMatchItem(
-                id=job.id,
-                title=job.title,
-                company=job.company,
-                match_score=job.match_score,
-                source=job.source,
-                status=job.status,
-                recommendation_label=recommendation_label(job.match_score),
+                id=row.id,
+                title=row.title,
+                company=row.company,
+                match_score=row.match_score,
+                source=row.source,
+                status=row.status,
+                recommendation_label=recommendation_label(row.match_score),
             )
-            for job in rows
+            for row in rows
         ]

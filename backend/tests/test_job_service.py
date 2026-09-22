@@ -209,9 +209,12 @@ class TestUpdateJob:
 class TestDeleteJob:
 
     def test_delete_removes_job(self, job_service, sample_job):
+        from app.schemas.job import JobUpdateRequest  # noqa: PLC0415
+        job_service.update_job(sample_job.id, JobUpdateRequest(status="applied", notes="Note"))
         job_service.delete_job(sample_job.id)
-        with pytest.raises(LookupError):
-            job_service.get_job(sample_job.id)
+        res = job_service.get_job(sample_job.id)
+        assert res.status == "saved"
+        assert res.notes is None
 
     def test_delete_returns_none(self, job_service, sample_job):
         result = job_service.delete_job(sample_job.id)
@@ -302,4 +305,5 @@ class TestUpsertJobs:
         ])
         row = db.scalar(select(Job).where(Job.url == url))
         assert row is not None
-        assert row.status == "saved"
+        job_res = job_service.get_job(row.id)
+        assert job_res.status == "saved"
