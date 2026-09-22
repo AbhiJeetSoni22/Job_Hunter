@@ -7,15 +7,17 @@ HTTP layer for the AI-powered recommendation dashboard (Phase 5).
   summary metric cards (Total Jobs, Scored Jobs, Average/Best Match
   Score, Applications Submitted).
 
-Thin router — all logic lives in DashboardService.
+Multi-user architecture:
+  - Scoped to the authenticated user's UserJob records and resume.
 """
 
-from app.dependencies import DbSession
+from fastapi import APIRouter
+
+from app.dependencies import CurrentUser, DbSession
 from app.schemas.dashboard import DashboardStats
 from app.schemas.job import ApiResponse
 from app.services.dashboard_service import DashboardService
-from fastapi import APIRouter
-import time
+
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
@@ -24,16 +26,15 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
     response_model=ApiResponse[DashboardStats],
     summary="Dashboard summary statistics",
     description=(
-        "Aggregate metrics for the recommendation dashboard: total jobs, "
-        "scored jobs, average and best match score, applications "
+        "Aggregate metrics for the recommendation dashboard for the authenticated user: "
+        "total jobs, scored jobs, average and best match score, applications "
         "submitted, a match-quality breakdown (Excellent/Good/Possible/"
-        "Weak), and the top 5 scored jobs. Computed with a single "
-        "aggregate query plus one indexed top-N query — no N+1 queries."
+        "Weak), and the top 5 scored jobs."
     ),
 )
-def dashboard_stats(db: DbSession) -> ApiResponse[DashboardStats]:
-    print("Before service:", time.perf_counter())
-    start = time.perf_counter()
-    stats = DashboardService(db).get_stats()
-    print(f"DashboardService: {time.perf_counter()-start:.3f}s")
+def dashboard_stats(
+    user: CurrentUser,
+    db: DbSession,
+) -> ApiResponse[DashboardStats]:
+    stats = DashboardService(db).get_stats(user_id=user.id)
     return ApiResponse(data=stats)

@@ -56,8 +56,9 @@ class InterviewPrepService:
         result = service.generate(job_id)
     """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, user_id: uuid.UUID | str | None = None) -> None:
         self._db = db
+        self._user_id = user_id
 
     def generate(self, job_id: uuid.UUID) -> InterviewPrepResponse:
         """
@@ -79,9 +80,8 @@ class InterviewPrepService:
         job = self._get_job(job_id)
 
         # Reuses the exact same "active resume" lookup used by
-        # resume_analysis_service and match_service — no duplicated
-        # query logic, no new failure mode.
-        resume = ResumeService(self._db).get_latest_with_text()
+        # resume_analysis_service and match_service — scoped by user_id
+        resume = ResumeService(self._db, user_id=self._user_id).get_latest_with_text()
 
         logger.info(
             "InterviewPrepService.generate: job_id=%s resume_id=%s",

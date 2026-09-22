@@ -40,11 +40,18 @@ class ScraperService:
         summary = service.run_all()
         """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, user_id: uuid.UUID | str | None = None) -> None:
         self._db = db
-        self._job_service = JobService(db)
+        self._user_id = user_id
+        self._job_service = JobService(db, user_id=user_id)
 
-        # ── Public API ─────────────────────────────────────────────────────────
+    def _resolve_user_id(self, user_id: uuid.UUID | str | None) -> uuid.UUID:
+        uid = user_id or self._user_id
+        if not uid:
+            raise ValueError("user_id is required for user-scoped scoring operations")
+        return uuid.UUID(str(uid)) if not isinstance(uid, uuid.UUID) else uid
+
+    # ── Public API ─────────────────────────────────────────────────────────
 
     def run_all(self) ->tuple[ScraperRunSummary, list[str]]:
         """
@@ -85,10 +92,10 @@ class ScraperService:
         )
         return summary, all_new_job_ids
 
-    def start_scoring_run(self, total_jobs: int) -> ScoringRun:
+    def start_scoring_run(self, total_jobs: int, user_id: uuid.UUID | None = None) -> ScoringRun:
         """
         Create the persisted ScoringRun row that tracks one background
-        auto-scoring batch.
+        auto-scoring batch for the user.
 
         Called synchronously by the router, in the SAME request/session
         that returns the sync response — before the BackgroundTask is
@@ -97,18 +104,26 @@ class ScraperService:
         updates this same row (by id, via its own fresh session) as it
         scores each job.
         """
-        run = ScoringRun(id=uuid.uuid4(), status="running", total_jobs=total_jobs)
+        uid = self._resolve_user_id(user_id)
+        run = ScoringRun(id=uuid.uuid4(), user_id=uid, status="running", total_jobs=total_jobs)
         self._db.add(run)
         self._db.commit()
         self._db.refresh(run)
         return run
 
-    def get_scoring_run(self, run_id: uuid.UUID) -> ScoringRun | None:
-        """Fetch a ScoringRun by id, or None if it doesn't exist."""
-        return self._db.get(ScoringRun, run_id)
+    def get_scoring_run(self, run_id: uuid.UUID, user_id: uuid.UUID | None = None) -> ScoringRun | None:
+        """Fetch a ScoringRun by id, or None if it doesn't exist or belongs to another user."""
+        uid = user_id or self._user_id
+        run = self._db.get(ScoringRun, run_id)
+        if run is None or (uid is not None and run.user_id != uid):
+            return None
+        return run
 
     def run_auto_score(
-        self, job_ids: list[str], scoring_run_id: uuid.UUID | None = None
+        self,
+        job_ids: list[str],
+        scoring_run_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
     ) -> None:
         """
         Background-task entrypoint (Phase 5 — Feature 4).
@@ -123,8 +138,9 @@ class ScraperService:
         failed — this is the terminal-state signal the frontend polls
         GET /api/scraper/scoring-status for.
         """
+        uid = user_id or self._user_id
         scored, failed = self._auto_score_new_jobs(
-            job_ids, scoring_run_id=scoring_run_id
+            job_ids, scoring_run_id=scoring_run_id, user_id=uid
         )
         if scoring_run_id is not None:
             self._finalize_scoring_run(scoring_run_id, scored=scored, failed=failed)
@@ -199,40 +215,26 @@ class ScraperService:
         return ScrapeRunResponse.model_validate(run), new_job_ids
 
     def _auto_score_new_jobs(
-        self, job_ids: list[str], scoring_run_id: uuid.UUID | None = None
+        self,
+        job_ids: list[str],
+        scoring_run_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
     ) -> tuple[int, int]:
         """
-        Score every newly inserted job against the active resume
-        (Phase 5 — Feature 4).
-
-        Only the jobs passed in are scored — pre-existing jobs are never
-        touched. Reuses match_service.score_job(), so cache behaviour and
-        Gemini retry logic are identical to manual scoring.
-
-        Returns (scored, failed). "Failed" covers everything that keeps a
-        job from ever being scored by this run — not just Gemini errors —
-        so that scored + failed always equals len(job_ids) and the caller
-        can reach a clean terminal state:
-            - AIError            — Gemini failed after retries
-            - JobNotFoundError   — job vanished before scoring ran
-            - NoResumeError      — no active resume; every job from this
-                                    point on (including the current one)
-                                    is counted failed and the loop stops,
-                                    since nothing will score without a
-                                    resume
-
-        When scoring_run_id is given, the corresponding ScoringRun row is
-        updated after every job (not just once at the end) so polling
-        reflects live progress, e.g. "Scoring 1/2...".
+        Score every newly inserted job against the user's active resume.
         """
         if not job_ids:
             return 0, 0
+
+        if user_id is None:
+            logger.warning("auto-score skipped — no user_id provided")
+            return 0, len(job_ids)
 
         scored = 0
         failed = 0
         for index, job_id in enumerate(job_ids):
             try:
-                match_service.score_job(job_id, self._db)
+                match_service.score_job(job_id, self._db, user_id=user_id)
                 scored += 1
             except NoResumeError:
                 logger.info("auto-score stopped — no active resume")

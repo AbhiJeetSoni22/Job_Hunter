@@ -29,6 +29,7 @@ from app.models.resume import Resume
 from app.models.scrape_run import ScrapeRun
 from app.models.scoring_run import ScoringRun
 from app.models.user import User
+from app.models.user_job import UserJob
 
 __all__ = [
     "Job",
@@ -36,4 +37,5 @@ __all__ = [
     "ScrapeRun",
     "ScoringRun",
     "User",
+    "UserJob",
 ]

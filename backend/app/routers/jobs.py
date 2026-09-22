@@ -3,12 +3,10 @@ routers/jobs.py
 
 HTTP layer for job endpoints.
 
-Changes in Phase 2D:
-  - list_jobs and get_job fetch active resume (optional) and pass
-    uploaded_at into service so needs_rescore can be computed.
-  - No 422 raised when resume absent on read endpoints — needs_rescore
-    simply returns False.
-  - ScoreResult removed; ScoreResponse used throughout.
+Multi-user architecture:
+  - Every endpoint requires authenticated CurrentUser.
+  - JobService methods receive user.id to scope user-specific state (UserJob).
+  - delete_job removes ONLY the user's UserJob relationship, leaving the global Job intact.
 """
 
 import uuid
@@ -17,8 +15,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.dependencies import DbSession, get_active_resume
+from app.dependencies import CurrentUser, DbSession, get_active_resume
 from app.models.resume import Resume
 from app.schemas.job import (
     ApiError,
@@ -55,13 +52,14 @@ def _invalid_param(message: str) -> HTTPException:
     )
 
 
-def _get_resume_uploaded_at(db: Session) -> datetime | None:
+def _get_resume_uploaded_at(db: Session, user_id: uuid.UUID) -> datetime | None:
     """
-    Fetch the active resume's uploaded_at without raising.
+    Fetch the user's active resume's uploaded_at without raising.
     Returns None when no resume exists — read endpoints never block on this.
     """
     resume = (
         db.query(Resume)
+        .filter(Resume.user_id == user_id)
         .order_by(Resume.uploaded_at.desc())
         .first()
     )
@@ -76,10 +74,11 @@ def _get_resume_uploaded_at(db: Session) -> datetime | None:
     "",
     response_model=ApiResponse[PaginatedJobList],
     summary="List jobs",
-    description="Return a paginated, filtered, sorted list of jobs.",
+    description="Return a paginated, filtered, sorted list of jobs for the authenticated user.",
 )
 def list_jobs(
-    db: Session = Depends(get_db),
+    user: CurrentUser,
+    db: DbSession,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str = Query(default="created_at"),
@@ -92,10 +91,11 @@ def list_jobs(
         description="Include expired jobs in results. Defaults to False.",
     ),
 ) -> ApiResponse[PaginatedJobList]:
-    current_resume_uploaded_at = _get_resume_uploaded_at(db)
+    current_resume_uploaded_at = _get_resume_uploaded_at(db, user.id)
 
     try:
         result = JobService(db).list_jobs(
+            user.id,
             page=page,
             page_size=page_size,
             sort_by=sort_by,
@@ -123,13 +123,15 @@ def list_jobs(
 )
 def get_job(
     job_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    user: CurrentUser,
+    db: DbSession,
 ) -> ApiResponse[JobResponse]:
-    current_resume_uploaded_at = _get_resume_uploaded_at(db)
+    current_resume_uploaded_at = _get_resume_uploaded_at(db, user.id)
 
     try:
         job = JobService(db).get_job(
             job_id,
+            user_id=user.id,
             current_resume_uploaded_at=current_resume_uploaded_at,
         )
     except LookupError:
@@ -149,11 +151,12 @@ def get_job(
 )
 def score_job(
     job_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    user: CurrentUser,
+    db: DbSession,
     _resume: Resume = Depends(get_active_resume),  # 422 NO_RESUME if absent
 ) -> ApiResponse[ScoreResponse]:
     try:
-        result = match_service.score_job(str(job_id), db)
+        result = match_service.score_job(str(job_id), db, user_id=user.id)
     except JobNotFoundError:
         raise _not_found(job_id)
     except NoResumeError:
@@ -185,10 +188,11 @@ def score_job(
 def update_job(
     job_id: uuid.UUID,
     body: JobUpdateRequest,
-    db: Session = Depends(get_db),
+    user: CurrentUser,
+    db: DbSession,
 ) -> ApiResponse[JobUpdateResponse]:
     try:
-        result = JobService(db).update_job(job_id, body)
+        result = JobService(db).update_job(job_id, user_id=user.id, body=body)
     except LookupError:
         raise _not_found(job_id)
     except ValueError as exc:
@@ -207,13 +211,14 @@ def update_job(
 @router.delete(
     "/{job_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a job",
+    summary="Delete user's tracking for a job",
 )
 def delete_job(
     job_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    user: CurrentUser,
+    db: DbSession,
 ) -> None:
     try:
-        JobService(db).delete_job(job_id)
+        JobService(db).delete_job(job_id, user_id=user.id)
     except LookupError:
         raise _not_found(job_id)

@@ -24,6 +24,7 @@ New, isolated feature. Does NOT modify:
 from __future__ import annotations
 
 import logging
+import uuid
 
 from sqlalchemy.orm import Session
 
@@ -50,8 +51,9 @@ class ResumeAnalysisService:
         result = service.analyze(job_description)
         """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, user_id: uuid.UUID | str | None = None) -> None:
         self._db = db
+        self._user_id = user_id
 
     def analyze(self, job_description: str) -> ResumeAnalysisResponse:
         """
@@ -72,8 +74,8 @@ class ResumeAnalysisService:
         jd = self._validate_job_description(job_description)
 
         # Reuses the exact same "active resume" lookup used by resume reads
-        # and match_service — no duplicated query logic, no new failure mode.
-        resume = ResumeService(self._db).get_latest_with_text()
+        # and match_service — scoped by user_id
+        resume = ResumeService(self._db, user_id=self._user_id).get_latest_with_text()
 
         logger.info(
             "ResumeAnalysisService.analyze: resume_id=%s desc_len=%d",

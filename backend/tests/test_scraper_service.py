@@ -320,8 +320,9 @@ class TestAutoScoreNewJobs:
 
         assert summary2.total_new == 0
         assert scored2 == (0, 0)
-        row = db.scalar(select(Job).where(Job.url == url))
-        assert row.match_score == 80
+        from app.models.user_job import UserJob
+        user_job = db.scalar(select(UserJob).join(Job, Job.id == UserJob.job_id).where(Job.url == url))
+        assert user_job.match_score == 80
     
     def test_gemini_failure_on_one_job_does_not_abort_others(self, scraper_service, sample_resume):
         from app.schemas.job import JobUpsertData

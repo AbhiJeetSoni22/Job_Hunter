@@ -107,6 +107,7 @@ def db_engine() -> Generator[Engine, None, None]:
     import app.models.scoring_run  # noqa: F401
     import app.models.scrape_run  # noqa: F401
     import app.models.user  # noqa: F401
+    import app.models.user_job  # noqa: F401
     from app.database import Base  # noqa: PLC0415
 
     engine = create_engine(
@@ -161,13 +162,36 @@ def db(db_engine: Engine) -> Generator[Session, None, None]:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
+def sample_user(db: Session):
+    from app.models.user import User  # noqa: PLC0415
+
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user-{uuid.uuid4().hex[:8]}@example.com",
+        name="Test User",
+        password_hash="test-password-hash",
+        is_active=True,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture()
+def auth_headers(sample_user) -> dict[str, str]:
+    from app.core.security import create_access_token  # noqa: PLC0415
+
+    token = create_access_token({"sub": str(sample_user.id), "email": sample_user.email})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
 def sample_job(db: Session) -> Job:
     """
     Insert and return a minimal valid Job ORM instance.
-
-    Provides only the non-nullable fields required by the DB schema.
-    ID is set explicitly (server_default gen_random_uuid() not triggered
-    by SQLAlchemy inserts in test mode).
     """
     from app.models.job import Job  # noqa: PLC0415
 
@@ -176,9 +200,8 @@ def sample_job(db: Session) -> Job:
         title="Backend Engineer",
         company="Acme Corp",
         description="Build APIs with FastAPI and PostgreSQL.",
-        url="https://example.com/jobs/backend-1",
+        url=f"https://example.com/jobs/backend-{uuid.uuid4().hex[:6]}",
         source="remoteok",
-        status="saved",
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
@@ -189,11 +212,12 @@ def sample_job(db: Session) -> Job:
 
 
 @pytest.fixture()
-def scored_job(db: Session) -> Job:
+def scored_job(db: Session, sample_user) -> Job:
     """
-    Insert and return a Job that has already been scored by Gemini.
+    Insert and return a Job that has already been scored for sample_user.
     """
     from app.models.job import Job  # noqa: PLC0415
+    from app.models.user_job import UserJob  # noqa: PLC0415
 
     now = datetime.now(UTC)
     job = Job(
@@ -201,8 +225,18 @@ def scored_job(db: Session) -> Job:
         title="ML Engineer",
         company="DeepMind",
         description="Research and productionise ML models.",
-        url="https://example.com/jobs/ml-1",
+        url=f"https://example.com/jobs/ml-{uuid.uuid4().hex[:6]}",
         source="yc_jobs",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(job)
+    db.commit()
+
+    user_job = UserJob(
+        id=uuid.uuid4(),
+        user_id=sample_user.id,
+        job_id=job.id,
         status="saved",
         match_score=82,
         missing_skills=["Rust", "CUDA"],
@@ -212,21 +246,27 @@ def scored_job(db: Session) -> Job:
         created_at=now,
         updated_at=now,
     )
-    db.add(job)
+    db.add(user_job)
     db.commit()
     db.refresh(job)
+
+    # Attach convenience attributes for tests expecting them
+    job.status = user_job.status
+    job.match_score = user_job.match_score
+    job.resume_uploaded_at = user_job.resume_uploaded_at
     return job
 
 
 @pytest.fixture()
-def sample_resume(db: Session) -> Resume:
+def sample_resume(db: Session, sample_user) -> Resume:
     """
-    Insert and return a minimal valid Resume ORM instance.
+    Insert and return a minimal valid Resume ORM instance for sample_user.
     """
     from app.models.resume import Resume  # noqa: PLC0415
 
     resume = Resume(
         id=uuid.uuid4(),
+        user_id=sample_user.id,
         filename="john_doe_resume.pdf",
         raw_text="Python FastAPI PostgreSQL React TypeScript " * 10,
         skills=["Python", "FastAPI", "PostgreSQL", "React", "TypeScript"],
@@ -242,21 +282,21 @@ def sample_resume(db: Session) -> Resume:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def job_service(db: Session) -> JobService:
+def job_service(db: Session, sample_user) -> JobService:
     from app.services.job_service import JobService  # noqa: PLC0415
-    return JobService(db)
+    return JobService(db, user_id=sample_user.id)
 
 
 @pytest.fixture()
-def resume_service(db: Session) -> ResumeService:
+def resume_service(db: Session, sample_user) -> ResumeService:
     from app.services.resume_service import ResumeService  # noqa: PLC0415
-    return ResumeService(db)
+    return ResumeService(db, user_id=sample_user.id)
 
 
 @pytest.fixture()
-def scraper_service(db: Session) -> ScraperService:
+def scraper_service(db: Session, sample_user) -> ScraperService:
     from app.services.scraper_service import ScraperService  # noqa: PLC0415
-    return ScraperService(db)
+    return ScraperService(db, user_id=sample_user.id)
 
 
 # ---------------------------------------------------------------------------

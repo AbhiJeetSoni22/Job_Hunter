@@ -22,7 +22,7 @@ from typing import Any
 
 from sqlalchemy import DateTime, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -109,55 +109,6 @@ class Job(Base):
         doc="Location string as provided by the source. May be 'Remote', a city, or None.",
     )
 
-    # ── Application tracking ─────────────────────────────────────────────────
-    status: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-        server_default="saved",
-        doc=f"Application tracking status. One of: {JOB_STATUS_VALUES}. Defaults to 'saved'.",
-    )
-
-    notes: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        doc="Free-text notes. Contact name, next step, anything relevant.",
-    )
-
-    # ── AI match results (populated by match_service in Phase 2) ─────────────
-    match_score: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
-        doc="Resume fit score 0–100 from Gemini. Null until scored.",
-    )
-
-    missing_skills: Mapped[list[Any] | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        doc="Array of skill strings from Gemini. Up to 5 items. Null until scored.",
-    )
-
-    match_summary: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        doc="Two-sentence fit summary from Gemini. Null until scored.",
-    )
-
-    matched_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        doc="Timestamp of the last Gemini scoring call. Null until scored.",
-    )
-
-    resume_uploaded_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        doc=(
-            "Copied from resume.uploaded_at at scoring time. "
-            "If this is older than the current resume's uploaded_at, "
-            "the score is stale and the UI should flag 'Needs Re-score'."
-        ),
-    )
-
     # ── Source timestamps ────────────────────────────────────────────────────
     posted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -211,46 +162,19 @@ class Job(Base):
         ),
     )
 
+    # ── Relationships ────────────────────────────────────────────────────────
+    user_jobs = relationship("UserJob", back_populates="job", cascade="all, delete-orphan")
+
     # ── Indexes ──────────────────────────────────────────────────────────────
     __table_args__ = (
-        # Filter by application status (most common query filter)
-        Index("idx_jobs_status", "status"),
         # Filter by source (remoteok vs yc_jobs)
         Index("idx_jobs_source", "source"),
-        # Sort job list by match score descending; NULLs sort last
-        Index("idx_jobs_score", "match_score"),
         # Default listing excludes expired jobs; cleanup scans by expired_at
         Index("idx_jobs_expired_at", "expired_at"),
-        # Deduplication — enforced at DB level, not just application level
-        # Defined as unique=True on the column above; named here for clarity
-        # (The UNIQUE constraint creates the index automatically)
     )
 
     def __repr__(self) -> str:
         return (
-    f"<Job id={self.id} title={self.title!r} "
-    f"company={self.company!r} status={self.status!r} "
-    f"score={self.match_score}>"
-)
-
-    @property
-    def is_scored(self) -> bool:
-        """Return True if Gemini has produced a match score for this job."""
-        return self.match_score is not None
-
-    @property
-    def needs_rescore(self, current_resume_uploaded_at: datetime | None = None) -> bool:
-        """
-        Return True if the score was produced against an older resume.
-
-        This property is intentionally simple — match_service calls it
-        with the current resume's uploaded_at when needed.
-        """
-        if not self.is_scored:
-            return False
-        if current_resume_uploaded_at is None:
-            return False
-        return (
-        self.resume_uploaded_at is None
-        or self.resume_uploaded_at < current_resume_uploaded_at
-    )
+            f"<Job id={self.id} title={self.title!r} "
+            f"company={self.company!r} source={self.source!r}>"
+        )

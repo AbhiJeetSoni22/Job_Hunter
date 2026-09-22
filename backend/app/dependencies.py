@@ -100,15 +100,19 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 # ── Active Resume Dependency ─────────────────────────────────────────────────
 
-def get_active_resume(db: Session = Depends(get_db)) -> Resume:
+def get_active_resume(
+    user: CurrentUser,
+    db: DbSession,
+) -> Resume:
     """
-    FastAPI dependency — resolves to the most recently uploaded resume.
+    FastAPI dependency — resolves to the most recently uploaded resume for the authenticated user.
 
-    Raises HTTP 422 NO_RESUME when no resume exists.
+    Raises HTTP 422 NO_RESUME when no resume exists for the user.
     Declared as Depends in any endpoint that requires a resume.
     """
     resume = (
         db.query(Resume)
+        .filter(Resume.user_id == user.id)
         .order_by(Resume.uploaded_at.desc())
         .first()
     )

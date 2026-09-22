@@ -26,8 +26,10 @@ from tests.conftest import needs_db
 pytestmark = needs_db
 
 
-def _make_job(db, *, score=None, status="saved", title="Job", company="Co", source="remoteok"):
+def _make_job(db, *, user_id=None, score=None, status="saved", title="Job", company="Co", source="remoteok"):
     from app.models.job import Job  # noqa: PLC0415
+    from app.models.user import User  # noqa: PLC0415
+    from app.models.user_job import UserJob  # noqa: PLC0415
 
     now = datetime.now(UTC)
     job = Job(
@@ -37,23 +39,40 @@ def _make_job(db, *, score=None, status="saved", title="Job", company="Co", sour
         description="desc",
         url=f"https://dashboard-test.example.com/{uuid.uuid4()}",
         source=source,
-        status=status,
-        match_score=score,
-        matched_at=now if score is not None else None,
         created_at=now,
         updated_at=now,
     )
     db.add(job)
     db.commit()
+
+    if user_id is None:
+        user = db.query(User).first()
+        if user:
+            user_id = user.id
+
+    if user_id is not None:
+        user_job = UserJob(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            job_id=job.id,
+            status=status,
+            match_score=score,
+            matched_at=now if score is not None else None,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(user_job)
+        db.commit()
+
     db.refresh(job)
     return job
 
 
 @pytest.fixture()
-def dashboard_service(db):
+def dashboard_service(db, sample_user):
     from app.services.dashboard_service import DashboardService  # noqa: PLC0415
 
-    return DashboardService(db)
+    return DashboardService(db, user_id=sample_user.id)
 
 
 # ---------------------------------------------------------------------------

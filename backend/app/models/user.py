@@ -16,7 +16,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -85,6 +85,11 @@ class User(Base):
         server_default=text("now()"),
         doc="Timestamp of last update to user record.",
     )
+
+    # ── Relationships ────────────────────────────────────────────────────────
+    user_jobs = relationship("UserJob", back_populates="user", cascade="all, delete-orphan")
+    resumes = relationship("Resume", back_populates="user", cascade="all, delete-orphan")
+    scoring_runs = relationship("ScoringRun", back_populates="user", cascade="all, delete-orphan")
 
     # ── Indexes ──────────────────────────────────────────────────────────────
     __table_args__ = (

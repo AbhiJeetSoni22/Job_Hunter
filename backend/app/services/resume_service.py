@@ -141,8 +141,9 @@ class ResumeService:
         service = ResumeService(db)
     """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, user_id: uuid.UUID | str | None = None) -> None:
         self._db = db
+        self._user_id = user_id
 
     # ── Upload ─────────────────────────────────────────────────────────────
 
@@ -163,7 +164,10 @@ class ResumeService:
             ValueError: if the file fails any validation check.
             RuntimeError: if PyMuPDF fails to process the file.
         """
-        logger.info("ResumeService.upload_resume: started for file '%s'", file.filename)
+        logger.info("ResumeService.upload_resume: started for file '%s' user_id=%s", file.filename, self._user_id)
+
+        if self._user_id is None:
+            raise ValueError("User ID is required to upload a resume")
 
         # ── Step 1: validate ───────────────────────────────────────────────
         filename = self._validate_file(file)
@@ -256,7 +260,7 @@ class ResumeService:
             LookupError: if no resume with that ID exists.
         """
         resume = self._db.get(Resume, resume_id)
-        if resume is None:
+        if resume is None or (self._user_id is not None and resume.user_id != self._user_id):
             raise LookupError(f"Resume with id {resume_id} not found")
         return ResumeResponse.model_validate(resume)
 
@@ -536,6 +540,7 @@ class ResumeService:
 
         resume = Resume(
             id=uuid.uuid4(),
+            user_id=self._user_id,
             filename=filename,
             raw_text=raw_text,
             skills=skills,
@@ -585,9 +590,8 @@ class ResumeService:
         Sorted by uploaded_at DESC, limit 1.
         Under the single-resume invariant this will always be at most one row.
         """
-        stmt = (
-            select(Resume)
-            .order_by(Resume.uploaded_at.desc())
-            .limit(1)
-        )
+        stmt = select(Resume)
+        if self._user_id is not None:
+            stmt = stmt.where(Resume.user_id == self._user_id)
+        stmt = stmt.order_by(Resume.uploaded_at.desc()).limit(1)
         return self._db.execute(stmt).scalar_one_or_none()

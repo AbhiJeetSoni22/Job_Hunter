@@ -6,18 +6,16 @@ Handles HTTP concerns for:
   GET  /api/resume                — return current active resume
   GET  /api/resume/{resume_id}    — return resume by UUID
 
-Rules (ARCHITECTURE.md):
-  - No business logic here.
-  - No database access here.
-  - Delegate everything to ResumeService.
-  - Translate service exceptions (ValueError, LookupError) to HTTP responses.
+Multi-user architecture:
+  - Every endpoint requires CurrentUser.
+  - ResumeService is scoped to the user's active resume.
 """
 
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
-from app.dependencies import DbSession
+from app.dependencies import CurrentUser, DbSession
 from app.schemas.job import ApiResponse
 from app.schemas.resume import ResumeResponse, ResumeUploadResponse
 from app.services.resume_service import ResumeService
@@ -50,15 +48,16 @@ def _not_found(message: str) -> HTTPException:
     summary="Upload resume PDF",
     description=(
         "Upload a PDF resume. Extracts text via PyMuPDF and skills via Gemini. "
-        "Replaces any existing resume — only one active resume exists at a time."
+        "Replaces any existing resume for this user — only one active resume exists per user at a time."
     ),
 )
 async def upload_resume(
+    user: CurrentUser,
     db: DbSession,
     file: UploadFile = File(...),
 ) -> ApiResponse[ResumeUploadResponse]:
     try:
-        result = await ResumeService(db).upload_resume(file)
+        result = await ResumeService(db, user_id=user.id).upload_resume(file)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -73,11 +72,6 @@ async def upload_resume(
     return ApiResponse(data=result)
 
 
-
-
-
-
-
 # ── GET /api/resume ────────────────────────────────────────────────────────
 
 @router.get(
@@ -85,14 +79,17 @@ async def upload_resume(
     response_model=ApiResponse[ResumeResponse],
     summary="Get active resume",
 )
-def get_resume(db: DbSession) -> ApiResponse[ResumeResponse]:
+def get_resume(
+    user: CurrentUser,
+    db: DbSession,
+) -> ApiResponse[ResumeResponse]:
     try:
-        resume = ResumeService(db).get_latest()
+        resume = ResumeService(db, user_id=user.id).get_latest()
     except LookupError as exc:
         raise HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail={"code": "NO_RESUME", "message": str(exc)},
-    ) from exc
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NO_RESUME", "message": str(exc)},
+        ) from exc
 
     return ApiResponse(data=resume)
  
@@ -104,14 +101,18 @@ def get_resume(db: DbSession) -> ApiResponse[ResumeResponse]:
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete active resume",
 )
-def delete_resume(db: DbSession) -> None:
-    deleted = ResumeService(db).delete_latest()
+def delete_resume(
+    user: CurrentUser,
+    db: DbSession,
+) -> None:
+    deleted = ResumeService(db, user_id=user.id).delete_latest()
     if not deleted:
         raise HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail={"code": "NO_RESUME", "message": "No resume uploaded"},
-)
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NO_RESUME", "message": "No resume uploaded"},
+        )
  
+
 # ── GET /api/resume/{resume_id} ────────────────────────────────────────────
 
 @router.get(
@@ -121,14 +122,15 @@ def delete_resume(db: DbSession) -> None:
 )
 def get_resume_by_id(
     resume_id: uuid.UUID,
+    user: CurrentUser,
     db: DbSession,
 ) -> ApiResponse[ResumeResponse]:
     try:
-        resume = ResumeService(db).get_by_id(resume_id)
+        resume = ResumeService(db, user_id=user.id).get_by_id(resume_id)
     except LookupError as exc:
         raise HTTPException(
-    status_code=status.HTTP_404_NOT_FOUND,
-    detail={"code": "NOT_FOUND", "message": str(exc)},
-    ) from exc
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": str(exc)},
+        ) from exc
 
     return ApiResponse(data=resume)

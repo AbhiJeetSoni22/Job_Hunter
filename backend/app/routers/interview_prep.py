@@ -27,7 +27,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 
 from app.ai.gemini_client import AIError
-from app.dependencies import DbSession
+from app.dependencies import CurrentUser, DbSession
 from app.schemas.job import ApiResponse
 from app.schemas.interview_prep import InterviewPrepResponse
 from app.services.interview_prep_service import InterviewPrepService, JobNotFoundError
@@ -44,7 +44,7 @@ router = APIRouter(prefix="/jobs", tags=["interview-prep"])
     summary="Generate AI interview preparation material for a job",
     description=(
         "Runs the AI Interview Preparation Generator against the given job "
-        "and the currently active uploaded resume. Returns technical "
+        "and the currently active uploaded resume of the user. Returns technical "
         "questions, behavioral questions, resume/project questions, topics "
         "to revise, and interview tips. Stateless — nothing is persisted. "
         "Does not affect existing job match scores or resume analysis."
@@ -52,10 +52,11 @@ router = APIRouter(prefix="/jobs", tags=["interview-prep"])
 )
 def generate_interview_prep(
     job_id: uuid.UUID,
+    user: CurrentUser,
     db: DbSession,
 ) -> ApiResponse[InterviewPrepResponse]:
     try:
-        result = InterviewPrepService(db).generate(job_id)
+        result = InterviewPrepService(db, user_id=user.id).generate(job_id)
     except JobNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
