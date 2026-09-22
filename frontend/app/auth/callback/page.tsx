@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { exchangeGoogleCode } from "@/lib/api";
@@ -11,6 +11,17 @@ function CallbackContent() {
   const searchParams = useSearchParams();
   const { loginWithToken } = useAuth();
   const [error, setError] = useState<string | null>(null);
+
+  // Guard: Track the code that has been or is currently being exchanged
+  const exchangedCodeRef = useRef<string | null>(null);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const code = searchParams.get("code");
@@ -35,17 +46,28 @@ function CallbackContent() {
       return;
     }
 
-    let isMounted = true;
+    // Prevent duplicate exchange requests for the same handoff code
+    // (guards against React Strict Mode double-invoke, effect re-runs, and dependency updates)
+    if (exchangedCodeRef.current === code) {
+      return;
+    }
+    exchangedCodeRef.current = code;
 
     async function handleExchange() {
       try {
         const tokenResponse = await exchangeGoogleCode(code!);
-        if (isMounted) {
-          await loginWithToken(tokenResponse.access_token);
+        await loginWithToken(tokenResponse.access_token);
+
+        // Strip single-use code from browser history so back button/refresh cannot replay it
+        if (typeof window !== "undefined" && window.history?.replaceState) {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+
+        if (isMountedRef.current) {
           router.replace("/dashboard");
         }
       } catch (err: unknown) {
-        if (isMounted) {
+        if (isMountedRef.current) {
           if (err instanceof Error) {
             setError(err.message);
           } else {
@@ -56,10 +78,6 @@ function CallbackContent() {
     }
 
     handleExchange();
-
-    return () => {
-      isMounted = false;
-    };
   }, [searchParams, loginWithToken, router]);
 
   if (error) {
