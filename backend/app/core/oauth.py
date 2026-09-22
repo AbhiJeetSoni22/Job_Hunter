@@ -141,6 +141,7 @@ def verify_google_id_token(
                 token_str,
                 req,
                 audience=expected_client_id,
+                clock_skew_in_seconds=10,
             ),
         )
     except Exception as exc:

@@ -26,11 +26,10 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.oauth import InMemoryHandoffCodeStore, get_handoff_store
+from app.core.oauth import InMemoryHandoffCodeStore
 from app.core.security import decode_access_token
 from app.models.user import User
 from tests.conftest import needs_db
-
 
 # ── Fixtures & Mocks ──────────────────────────────────────────────────────────
 
@@ -141,6 +140,57 @@ def test_callback_unverified_email_rejected(
     )
     assert response.status_code == 307
     assert "error=invalid_identity" in response.headers["location"]
+
+
+@patch("app.core.oauth.id_token.verify_oauth2_token")
+def test_verify_google_id_token_passes_clock_skew(mock_verify_oauth2):
+    """verify_google_id_token calls id_token.verify_oauth2_token with clock_skew_in_seconds=10."""
+    from app.core.oauth import verify_google_id_token
+
+    mock_verify_oauth2.return_value = {
+        "iss": "https://accounts.google.com",
+        "sub": FAKE_SUB,
+        "email": FAKE_EMAIL,
+        "email_verified": True,
+    }
+
+    claims = verify_google_id_token("mock_raw_jwt_token")
+
+    assert claims["sub"] == FAKE_SUB
+    assert claims["email"] == FAKE_EMAIL
+    mock_verify_oauth2.assert_called_once()
+    _, kwargs = mock_verify_oauth2.call_args
+    assert kwargs.get("clock_skew_in_seconds") == 10
+    assert kwargs.get("audience") == FAKE_GOOGLE_CLIENT_ID
+
+
+@patch("app.routers.auth.exchange_code_for_google_tokens")
+@patch("app.routers.auth.verify_google_id_token")
+def test_callback_logs_error_on_invalid_identity(
+    mock_verify,
+    mock_exchange,
+    client: TestClient,
+    caplog: pytest.LogCaptureFixture,
+):
+    """When verify_google_id_token fails, callback logs exception safely."""
+    import logging
+    state = "state_log_test"
+    client.cookies.set("oauth_state", state)
+    client.cookies.set("oauth_verifier", "verifier_log_test")
+
+    mock_exchange.return_value = {"id_token": "token_invalid"}
+    mock_verify.side_effect = ValueError("Invalid Google ID token: Token used too early")
+
+    with caplog.at_level(logging.ERROR):
+        response = client.get(
+            f"/api/auth/google/callback?code=code_log_test&state={state}",
+            follow_redirects=False,
+        )
+        assert response.status_code == 307
+        assert "error=invalid_identity" in response.headers["location"]
+        assert "Google ID token verification failed" in caplog.text
+
+
 
 
 # ── 6: New Google User Creation & Handoff ─────────────────────────────────────

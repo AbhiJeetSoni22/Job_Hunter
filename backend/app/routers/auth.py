@@ -12,6 +12,8 @@ Rules (ARCHITECTURE.md):
     - Standard ApiResponse[T] envelope used for all responses.
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
@@ -41,6 +43,8 @@ from app.services.user_service import (
     InvalidCredentialsError,
     UserService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -199,7 +203,8 @@ def google_callback(
     # Verify ID token
     try:
         claims = verify_google_id_token(token_data["id_token"])
-    except Exception:
+    except Exception as exc:
+        logger.error("Google ID token verification failed: %s", exc)
         return _error_redirect("invalid_identity")
 
     google_sub = claims["sub"]
