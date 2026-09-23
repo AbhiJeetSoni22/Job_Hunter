@@ -10,9 +10,18 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.config import get_settings
-from app.routers import auth, dashboard, health, interview_prep, jobs, resume, resume_analysis, scraper
 
+from app.config import get_settings
+from app.routers import (
+    auth,
+    dashboard,
+    health,
+    interview_prep,
+    jobs,
+    resume,
+    resume_analysis,
+    scraper,
+)
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -131,6 +140,21 @@ def _status_to_code(status_code: int) -> str:
         503: "SERVICE_UNAVAILABLE",
     }
     return mapping.get(status_code, "ERROR")
+
+
+# ---------------------------------------------------------------------------
+# Liveness endpoint for monitoring (UptimeRobot / Render)
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/health",
+    tags=["health"],
+    summary="Liveness check",
+    description="Lightweight liveness check for monitoring (e.g. UptimeRobot).",
+)
+def liveness_check() -> dict[str, str]:
+    """Lightweight liveness check returning HTTP 200 without database or external dependencies."""
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
