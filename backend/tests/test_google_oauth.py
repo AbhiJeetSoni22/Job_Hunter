@@ -53,7 +53,7 @@ def configure_test_settings(monkeypatch):
 # ── 1 & 2: Start Endpoint & State / PKCE Generation ───────────────────────────
 
 def test_google_auth_redirect_and_cookies(client: TestClient):
-    """GET /api/auth/google redirects to Google with state, PKCE, and sets HTTP-only cookies."""
+    """GET /api/auth/google redirects to Google with state, PKCE, and sets HTTP-only cookies in dev."""
     response = client.get("/api/auth/google", follow_redirects=False)
     assert response.status_code == 307
     location = response.headers["location"]
@@ -63,12 +63,82 @@ def test_google_auth_redirect_and_cookies(client: TestClient):
     assert "code_challenge_method=S256" in location
     assert "state=" in location
 
-    # Check cookies
+    # Check cookies exist
     cookies = response.cookies
     assert "oauth_state" in cookies
     assert "oauth_verifier" in cookies
     assert len(cookies["oauth_state"]) > 20
     assert len(cookies["oauth_verifier"]) > 20
+
+    # In local HTTP development, SameSite=lax and Secure is not set
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert any("samesite=lax" in h.lower() for h in set_cookie_headers)
+    assert any("httponly" in h.lower() for h in set_cookie_headers)
+    assert not any("samesite=none" in h.lower() for h in set_cookie_headers)
+
+
+def test_google_auth_cookies_production_https(client: TestClient, monkeypatch):
+    """In production HTTPS, cookies must be SameSite=None and Secure=True for cross-site redirect."""
+    from app.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, "APP_ENV", "production")
+    monkeypatch.setattr(settings, "GOOGLE_REDIRECT_URI", "https://job-hunter-fpii.onrender.com/api/auth/google/callback")
+
+    response = client.get(
+        "/api/auth/google",
+        headers={"x-forwarded-proto": "https"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 307
+
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert len(set_cookie_headers) >= 2
+
+    # Assert SameSite=none and Secure are present on all auth cookies
+    for header in set_cookie_headers:
+        lower = header.lower()
+        if "oauth_state=" in lower or "oauth_verifier=" in lower:
+            assert "samesite=none" in lower
+            assert "secure" in lower
+            assert "httponly" in lower
+            assert "path=/" in lower
+
+
+def test_callback_normalizes_frontend_url_trailing_slash(client: TestClient, monkeypatch):
+    """If FRONTEND_URL has a trailing slash, redirects do not contain double slashes."""
+    from app.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://job-hunter-blond-one.vercel.app/")
+
+    response = client.get(
+        "/api/auth/google/callback?code=mock_code&state=bad_state",
+        follow_redirects=False,
+    )
+    assert response.status_code == 307
+    location = response.headers["location"]
+    assert "https://job-hunter-blond-one.vercel.app/login?error=invalid_state" == location
+    assert "//login" not in location
+
+
+def test_callback_deletes_cookies_with_secure_flags_in_production(client: TestClient, monkeypatch):
+    """In production HTTPS, cookie deletion must preserve SameSite=none and Secure for browser acceptance."""
+    from app.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, "APP_ENV", "production")
+    monkeypatch.setattr(settings, "GOOGLE_REDIRECT_URI", "https://job-hunter-fpii.onrender.com/api/auth/google/callback")
+
+    response = client.get(
+        "/api/auth/google/callback?code=mock_code&state=some_state",
+        headers={"x-forwarded-proto": "https"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 307
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    for header in set_cookie_headers:
+        lower = header.lower()
+        if "oauth_state=" in lower or "oauth_verifier=" in lower:
+            assert "samesite=none" in lower
+            assert "secure" in lower
 
 
 # ── 3: State Validation & Missing / Invalid State ─────────────────────────────

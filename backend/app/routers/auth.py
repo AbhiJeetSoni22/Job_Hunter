@@ -14,6 +14,8 @@ Rules (ARCHITECTURE.md):
 
 import logging
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
@@ -47,6 +49,47 @@ from app.services.user_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+# ── Cookie Configuration Helpers ─────────────────────────────────────────────
+
+def _is_secure_request(request: Request) -> bool:
+    """
+    Determine if the request is running in a secure (HTTPS) environment.
+
+    Checks:
+      1. APP_ENV is explicitly 'production' or 'prod'
+      2. X-Forwarded-Proto header is 'https' (behind Render / Cloudflare / reverse proxy)
+      3. Direct request URL scheme is 'https'
+      4. Configured GOOGLE_REDIRECT_URI starts with 'https://'
+    """
+    settings = get_settings()
+    if settings.APP_ENV in {"production", "prod"}:
+        return True
+    if request.headers.get("x-forwarded-proto", "").lower() == "https":
+        return True
+    if request.url.scheme == "https":
+        return True
+    if settings.GOOGLE_REDIRECT_URI.lower().startswith("https://"):
+        return True
+    return False
+
+
+def _get_oauth_cookie_options(request: Request) -> tuple[bool, Literal["none", "lax"]]:
+    """
+    Return (secure, samesite) settings for OAuth state & verifier cookies.
+
+    - In HTTPS production: secure=True and samesite="none" are required so the
+      browser includes the cookies when Google redirects back cross-site to the callback.
+    - In local HTTP development: secure=False and samesite="lax" are required because
+      browsers reject SameSite=None when Secure is false.
+    """
+    is_secure = _is_secure_request(request)
+    samesite_policy: Literal["none", "lax"] = "none" if is_secure else "lax"
+    return is_secure, samesite_policy
+
+
+# ── POST /api/auth/register ──────────────────────────────────────────────────
 
 
 # ── POST /api/auth/register ──────────────────────────────────────────────────
@@ -126,29 +169,30 @@ def get_me(current_user: CurrentUser) -> ApiResponse[UserResponse]:
     summary="Initiate Google OAuth 2.0 / OIDC login flow",
     description="Generates PKCE verifier and CSRF state cookies, then redirects to Google's OAuth consent screen.",
 )
-def google_auth() -> RedirectResponse:
+def google_auth(request: Request) -> RedirectResponse:
     state = generate_oauth_state()
     verifier, challenge = generate_pkce_pair()
     auth_url = build_google_authorization_url(state=state, code_challenge=challenge)
 
-    settings = get_settings()
-    is_production = settings.APP_ENV == "production"
+    is_secure, samesite_policy = _get_oauth_cookie_options(request)
 
     response = RedirectResponse(url=auth_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     response.set_cookie(
         key="oauth_state",
         value=state,
         httponly=True,
-        samesite="lax",
-        secure=is_production,
+        samesite=samesite_policy,
+        secure=is_secure,
+        path="/",
         max_age=300,
     )
     response.set_cookie(
         key="oauth_verifier",
         value=verifier,
         httponly=True,
-        samesite="lax",
-        secure=is_production,
+        samesite=samesite_policy,
+        secure=is_secure,
+        path="/",
         max_age=300,
     )
     return response
@@ -170,14 +214,28 @@ def google_callback(
     error: str | None = None,
 ) -> RedirectResponse:
     settings = get_settings()
+    is_secure, samesite_policy = _get_oauth_cookie_options(request)
+    frontend_base = settings.FRONTEND_URL.rstrip("/")
 
     def _error_redirect(error_code: str) -> RedirectResponse:
         err_response = RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/login?error={error_code}",
+            url=f"{frontend_base}/login?error={error_code}",
             status_code=status.HTTP_307_TEMPORARY_REDIRECT,
         )
-        err_response.delete_cookie("oauth_state")
-        err_response.delete_cookie("oauth_verifier")
+        err_response.delete_cookie(
+            "oauth_state",
+            path="/",
+            httponly=True,
+            samesite=samesite_policy,
+            secure=is_secure,
+        )
+        err_response.delete_cookie(
+            "oauth_verifier",
+            path="/",
+            httponly=True,
+            samesite=samesite_policy,
+            secure=is_secure,
+        )
         return err_response
 
     # Check for Google error response (e.g. user canceled)
@@ -187,11 +245,18 @@ def google_callback(
     # Validate state for CSRF protection
     cookie_state = request.cookies.get("oauth_state")
     if not cookie_state or not state or cookie_state != state:
+        logger.warning(
+            "OAuth state validation failed: cookie_present=%s, state_param_present=%s, match=%s",
+            cookie_state is not None,
+            state is not None,
+            cookie_state == state if (cookie_state and state) else False,
+        )
         return _error_redirect("invalid_state")
 
     # Retrieve PKCE code verifier
     code_verifier = request.cookies.get("oauth_verifier")
     if not code_verifier:
+        logger.warning("OAuth PKCE verifier cookie missing in callback request")
         return _error_redirect("missing_verifier")
 
     # Exchange code for Google tokens
@@ -233,11 +298,23 @@ def google_callback(
     )
 
     success_response = RedirectResponse(
-        url=f"{settings.FRONTEND_URL}/auth/callback?code={handoff_code}",
+        url=f"{frontend_base}/auth/callback?code={handoff_code}",
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     )
-    success_response.delete_cookie("oauth_state")
-    success_response.delete_cookie("oauth_verifier")
+    success_response.delete_cookie(
+        "oauth_state",
+        path="/",
+        httponly=True,
+        samesite=samesite_policy,
+        secure=is_secure,
+    )
+    success_response.delete_cookie(
+        "oauth_verifier",
+        path="/",
+        httponly=True,
+        samesite=samesite_policy,
+        secure=is_secure,
+    )
     return success_response
 
 
