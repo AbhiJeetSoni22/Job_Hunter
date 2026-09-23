@@ -13,7 +13,6 @@ Rules (ARCHITECTURE.md):
 """
 
 import logging
-
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -70,9 +69,7 @@ def _is_secure_request(request: Request) -> bool:
         return True
     if request.url.scheme == "https":
         return True
-    if settings.GOOGLE_REDIRECT_URI.lower().startswith("https://"):
-        return True
-    return False
+    return settings.GOOGLE_REDIRECT_URI.lower().startswith("https://")
 
 
 def _get_oauth_cookie_options(request: Request) -> tuple[bool, Literal["none", "lax"]]:
