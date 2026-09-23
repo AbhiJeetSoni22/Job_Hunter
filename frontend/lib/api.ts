@@ -54,6 +54,15 @@ export class ApiClientError extends Error {
 
 const REQUEST_TIMEOUT_MS = 120_000;
 
+/**
+ * Direct backend URL for browser-level OAuth initiation.
+ * Bypasses Next.js rewrites so the browser interacts directly with the backend domain,
+ * ensuring CSRF state cookies (oauth_state, oauth_verifier) are stored on the backend domain
+ * and sent back when Google redirects to the backend callback.
+ */
+const publicApiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
+export const GOOGLE_AUTH_URL = `${publicApiBase}/api/auth/google`;
+
 function baseUrl(): string {
   if (typeof window === "undefined") {
     // Server-side: use API_BASE_URL (not exposed to browser, safe for internal URLs)

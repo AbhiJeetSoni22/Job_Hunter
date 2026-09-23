@@ -4,6 +4,7 @@ import React, { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthContext";
+import { GOOGLE_AUTH_URL } from "@/lib/api";
 
 function LoginContent() {
   const router = useRouter();
@@ -72,7 +73,7 @@ function LoginContent() {
 
       {/* Google OAuth Button */}
       <a
-        href="/api/auth/google"
+        href={GOOGLE_AUTH_URL}
         className="w-full py-2.5 px-4 rounded-md text-sm font-medium flex items-center justify-center border transition-colors hover:opacity-90 cursor-pointer"
         style={{
           background: "var(--color-surface-hover)",
