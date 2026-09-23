@@ -97,4 +97,4 @@ This document logs historical build tasks and development milestones synchronize
 - `[ ]` Dedicated unit test file for `InterviewPrepService` (`tests/test_interview_prep_service.py`)
 - `[ ]` Frontend automated unit/component test suite (Jest / React Testing Library)
 - `[ ]` ATS Resume Optimizer (Future planned capability for auto-tailoring resume PDFs)
-- `[ ]` Multi-user authentication & user account isolation
+- `[x]` Multi-user authentication & user account data isolation (`UserJob`, user-scoped resumes and scoring runs)

@@ -128,13 +128,13 @@ def db_engine() -> Generator[Engine, None, None]:
         try:
             with engine.begin() as conn:
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+            Base.metadata.create_all(engine)
             break
         except Exception:
             if attempt == 2:
                 raise
             time.sleep(1)
 
-    Base.metadata.create_all(engine)
     yield engine
     engine.dispose()
 

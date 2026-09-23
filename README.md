@@ -33,7 +33,7 @@ AI Internship Hunter is a FastAPI + Next.js application built with multi-user da
 6. Surfaces a recommendation dashboard (`GET /api/dashboard/stats`) with aggregate metrics, match quality breakdowns, and top matches.
 7. Executes on-demand AI tools: a **Resume Gap Analyzer** (`POST /api/resume/analyze`) and an **AI Interview Prep Generator** (`POST /api/jobs/{job_id}/interview-prep`).
 
-There is no multi-user authentication layer by design — the system is optimized for a single user's personal job search.
+The system features complete multi-user authentication and data isolation, separating each user's resumes, application pipeline status, personal notes, and AI match scores while sharing deduplicated global job listings.
 
 ## Key Features
 
@@ -94,14 +94,14 @@ Job_Hunter/
 │   │   ├── database.py             # Engine, SessionLocal, Base, health check
 │   │   ├── dependencies.py         # DbSession alias, get_active_resume dependency
 │   │   ├── cleanup.py              # Management command script for purging expired jobs
-│   │   ├── models/                 # SQLAlchemy models: Job, Resume, ScrapeRun, ScoringRun
+│   │   ├── models/                 # 6 SQLAlchemy models: Job, Resume, ScrapeRun, ScoringRun, User, UserJob
 │   │   ├── schemas/                # Pydantic schemas + ApiResponse envelope
 │   │   ├── routers/                # 7 Routers: health, jobs, scraper, resume, resume_analysis, interview_prep, dashboard
 │   │   ├── services/               # 7 Services: job, resume, match, resume_analysis, interview_prep, scraper, dashboard
 │   │   ├── scrapers/               # BaseScraper ABC + RemoteOKScraper + YCJobsScraper
 │   │   └── ai/                     # gemini_client.py (GeminiClient, AIError) + prompts.py (4 prompts)
-│   ├── alembic/                    # 3 Migrations: initial_schema, add_job_lifecycle_fields, add_scoring_runs_table
-│   ├── tests/                      # Pytest suite (123 tests total; requires PostgreSQL TEST_DATABASE_URL)
+│   ├── alembic/                    # 6 Migrations: initial_schema, add_job_lifecycle_fields, add_scoring_runs_table, add_users_table, add_google_oauth_to_users, multi_user_data_isolation
+│   ├── tests/                      # Pytest suite (includes multi-user isolation and migration safety tests; requires PostgreSQL TEST_DATABASE_URL)
 │   └── pyproject.toml
 ├── frontend/
 │   ├── app/                        # Next.js App Router routes: /, /dashboard, /jobs, /jobs/[id], /resume, /resume-review
