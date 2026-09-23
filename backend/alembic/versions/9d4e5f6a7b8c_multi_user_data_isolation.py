@@ -13,7 +13,9 @@ Architecture changes:
   scoring runs, and all legacy jobs to the single registered user account. Fails
   clearly with an actionable error if ownership is ambiguous or missing, avoiding
   silent data deletion or arbitrary assignment.
-- Reversible downgrade restoring job states from user_jobs.
+- Hardened reversible downgrade: restores job states from user_jobs on single-user
+  databases, while failing safely with an actionable error if multi-user shared-job
+  ambiguity is detected to prevent silent data loss or arbitrary user selection.
 """
 
 from collections.abc import Sequence
@@ -200,6 +202,34 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+
+    # ── 0. Multi-user shared-job safety check ──────────────────────────────
+    # In the legacy single-user architecture, the `jobs` table can only hold one
+    # set of user-specific fields (status, notes, match_score, etc.) per global job.
+    # If multiple users have created distinct `user_jobs` records for the same job,
+    # restoring user_jobs into jobs would arbitrarily overwrite data or discard
+    # one user's state. Abort safely before making destructive schema modifications.
+    shared_jobs_count = conn.execute(
+        sa.text("""
+            SELECT count(*) FROM (
+                SELECT job_id
+                FROM user_jobs
+                GROUP BY job_id
+                HAVING count(*) > 1
+            ) sub
+        """)
+    ).scalar() or 0
+
+    if shared_jobs_count > 0:
+        raise RuntimeError(
+            f"Downgrade aborted: Found {shared_jobs_count} global job(s) with multiple UserJob records in 'user_jobs'. "
+            "The legacy single-user schema cannot losslessly represent multiple users' job-specific state "
+            "(status, notes, match_score) for shared jobs without arbitrarily selecting one user or discarding data. "
+            "Refusing to leave the database in an inconsistent or partially downgraded state. "
+            "Please resolve multi-user shared job ownership before downgrading."
+        )
+
     # 1. Re-add columns to jobs
     op.add_column("jobs", sa.Column("resume_uploaded_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column("jobs", sa.Column("matched_at", sa.DateTime(timezone=True), nullable=True))
@@ -212,7 +242,6 @@ def downgrade() -> None:
     op.create_index("idx_jobs_score", "jobs", ["match_score"], unique=False)
 
     # 2. Reversibly restore user_jobs data into jobs where practical
-    conn = op.get_bind()
     conn.execute(
         sa.text("""
             UPDATE jobs j

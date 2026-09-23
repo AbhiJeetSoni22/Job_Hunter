@@ -157,18 +157,32 @@ def isolated_schema(db_engine: Engine) -> Generator[tuple[Connection, str], None
 
 def _run_upgrade(connection: Connection) -> None:
     """Execute the actual Alembic migration upgrade() within the connection's context."""
+    if connection.in_transaction():
+        connection.commit()
     ctx = MigrationContext.configure(connection)
-    with Operations.context(ctx):
-        migration_module.upgrade()
-    connection.commit()
+    trans = connection.begin()
+    try:
+        with Operations.context(ctx):
+            migration_module.upgrade()
+        trans.commit()
+    except Exception:
+        trans.rollback()
+        raise
 
 
 def _run_downgrade(connection: Connection) -> None:
     """Execute the actual Alembic migration downgrade() within the connection's context."""
+    if connection.in_transaction():
+        connection.commit()
     ctx = MigrationContext.configure(connection)
-    with Operations.context(ctx):
-        migration_module.downgrade()
-    connection.commit()
+    trans = connection.begin()
+    try:
+        with Operations.context(ctx):
+            migration_module.downgrade()
+        trans.commit()
+    except Exception:
+        trans.rollback()
+        raise
 
 
 class TestAlembicMigrationHardening:
@@ -583,3 +597,114 @@ class TestAlembicMigrationHardening:
         assert reupgraded_uj[0] == "interview"
         assert reupgraded_uj[1] == "Updated note in user_jobs"
         assert reupgraded_uj[2] == 85
+
+    def test_case_f_multiple_users_shared_job_downgrade_aborts_safely(
+        self, isolated_schema: tuple[Connection, str]
+    ) -> None:
+        """
+        Case F: Multiple users share the same global Job with distinct UserJob states.
+        Verify:
+        - Upgrade succeeds (Case D: raw listings without legacy user state).
+        - Multiple users create distinct UserJobs for the same Job X (e.g. User A applied/score 90, User B rejected/score 40).
+        - Attempting downgrade raises a clear RuntimeError explaining that shared job state cannot be losslessly represented.
+        - user_jobs table still exists.
+        - Both UserJob records still exist with unchanged status and scores.
+        - The database was not partially downgraded (no status, notes, or match_score columns restored on jobs).
+        - user_id columns on resumes and scoring_runs remain intact.
+        """
+        conn, schema = isolated_schema
+        user_a_id = uuid.uuid4()
+        user_b_id = uuid.uuid4()
+        job_x_id = uuid.uuid4()
+        now = datetime.now(UTC)
+
+        # 1. Setup 2 users and 1 raw job in pre-migration schema
+        conn.execute(
+            text("""
+                INSERT INTO users (id, email, name, password_hash, created_at, updated_at)
+                VALUES
+                    (:ua, 'user_a@example.com', 'User Alpha', 'hash_a', :now, :now),
+                    (:ub, 'user_b@example.com', 'User Beta', 'hash_b', :now, :now)
+            """),
+            {"ua": user_a_id, "ub": user_b_id, "now": now},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO jobs (
+                    id, title, company, description, url, source,
+                    status, created_at, updated_at
+                )
+                VALUES (
+                    :jid, 'Shared Staff Engineer', 'Omni Corp', 'Distributed systems',
+                    'https://jobs.example.com/shared', 'remoteok',
+                    'saved', :now, :now
+                )
+            """),
+            {"jid": job_x_id, "now": now},
+        )
+        conn.commit()
+
+        # 2. Upgrade to 9d4e5f6a7b8c
+        _run_upgrade(conn)
+
+        # 3. Create two distinct UserJobs for Job X:
+        # User A: status=applied, match_score=90
+        # User B: status=rejected, match_score=40
+        conn.execute(
+            text("""
+                INSERT INTO user_jobs (
+                    id, user_id, job_id, status, notes, match_score, created_at, updated_at
+                )
+                VALUES
+                    (gen_random_uuid(), :ua, :jid, 'applied', 'Applied via referral', 90, :now, :now),
+                    (gen_random_uuid(), :ub, :jid, 'rejected', 'Did not match criteria', 40, :now, :now)
+            """),
+            {"ua": user_a_id, "ub": user_b_id, "jid": job_x_id, "now": now},
+        )
+        conn.commit()
+
+        # 4. Attempt downgrade: MUST abort safely with clear actionable error
+        with pytest.raises(RuntimeError) as exc_info:
+            _run_downgrade(conn)
+
+        err_msg = str(exc_info.value)
+        assert "Downgrade aborted: Found 1 global job(s) with multiple UserJob records in 'user_jobs'" in err_msg
+        assert "The legacy single-user schema cannot losslessly represent multiple users' job-specific state" in err_msg
+        assert "Please resolve multi-user shared job ownership before downgrading" in err_msg
+
+        # 5. Verify integrity:
+        # - user_jobs table still exists
+        uj_table_exists = conn.execute(
+            text("SELECT count(*) FROM information_schema.tables WHERE table_schema = :sch AND table_name = 'user_jobs'"),
+            {"sch": schema},
+        ).scalar()
+        assert uj_table_exists == 1
+
+        # - both UserJob records still exist with unchanged status and scores
+        u_jobs = conn.execute(
+            text("SELECT user_id, status, notes, match_score FROM user_jobs WHERE job_id = :jid ORDER BY user_id"),
+            {"jid": job_x_id},
+        ).fetchall()
+        assert len(u_jobs) == 2
+        uj_by_user = {row[0]: row for row in u_jobs}
+
+        assert uj_by_user[user_a_id][1] == "applied"
+        assert uj_by_user[user_a_id][2] == "Applied via referral"
+        assert uj_by_user[user_a_id][3] == 90
+
+        assert uj_by_user[user_b_id][1] == "rejected"
+        assert uj_by_user[user_b_id][2] == "Did not match criteria"
+        assert uj_by_user[user_b_id][3] == 40
+
+        # - database was NOT partially downgraded (legacy columns were not restored on jobs)
+        job_cols = [
+            row[0]
+            for row in conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_schema = :sch AND table_name = 'jobs'"),
+                {"sch": schema},
+            ).fetchall()
+        ]
+        assert "status" not in job_cols
+        assert "notes" not in job_cols
+        assert "match_score" not in job_cols
+
