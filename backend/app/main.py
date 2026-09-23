@@ -134,7 +134,7 @@ def _status_to_code(status_code: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Routers
+# Routers of the fastapi server
 # ---------------------------------------------------------------------------
 
 app.include_router(health.router, prefix="/api")
