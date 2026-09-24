@@ -322,6 +322,18 @@ def scraper_service(db: Session, sample_user: User) -> ScraperService:
 # External dependency mocks
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def mock_smtp_default() -> Generator[MagicMock, None, None]:
+    """
+    Autouse fixture that prevents real outbound SMTP connections during tests.
+    """
+    with patch("smtplib.SMTP") as mock_smtp_cls:
+        server = MagicMock()
+        mock_smtp_cls.return_value.__enter__.return_value = server
+        mock_smtp_cls.return_value = server
+        yield server
+
+
 @pytest.fixture()
 def mock_gemini() -> Generator[MagicMock, None, None]:
     """

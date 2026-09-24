@@ -86,7 +86,7 @@ Services contain all business rules, transaction boundaries, and integrations.
 | Service | Pattern | Core Responsibilities |
 |---|---|---|
 | `OtpService` | Class | Email OTP generation, salted cryptographic hashing, cooldown rate-limiting, verification, user provisioning. |
-| `EmailService` | Class | Transactional email dispatch via Resend API (`POST https://api.resend.com/emails`). |
+| `EmailService` | Class | Transactional email dispatch via Gmail SMTP (`smtp.gmail.com:587` with STARTTLS). |
 | `UserService` | Class | User retrieval, Google OAuth linking/provisioning, passwordless user creation. |
 | `JobService` | Class | Paginated search, lifecycle state updates, deduplication (`upsert_jobs`), expired job cleanup (`cleanup_expired_jobs`). |
 | `ResumeService` | Class | PDF validation, PyMuPDF text extraction, Gemini skill extraction, single active resume replacement. |

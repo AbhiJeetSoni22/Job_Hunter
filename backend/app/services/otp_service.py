@@ -2,7 +2,7 @@
 OTP authentication service.
 
 Business logic for:
-  - OTP generation, secure salted hashing, rate-limiting (cooldown), and dispatch via Resend
+  - OTP generation, secure salted hashing, rate-limiting (cooldown), and dispatch via email service
   - OTP attempt tracking, expiration validation, consumption, and user provisioning
 """
 
@@ -67,7 +67,7 @@ class OtpService:
           - Invalidation of previous unconsumed active OTPs for the same email.
           - Cryptographic salted hashing (plaintext never persisted).
           - 10-minute expiry window.
-          - Delivery via Resend transactional email.
+          - Delivery via transactional email.
 
         Raises:
             OtpRateLimitError: if called within cooldown period.
@@ -124,7 +124,7 @@ class OtpService:
         self._db.add(otp_record)
         self._db.flush()
 
-        # 4. Dispatch Email via Resend
+        # 4. Dispatch Email
         try:
             self._email_service.send_otp_email(to_email=normalized_email, otp_code=otp_code)
         except EmailDeliveryError:

@@ -41,7 +41,7 @@ Standard application API endpoints use the uniform `ApiResponse[T]` envelope str
 | Category | Method | Path | Summary |
 |---|---|---|---|
 | Health | `GET` | `/api/health` | Liveness and database connectivity check |
-| Auth | `POST` | `/api/auth/otp/request` | Request 6-digit email verification code via Resend |
+| Auth | `POST` | `/api/auth/otp/request` | Request 6-digit email verification code via Gmail SMTP |
 | Auth | `POST` | `/api/auth/otp/verify` | Verify email OTP and return JWT access token |
 | Auth | `GET` | `/api/auth/me` | Retrieve authenticated user profile |
 | Auth | `GET` | `/api/auth/google` | Initiate Google OAuth 2.0 / OIDC flow |
@@ -90,10 +90,10 @@ Checks application status and PostgreSQL database connectivity.
 
 ## 1.1 Auth Router (`/api/auth`)
 
-Passwordless authentication authority with Resend Email OTP and Google OAuth 2.0.
+Passwordless authentication authority with Gmail SMTP Email OTP and Google OAuth 2.0.
 
 ### POST /api/auth/otp/request
-Generates a secure 6-digit OTP, stores its salted cryptographic hash with a 10-minute expiry, and sends it via Resend. Enforces a 60-second cooldown rate limit per email.
+Generates a secure 6-digit OTP, stores its salted cryptographic hash with a 10-minute expiry, and sends it via Gmail SMTP. Enforces a 60-second cooldown rate limit per email.
 
 **Request Body:**
 ```json

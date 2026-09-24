@@ -103,7 +103,7 @@ def _get_oauth_cookie_options(request: Request) -> tuple[bool, Literal["none", "
     response_model=ApiResponse[OtpResponse],
     status_code=status.HTTP_200_OK,
     summary="Request a 6-digit email verification code",
-    description="Generates a 6-digit OTP, stores its secure salted hash, and dispatches it via Resend.",
+    description="Generates a 6-digit OTP, stores its secure salted hash, and dispatches it via email.",
 )
 def request_otp(
     body: OtpRequest,
