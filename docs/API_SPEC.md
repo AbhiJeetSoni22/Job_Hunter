@@ -41,9 +41,12 @@ Standard application API endpoints use the uniform `ApiResponse[T]` envelope str
 | Category | Method | Path | Summary |
 |---|---|---|---|
 | Health | `GET` | `/api/health` | Liveness and database connectivity check |
-| Auth | `POST` | `/api/auth/register` | Register a new user account |
-| Auth | `POST` | `/api/auth/login` | Authenticate user credentials and return JWT token |
+| Auth | `POST` | `/api/auth/otp/request` | Request 6-digit email verification code via Resend |
+| Auth | `POST` | `/api/auth/otp/verify` | Verify email OTP and return JWT access token |
 | Auth | `GET` | `/api/auth/me` | Retrieve authenticated user profile |
+| Auth | `GET` | `/api/auth/google` | Initiate Google OAuth 2.0 / OIDC flow |
+| Auth | `GET` | `/api/auth/google/callback` | Google OAuth redirect callback |
+| Auth | `POST` | `/api/auth/google/exchange` | Exchange single-use handoff code for JWT token |
 | Jobs | `GET` | `/api/jobs` | Filtered, sorted, paginated job listing |
 | Jobs | `GET` | `/api/jobs/{job_id}` | Detailed job listing by ID |
 | Jobs | `POST` | `/api/jobs/{job_id}/score` | Score job against active resume |
@@ -87,54 +90,50 @@ Checks application status and PostgreSQL database connectivity.
 
 ## 1.1 Auth Router (`/api/auth`)
 
-### POST /api/auth/register
-Registers a new user account with Argon2id password hashing.
+Passwordless authentication authority with Resend Email OTP and Google OAuth 2.0.
+
+### POST /api/auth/otp/request
+Generates a secure 6-digit OTP, stores its salted cryptographic hash with a 10-minute expiry, and sends it via Resend. Enforces a 60-second cooldown rate limit per email.
 
 **Request Body:**
 ```json
 {
-  "email": "user@example.com",
-  "name": "Jane Doe",
-  "password": "securepassword123"
+  "email": "user@example.com"
 }
 ```
 
-**Response 201 (Created):**
+**Response 200 (OK):**
 ```json
 {
   "data": {
-    "id": "7a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d",
-    "email": "user@example.com",
-    "name": "Jane Doe",
-    "is_active": true,
-    "created_at": "2026-09-13T17:40:00Z",
-    "updated_at": "2026-09-13T17:40:00Z"
+    "message": "Verification code sent to your email.",
+    "email": "user@example.com"
   },
   "error": null
 }
 ```
 
-**Response 409 (Conflict - Duplicate Email):**
+**Response 429 (Too Many Requests - Rate Limit Cooldown):**
 ```json
 {
   "data": null,
   "error": {
-    "code": "EMAIL_ALREADY_EXISTS",
-    "message": "User with this email already exists"
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Please wait 45 second(s) before requesting another code."
   }
 }
 ```
 
 ---
 
-### POST /api/auth/login
-Authenticates user credentials and issues a PyJWT access token (valid for 7 days / 10080 minutes).
+### POST /api/auth/otp/verify
+Verifies the submitted 6-digit OTP against the stored salted hash. On success, consumes the OTP, creates or authenticates the user, and issues an application JWT Bearer token (7-day validity).
 
 **Request Body:**
 ```json
 {
   "email": "user@example.com",
-  "password": "securepassword123"
+  "otp": "123456"
 }
 ```
 
@@ -149,14 +148,58 @@ Authenticates user credentials and issues a PyJWT access token (valid for 7 days
 }
 ```
 
-**Response 401 (Unauthorized - Generic Credentials Error):**
+**Response 400 (Bad Request - Invalid OTP):**
 ```json
 {
   "data": null,
   "error": {
-    "code": "INVALID_CREDENTIALS",
-    "message": "Invalid email or password"
+    "code": "INVALID_OTP",
+    "message": "Invalid verification code. 4 attempt(s) remaining."
   }
+}
+```
+
+**Response 429 (Too Many Requests - Attempt Limit Exceeded):**
+```json
+{
+  "data": null,
+  "error": {
+    "code": "TOO_MANY_ATTEMPTS",
+    "message": "Too many failed attempts. Please request a new verification code."
+  }
+}
+```
+
+---
+
+### GET /api/auth/google
+Initiates Google OAuth 2.0 / OpenID Connect login with PKCE and CSRF state cookies, redirecting the browser to Google's consent screen.
+
+---
+
+### GET /api/auth/google/callback
+Validates OAuth CSRF state and PKCE verifier cookies, exchanges code with Google, provisions or links user, and redirects to frontend `/auth/callback?code=<handoff_code>`.
+
+---
+
+### POST /api/auth/google/exchange
+Exchanges short-lived single-use handoff code for the final JWT access token.
+
+**Request Body:**
+```json
+{
+  "code": "temporary_single_use_handoff_code"
+}
+```
+
+**Response 200 (OK):**
+```json
+{
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "token_type": "bearer"
+  },
+  "error": null
 }
 ```
 

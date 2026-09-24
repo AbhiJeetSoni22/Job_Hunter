@@ -71,7 +71,7 @@ Routers contain **zero business logic** and **zero database queries**. They hand
 | Router | Path Prefix | Endpoints | Responsibility |
 |---|---|---|---|
 | `health.py` | `/api` | `GET /health` | Liveness & PostgreSQL connection status |
-| `auth.py` | `/api/auth` | `POST /register`, `POST /login`, `GET /me` | User registration, authentication, JWT token issuance, and profile resolution |
+| `auth.py` | `/api/auth` | `POST /otp/request`, `POST /otp/verify`, `GET /me`, `GET /google`, `GET /google/callback`, `POST /google/exchange` | Email OTP request/verification, Google OAuth initiation/callback/exchange, user profile |
 | `jobs.py` | `/api/jobs` | `GET /`, `GET /{id}`, `POST /{id}/score`, `PATCH /{id}`, `DELETE /{id}` | Job listing, detail, scoring, updates, deletion |
 | `scraper.py` | `/api/scraper` | `POST /run`, `GET /status`, `GET /scoring-status` | Scraping trigger, source status, scoring run polling |
 | `resume.py` | `/api/resume` | `POST /`, `GET /`, `DELETE /`, `GET /{resume_id}` | Resume PDF upload, active resume lookup, deletion |
@@ -85,6 +85,9 @@ Services contain all business rules, transaction boundaries, and integrations.
 
 | Service | Pattern | Core Responsibilities |
 |---|---|---|
+| `OtpService` | Class | Email OTP generation, salted cryptographic hashing, cooldown rate-limiting, verification, user provisioning. |
+| `EmailService` | Class | Transactional email dispatch via Resend API (`POST https://api.resend.com/emails`). |
+| `UserService` | Class | User retrieval, Google OAuth linking/provisioning, passwordless user creation. |
 | `JobService` | Class | Paginated search, lifecycle state updates, deduplication (`upsert_jobs`), expired job cleanup (`cleanup_expired_jobs`). |
 | `ResumeService` | Class | PDF validation, PyMuPDF text extraction, Gemini skill extraction, single active resume replacement. |
 | `match_service` | Module | Job match scoring, score cache verification, recommendation label calculation. |
@@ -232,6 +235,7 @@ PostgreSQL 16 database configured via SQLAlchemy 2.x ORM models and managed by A
 4. `7a1b2c3d4e5f_add_users_table.py`: Created `users` table and `idx_users_email`.
 5. `8c3d4e5f6a7b_add_google_oauth_to_users.py`: Added Google OAuth identity columns to `users`.
 6. `9d4e5f6a7b8c_multi_user_data_isolation.py`: Created `user_jobs`, added `user_id` FKs to `resumes` and `scoring_runs`, relocated user-specific columns from `jobs` to `user_jobs`.
+7. `a1b2c3d4e5f6_add_email_otps_table.py`: Created `email_otps` table for secure salted OTP authentication with attempt and cooldown rate-limiting.
 
 ---
 
