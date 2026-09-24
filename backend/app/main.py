@@ -50,8 +50,16 @@ log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
 logging.basicConfig(
     level=log_level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    force=True,
 )
-logging.getLogger("app").setLevel(log_level)
+app_logger = logging.getLogger("app")
+app_logger.setLevel(log_level)
+if not any(isinstance(h, logging.StreamHandler) for h in app_logger.handlers):
+    sh = logging.StreamHandler()
+    sh.setLevel(log_level)
+    sh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    app_logger.addHandler(sh)
+    app_logger.propagate = False
 
 app.add_middleware(
     CORSMiddleware,

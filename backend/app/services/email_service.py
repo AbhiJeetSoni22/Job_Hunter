@@ -62,7 +62,7 @@ class EmailService:
         )
 
         logger.info(
-            "EmailService dispatch check: host=%s, port=%s, username=%s, configured=%s",
+            "SMTP DEBUG: host=%s port=%s username=%s password_configured=%s",
             self._host,
             self._port,
             self._username,
@@ -144,12 +144,17 @@ class EmailService:
         message.attach(MIMEText(html_content, "html", "utf-8"))
 
         try:
+            logger.info("SMTP DEBUG: Connecting to %s:%s...", self._host, self._port)
             with smtplib.SMTP(self._host, self._port, timeout=10.0) as server:
                 server.ehlo()
+                logger.info("SMTP DEBUG: Establishing STARTTLS...")
                 server.starttls()
                 server.ehlo()
+                logger.info("SMTP DEBUG: Authenticating as %s...", self._username)
                 server.login(self._username, self._password)
+                logger.info("SMTP DEBUG: Sending MIME message to %s...", to_email)
                 server.send_message(message, from_addr=sender_addr, to_addrs=[to_email])
+                logger.info("SMTP DEBUG: Message successfully accepted by SMTP server for %s", to_email)
         except smtplib.SMTPAuthenticationError as exc:
             logger.error("SMTP authentication failed for user %s: code=%s", self._username, exc.smtp_code)
             raise EmailDeliveryError("Failed to authenticate with email delivery server.") from exc
