@@ -10,7 +10,7 @@ export function NavbarAuth() {
   if (loading) {
     return (
       <div className="text-xs" style={{ color: "var(--color-subtle)" }}>
-        Loading...
+        Loading....
       </div>
     );
   }

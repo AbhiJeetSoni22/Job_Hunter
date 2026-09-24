@@ -6,6 +6,7 @@ interface ErrorStateProps {
   action?: ReactNode;
 }
 
+
 export function ErrorState({
   title = "Something went wrong",
   message,
