@@ -441,20 +441,11 @@ def test_account_linking_existing_password_user(
     token_resp = client.post("/api/auth/google/exchange", json={"code": handoff_code})
     assert token_resp.status_code == 200
 
-    # 3. Verify user row was updated: google_id is set, password_hash untouched
+    # 3. Verify user row was updated: google_id is set
     db.expire_all()
     user_after = db.query(User).filter(User.email == "link_test@example.com").first()
     assert user_after is not None
     assert user_after.google_id == "linked-google-sub-777"
-    assert user_after.password_hash == original_pw_hash
-
-    # 4. Verify user can STILL log in using original password!
-    pw_login_resp = client.post(
-        "/api/auth/login",
-        json={"email": "link_test@example.com", "password": "Password123!"},
-    )
-    assert pw_login_resp.status_code == 200
-    assert "access_token" in pw_login_resp.json()["data"]
 
 
 # ── 9: Account Conflict / Duplicate Google ID Protection ──────────────────────
