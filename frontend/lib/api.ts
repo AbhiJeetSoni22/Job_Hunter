@@ -33,8 +33,9 @@ import type {
   ResumeAnalysisResponse,
   InterviewPrepResponse,
   User,
-  UserRegisterRequest,
-  UserLoginRequest,
+  OtpRequest,
+  OtpVerifyRequest,
+  OtpResponse,
   TokenResponse,
 } from "./types";
 
@@ -60,7 +61,7 @@ const REQUEST_TIMEOUT_MS = 120_000;
  * ensuring CSRF state cookies (oauth_state, oauth_verifier) are stored on the backend domain
  * and sent back when Google redirects to the backend callback.
  */
-const publicApiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
+const publicApiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
 export const GOOGLE_AUTH_URL = `${publicApiBase}/api/auth/google`;
 
 function baseUrl(): string {
@@ -260,17 +261,17 @@ export async function analyzeResume(
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export async function register(body: UserRegisterRequest): Promise<User> {
-  return apiFetch<User>("/api/auth/register", {
+export async function requestOtp(email: string): Promise<OtpResponse> {
+  return apiFetch<OtpResponse>("/api/auth/otp/request", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({ email }),
   });
 }
 
-export async function login(body: UserLoginRequest): Promise<TokenResponse> {
-  return apiFetch<TokenResponse>("/api/auth/login", {
+export async function verifyOtp(email: string, otp: string): Promise<TokenResponse> {
+  return apiFetch<TokenResponse>("/api/auth/otp/verify", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({ email, otp }),
   });
 }
 

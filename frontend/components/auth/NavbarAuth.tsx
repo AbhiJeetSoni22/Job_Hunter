@@ -43,7 +43,7 @@ export function NavbarAuth() {
         className="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
         style={{ color: "var(--color-subtle)" }}
       >
-        Login
+        Sign In
       </Link>
       <Link
         href="/register"
@@ -53,7 +53,7 @@ export function NavbarAuth() {
           color: "white",
         }}
       >
-        Register
+        Get Started
       </Link>
     </div>
   );

@@ -24,6 +24,7 @@ IMPORT ORDER:
   no circular dependency risks.
 """
 
+from app.models.email_otp import EmailOtp
 from app.models.job import Job
 from app.models.resume import Resume
 from app.models.scrape_run import ScrapeRun
@@ -32,6 +33,7 @@ from app.models.user import User
 from app.models.user_job import UserJob
 
 __all__ = [
+    "EmailOtp",
     "Job",
     "Resume",
     "ScrapeRun",

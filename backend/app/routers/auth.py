@@ -2,14 +2,18 @@
 Auth router — Authentication and user identity endpoints.
 
 Handles HTTP concerns for:
-    POST /api/auth/register — register new user account
-    POST /api/auth/login    — authenticate user and issue JWT token
-    GET  /api/auth/me       — return profile of currently authenticated user
+    POST /api/auth/otp/request       — request 6-digit email OTP
+    POST /api/auth/otp/verify        — verify email OTP and issue JWT token
+    GET  /api/auth/me                — return profile of currently authenticated user
+    GET  /api/auth/google            — initiate Google OAuth 2.0 / OIDC flow
+    GET  /api/auth/google/callback   — Google OAuth callback endpoint
+    POST /api/auth/google/exchange   — exchange single-use handoff code for JWT token
 
 Rules (ARCHITECTURE.md):
     - Thin router: no business logic or direct DB calls.
-    - Delegate everything to UserService and security utilities.
+    - Delegate to OtpService, UserService, and security utilities.
     - Standard ApiResponse[T] envelope used for all responses.
+    - OTP-only email authentication + Google OAuth. No passwords.
 """
 
 import logging
@@ -31,17 +35,23 @@ from app.core.security import create_access_token
 from app.dependencies import CurrentUser, DbSession
 from app.schemas.auth import (
     GoogleExchangeRequest,
+    OtpRequest,
+    OtpResponse,
+    OtpVerifyRequest,
     TokenResponse,
-    UserLoginRequest,
-    UserRegisterRequest,
     UserResponse,
 )
 from app.schemas.job import ApiResponse
+from app.services.email_service import EmailDeliveryError
+from app.services.otp_service import (
+    InvalidOtpError,
+    OtpRateLimitError,
+    OtpService,
+    OtpTooManyAttemptsError,
+)
 from app.services.user_service import (
-    DuplicateEmailError,
     GoogleAccountConflictError,
     InactiveUserError,
-    InvalidCredentialsError,
     UserService,
 )
 
@@ -86,53 +96,64 @@ def _get_oauth_cookie_options(request: Request) -> tuple[bool, Literal["none", "
     return is_secure, samesite_policy
 
 
-# ── POST /api/auth/register ──────────────────────────────────────────────────
-
-
-# ── POST /api/auth/register ──────────────────────────────────────────────────
+# ── POST /api/auth/otp/request ───────────────────────────────────────────────
 
 @router.post(
-    "/register",
-    response_model=ApiResponse[UserResponse],
-    status_code=status.HTTP_201_CREATED,
-    summary="Register a new user account",
-    description="Registers a new user account with name, email, and password. Returns user profile (excluding password_hash).",
+    "/otp/request",
+    response_model=ApiResponse[OtpResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Request a 6-digit email verification code",
+    description="Generates a 6-digit OTP, stores its secure salted hash, and dispatches it via Resend.",
 )
-def register(
-    body: UserRegisterRequest,
+def request_otp(
+    body: OtpRequest,
     db: DbSession,
-) -> ApiResponse[UserResponse]:
+) -> ApiResponse[OtpResponse]:
     try:
-        user = UserService(db).register_user(body)
-    except DuplicateEmailError as exc:
+        OtpService(db).request_otp(body.email)
+    except OtpRateLimitError as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "EMAIL_ALREADY_EXISTS", "message": str(exc)},
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": "RATE_LIMIT_EXCEEDED", "message": str(exc)},
+        ) from exc
+    except EmailDeliveryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "EMAIL_DELIVERY_FAILED", "message": str(exc)},
         ) from exc
 
-    return ApiResponse(data=UserResponse.model_validate(user))
+    return ApiResponse(
+        data=OtpResponse(
+            message="Verification code sent to your email.",
+            email=body.email,
+        )
+    )
 
 
-# ── POST /api/auth/login ─────────────────────────────────────────────────────
+# ── POST /api/auth/otp/verify ────────────────────────────────────────────────
 
 @router.post(
-    "/login",
+    "/otp/verify",
     response_model=ApiResponse[TokenResponse],
     status_code=status.HTTP_200_OK,
-    summary="Authenticate user and obtain access token",
-    description="Authenticates email and password, returning an OAuth2-compatible Bearer JWT token.",
+    summary="Verify email OTP and obtain access token",
+    description="Verifies the 6-digit OTP code, provisions or authenticates the user, and returns an access token.",
 )
-def login(
-    body: UserLoginRequest,
+def verify_otp(
+    body: OtpVerifyRequest,
     db: DbSession,
 ) -> ApiResponse[TokenResponse]:
     try:
-        user = UserService(db).authenticate_user(body)
-    except InvalidCredentialsError as exc:
+        user = OtpService(db).verify_otp(email=body.email, plain_otp=body.otp)
+    except InvalidOtpError as exc:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "INVALID_CREDENTIALS", "message": str(exc)},
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_OTP", "message": str(exc)},
+        ) from exc
+    except OtpTooManyAttemptsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": "TOO_MANY_ATTEMPTS", "message": str(exc)},
         ) from exc
     except InactiveUserError as exc:
         raise HTTPException(

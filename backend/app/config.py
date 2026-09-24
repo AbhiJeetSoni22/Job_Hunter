@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days (10080 minutes)
 
+    # ── Resend Email Service ───────────────────────────────────────────────
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "Job Hunter <onboarding@resend.dev>"
+
     # ── Google OAuth 2.0 / OpenID Connect ───────────────────────────────────
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""

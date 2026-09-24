@@ -61,6 +61,29 @@ class UserService:
     def __init__(self, db: Session) -> None:
         self._db = db
 
+    def create_email_user(self, email: str, name: str | None = None) -> User:
+        """
+        Provision a new user account from verified email OTP.
+        """
+        normalized_email = email.strip().lower()
+        prefix = normalized_email.split("@")[0]
+        display_name = name.strip() if name and name.strip() else prefix.capitalize() or "User"
+        now = datetime.now(UTC)
+
+        user = User(
+            id=uuid.uuid4(),
+            name=display_name,
+            email=normalized_email,
+            password_hash=None,
+            google_id=None,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        self._db.add(user)
+        self._db.flush()
+        return user
+
     def register_user(self, data: UserRegisterRequest) -> User:
         """
         Register a new user account.

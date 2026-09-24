@@ -375,3 +375,34 @@ export interface InterviewPrepResponse {
   topics_to_revise: string[];
   interview_tips: string[];
 }
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OtpRequest {
+  email: string;
+}
+
+export interface OtpVerifyRequest {
+  email: string;
+  otp: string;
+}
+
+export interface OtpResponse {
+  message: string;
+  email: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+

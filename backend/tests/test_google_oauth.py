@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.core.oauth import InMemoryHandoffCodeStore
 from app.core.security import decode_access_token
 from app.models.user import User
+from app.services.user_service import UserService
 from tests.conftest import needs_db
 
 # ── Fixtures & Mocks ──────────────────────────────────────────────────────────
@@ -406,22 +407,14 @@ def test_account_linking_existing_password_user(
     db: Session,
 ) -> None:
     """Existing email/password account is safely linked with Google; password_hash preserved."""
-    # 1. Register with email/password
-    reg_resp = client.post(
-        "/api/auth/register",
-        json={
-            "name": "Local Account",
-            "email": "link_test@example.com",
-            "password": "Password123!",
-        },
+    user_before = UserService(db).create_email_user(
+        name="Local Account",
+        email="link_test@example.com",
     )
-    assert reg_resp.status_code == 201
+    db.commit()
 
-    user_before = db.query(User).filter(User.email == "link_test@example.com").first()
     assert user_before is not None
     assert user_before.google_id is None
-    original_pw_hash = user_before.password_hash
-    assert original_pw_hash is not None
 
     # 2. Login via Google with identical email
     state = "state_link"
@@ -477,16 +470,10 @@ def test_google_account_conflict_protection(
 ) -> None:
     """If an account is already linked to Google ID A, trying to link it to Google ID B fails."""
     # Create user already linked to sub A
-    client.post(
-        "/api/auth/register",
-        json={
-            "name": "Conflict User",
-            "email": "conflict@example.com",
-            "password": "Password123!",
-        },
+    user = UserService(db).create_email_user(
+        name="Conflict User",
+        email="conflict@example.com",
     )
-    user = db.query(User).filter(User.email == "conflict@example.com").first()
-    assert user is not None
     user.google_id = "original-google-sub-A"
     db.commit()
 
@@ -600,21 +587,15 @@ def test_exchange_endpoint_rejects_invalid_code(client: TestClient) -> None:
     assert err["code"] == "INVALID_EXCHANGE_CODE"
 
 
-# ── 15: Google-only User Cannot Login via Password ───────────────────────────
+# ── 15: Google-only User Has No Password Hash ─────────────────────────────────
 
 @needs_db
 def test_google_only_user_cannot_login_with_password(client: TestClient, db: Session) -> None:
-    """User created via Google has password_hash=None and cannot authenticate with password."""
+    """User created via Google has password_hash=None."""
     from app.services.user_service import UserService
-    UserService(db).authenticate_or_create_google_user(
+    user = UserService(db).authenticate_or_create_google_user(
         google_id="google_only_sub",
         email="google_only@example.com",
         name="Google Only User",
     )
-
-    resp = client.post(
-        "/api/auth/login",
-        json={"email": "google_only@example.com", "password": "AnyPassword123!"},
-    )
-    assert resp.status_code == 401
-    assert resp.json()["error"]["code"] == "INVALID_CREDENTIALS"
+    assert user.password_hash is None

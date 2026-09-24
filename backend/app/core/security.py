@@ -6,7 +6,9 @@ Provides:
   - JWT access token generation and decoding using PyJWT
 """
 
+import hashlib
 import logging
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -21,6 +23,47 @@ logger = logging.getLogger(__name__)
 
 # Initialize Argon2id password hasher with secure defaults
 _ph = PasswordHasher()
+
+
+# ── OTP Generation, Hashing & Verification ───────────────────────────────────
+
+def generate_otp_code() -> str:
+    """Generate a cryptographically secure 6-digit numeric OTP."""
+    code_int = secrets.randbelow(1_000_000)
+    return f"{code_int:06d}"
+
+
+def hash_otp(otp_code: str) -> str:
+    """
+    Hash a 6-digit OTP using a unique 16-byte random salt and HMAC-SHA256.
+
+    Format: <salt_hex>$<sha256_hex>
+    Plaintext OTP is NEVER stored.
+    """
+    if not otp_code or len(otp_code) != 6 or not otp_code.isdigit():
+        raise ValueError("OTP code must be a 6-digit numeric string")
+    settings = get_settings()
+    salt = secrets.token_hex(16)
+    secret_key = settings.JWT_SECRET_KEY
+    digest = hashlib.sha256(f"{salt}:{otp_code}:{secret_key}".encode("utf-8")).hexdigest()
+    return f"{salt}${digest}"
+
+
+def verify_otp_hash(plain_otp: str, stored_hash: str) -> bool:
+    """
+    Verify a candidate plaintext OTP against the stored salted hash in constant time.
+    """
+    if not plain_otp or not stored_hash or "$" not in stored_hash:
+        return False
+    try:
+        salt, expected_digest = stored_hash.split("$", 1)
+        settings = get_settings()
+        secret_key = settings.JWT_SECRET_KEY
+        computed_digest = hashlib.sha256(f"{salt}:{plain_otp}:{secret_key}".encode("utf-8")).hexdigest()
+        return secrets.compare_digest(computed_digest, expected_digest)
+    except Exception as exc:
+        logger.warning("Error verifying OTP hash: %s", exc)
+        return False
 
 
 # ── Password Hashing & Verification ──────────────────────────────────────────

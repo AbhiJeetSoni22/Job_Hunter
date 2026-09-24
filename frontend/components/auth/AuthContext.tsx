@@ -1,14 +1,14 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
-import { User, UserLoginRequest, UserRegisterRequest } from "@/lib/types";
-import { getMe, login as apiLogin, register as apiRegister } from "@/lib/api";
+import { User, OtpResponse } from "@/lib/types";
+import { getMe, requestOtp as apiRequestOtp, verifyOtp as apiVerifyOtp } from "@/lib/api";
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (credentials: UserLoginRequest) => Promise<void>;
-  register: (data: UserRegisterRequest) => Promise<void>;
+  requestOtp: (email: string) => Promise<OtpResponse>;
+  verifyOtp: (email: string, otp: string) => Promise<void>;
   loginWithToken: (token: string) => Promise<void>;
   logout: () => void;
 }
@@ -42,15 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(userData);
   }, []);
 
-  const login = useCallback(async (credentials: UserLoginRequest) => {
-    const res = await apiLogin(credentials);
+  const requestOtp = useCallback(async (email: string): Promise<OtpResponse> => {
+    return await apiRequestOtp(email);
+  }, []);
+
+  const verifyOtp = useCallback(async (email: string, otp: string): Promise<void> => {
+    const res = await apiVerifyOtp(email, otp);
     await loginWithToken(res.access_token);
   }, [loginWithToken]);
-
-  const register = useCallback(async (data: UserRegisterRequest) => {
-    await apiRegister(data);
-    await login({ email: data.email, password: data.password });
-  }, [login]);
 
   const logout = useCallback(() => {
     localStorage.removeItem("token");
@@ -58,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, loginWithToken, logout }}>
+    <AuthContext.Provider value={{ user, loading, requestOtp, verifyOtp, loginWithToken, logout }}>
       {children}
     </AuthContext.Provider>
   );
