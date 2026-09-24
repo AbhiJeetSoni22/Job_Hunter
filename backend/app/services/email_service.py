@@ -61,6 +61,14 @@ class EmailService:
             and self._username.strip()
         )
 
+        logger.info(
+            "EmailService dispatch check: host=%s, port=%s, username=%s, configured=%s",
+            self._host,
+            self._port,
+            self._username,
+            is_configured,
+        )
+
         if not is_configured:
             if app_env in {"production", "prod"}:
                 logger.error("SMTP credentials are not configured in production!")
@@ -129,7 +137,8 @@ class EmailService:
         message["From"] = from_header
         message["To"] = to_email
         message["Date"] = formatdate(localtime=True)
-        message["Message-ID"] = make_msgid()
+        sender_domain = sender_addr.split("@")[-1] if "@" in sender_addr else "gmail.com"
+        message["Message-ID"] = make_msgid(domain=sender_domain)
 
         message.attach(MIMEText(plain_text, "plain", "utf-8"))
         message.attach(MIMEText(html_content, "html", "utf-8"))

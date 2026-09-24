@@ -6,6 +6,8 @@ Registers all routers and configures global exception handlers.
 All error responses conform to ApiResponse envelope per api_spec.md.
 """
 
+import logging
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +41,17 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 settings = get_settings()
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
+logging.basicConfig(
+    level=log_level,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logging.getLogger("app").setLevel(log_level)
 
 app.add_middleware(
     CORSMiddleware,
