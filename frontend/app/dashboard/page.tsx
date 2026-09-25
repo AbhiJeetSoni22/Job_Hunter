@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -9,6 +9,7 @@ import { ToastContainer, useToast } from "@/components/ui/Toast";
 import { TopMatches } from "@/components/dashboard/TopMatches";
 import { MatchQualityBreakdown } from "@/components/dashboard/MatchQualityBreakdown";
 import { StatCardSkeleton } from "@/components/ui/Skeleton";
+import { useAuth } from "@/components/auth/AuthContext";
 import {
   getResume,
   getScraperStatus,
@@ -17,7 +18,7 @@ import {
   runScraper,
   ApiClientError,
 } from "@/lib/api";
-import type { DashboardStats } from "@/lib/types";
+import type { DashboardStats, JobStatus, TopMatchItem } from "@/lib/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -26,8 +27,6 @@ interface DashStats {
   lastSync: string | null;
 }
 
-// Background auto-scoring poll: how often to check, and how long to wait
-// before giving up and just reporting whatever progress was made.
 const SCORING_POLL_INTERVAL_MS = 2_000;
 const SCORING_POLL_TIMEOUT_MS = 90_000;
 
@@ -41,6 +40,13 @@ function formatRelative(iso: string): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function getTimeOfDayGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }
 
 async function fetchStats(): Promise<DashStats> {
@@ -59,10 +65,12 @@ async function fetchStats(): Promise<DashStats> {
   return { hasResume, lastSync };
 }
 
-// ── Page ───────────────────────────────────────────────────────────────────────
+// ── Page Component ─────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const { toasts, addToast, dismiss } = useToast();
+
   const [stats, setStats] = useState<DashStats>({
     hasResume: null,
     lastSync: null,
@@ -70,13 +78,20 @@ export default function DashboardPage() {
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Search & Filter state for dashboard recommendations
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "remoteok" | "yc_jobs">("all");
+  const [minScoreFilter, setMinScoreFilter] = useState<number | null>(null);
+
   const [scoring, setScoring] = useState<{
     total: number;
     scored: number;
     failed: number;
   } | null>(null);
 
-  // Polling refs — survive re-renders without re-triggering effects
+  // Polling refs
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTokenRef = useRef(0);
@@ -96,6 +111,7 @@ export default function DashboardPage() {
     hasResume: boolean | null;
   }> => {
     setLoading(true);
+    setError(null);
     let hasResume: boolean | null = null;
     try {
       const [s, d] = await Promise.allSettled([
@@ -106,9 +122,13 @@ export default function DashboardPage() {
         setStats(s.value);
         hasResume = s.value.hasResume;
       }
-      if (d.status === "fulfilled") setDashStats(d.value);
+      if (d.status === "fulfilled") {
+        setDashStats(d.value);
+      } else if (d.reason) {
+        setError(d.reason instanceof ApiClientError ? d.reason.message : "Failed to load dashboard statistics.");
+      }
     } catch {
-      // partial — already set nulls
+      setError("An unexpected error occurred while loading dashboard data.");
     } finally {
       setLoading(false);
     }
@@ -209,100 +229,167 @@ export default function DashboardPage() {
     }
   }
 
+  // Optimistic status update handler
+  const handleStatusChanged = useCallback((jobId: string, newStatus: JobStatus) => {
+    setDashStats((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        top_matches: prev.top_matches.map((item) =>
+          item.id === jobId ? { ...item, status: newStatus } : item,
+        ),
+      };
+    });
+    addToast(`Job status updated to ${newStatus}.`, "success");
+  }, [addToast]);
+
+  // Filtered top matches for quick exploration
+  const filteredMatches: TopMatchItem[] = useMemo(() => {
+    if (!dashStats?.top_matches) return [];
+    return dashStats.top_matches.filter((job) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesQuery =
+          job.title.toLowerCase().includes(q) ||
+          job.company.toLowerCase().includes(q);
+        if (!matchesQuery) return false;
+      }
+      if (sourceFilter !== "all" && job.source !== sourceFilter) {
+        return false;
+      }
+      if (minScoreFilter !== null && job.match_score < minScoreFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [dashStats?.top_matches, searchQuery, sourceFilter, minScoreFilter]);
+
+  // Contextual personalized greeting
+  const greetingName = user?.name ? user.name.split(" ")[0] : user?.email ? user.email.split("@")[0] : "there";
+  const greeting = `${getTimeOfDayGreeting()}, ${greetingName}`;
+
   return (
-    <div>
-      <PageHeader
-        title="Dashboard"
-        subtitle="Your internship search & AI matching cockpit"
-        action={
+    <div className="flex flex-col gap-6 sm:gap-8 pb-12">
+      {/* ── 1. Contextual Header ───────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1 sm:pt-2">
+        <div>
+          <h1
+            className="text-2xl sm:text-3xl font-extrabold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            {greeting}
+          </h1>
+          <p
+            className="text-xs sm:text-sm mt-1"
+            style={{ color: "var(--color-subtle)" }}
+          >
+            Here are the technical opportunities worth looking at today.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
           <Button
             onClick={handleSync}
             loading={syncing || !!scoring}
             disabled={syncing || !!scoring}
             size="md"
+            className="font-semibold gap-2"
           >
             {syncing
-              ? "Syncing…"
+              ? "Syncing Boards…"
               : scoring
                 ? `Scoring ${scoring.scored + scoring.failed}/${scoring.total}…`
                 : "🔄 Sync Jobs"}
           </Button>
-        }
-      />
 
-      {/* ── Stat cards ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
-        {loading ? (
-          <>
-            <StatCardSkeleton />
-            <StatCardSkeleton />
-            <StatCardSkeleton />
-            <StatCardSkeleton />
-          </>
-        ) : (
-          <>
-            <StatCard
-              label="Total Jobs"
-              value={dashStats ? String(dashStats.total_jobs) : "—"}
-              icon="💼"
-              href="/jobs"
-            />
-            <StatCard
-              label="Resume"
-              value={
-                stats.hasResume === null
-                  ? "—"
-                  : stats.hasResume
-                    ? "Uploaded"
-                    : "None"
-              }
-              icon="📄"
-              href="/resume"
-              valueColor={
-                stats.hasResume ? "var(--color-green)" : "var(--color-amber)"
-              }
-            />
-            <StatCard
-              label="Last Sync"
-              value={stats.lastSync ? formatRelative(stats.lastSync) : "Never"}
-              icon="🔄"
-            />
-            <StatCard
-              label="Top Match"
-              value={
-                !stats.hasResume
-                  ? "—"
-                  : dashStats?.best_match_score != null
-                    ? `${dashStats.best_match_score}%`
-                    : "—"
-              }
-              icon="⭐"
-              href={
-                !stats.hasResume
-                  ? "/resume"
-                  : dashStats?.top_matches[0]?.id
-                    ? `/jobs/${dashStats.top_matches[0].id}`
-                    : undefined
-              }
-              valueColor="var(--color-green)"
-              sub={
-                !stats.hasResume
-                  ? "Upload Resume"
-                  : (dashStats?.top_matches[0]?.company ?? undefined)
-              }
-            />
-          </>
-        )}
+          <Link href="/jobs">
+            <Button size="md" variant="secondary">
+              Browse All Jobs →
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      {/* ── Recommendation metrics ──────────────────────────────────── */}
-      <div className="mb-6 sm:mb-8">
+      {/* ── Error Banner if API fails ──────────────────────────────── */}
+      {error && (
+        <div
+          className="p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+          style={{ background: "rgba(239, 68, 68, 0.08)", borderColor: "rgba(239, 68, 68, 0.3)" }}
+        >
+          <div className="flex items-center gap-2">
+            <span style={{ color: "var(--color-red)" }}>⚠️</span>
+            <span style={{ color: "var(--color-red)", fontWeight: 600 }}>{error}</span>
+          </div>
+          <Button size="sm" variant="secondary" onClick={loadStats}>
+            Try Again
+          </Button>
+        </div>
+      )}
+
+      {/* ── 2. Resume / AI Readiness Status Banner ──────────────────── */}
+      {!loading && stats.hasResume === false && (
+        <div
+          className="p-4 sm:p-5 rounded-xl border card-elevated flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          style={{
+            background: "linear-gradient(90deg, var(--color-surface) 0%, rgba(143, 23, 51, 0.15) 100%)",
+            borderColor: "var(--color-accent-border)",
+          }}
+        >
+          <div className="flex items-start gap-3.5">
+            <span className="p-2.5 rounded-lg text-xl flex-shrink-0" style={{ background: "rgba(143, 23, 51, 0.2)" }}>
+              📄
+            </span>
+            <div>
+              <p className="font-bold text-sm sm:text-base" style={{ color: "var(--color-text)" }}>
+                AI Match Scoring Is Inactive
+              </p>
+              <p className="text-xs sm:text-sm mt-0.5 leading-relaxed" style={{ color: "var(--color-subtle)" }}>
+                Upload your resume once to unlock 0–100% fit scores, skill gap alerts, and personalized recommendations.
+              </p>
+            </div>
+          </div>
+          <Link href="/resume" className="flex-shrink-0">
+            <Button size="md" className="w-full sm:w-auto font-semibold">
+              Upload Resume →
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {!loading && stats.hasResume === true && (
+        <div
+          className="px-4 py-2.5 rounded-lg border flex items-center justify-between text-xs"
+          style={{
+            background: "var(--color-surface)",
+            borderColor: "var(--color-border)",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full" style={{ background: "var(--color-green)" }} />
+            <span className="font-medium" style={{ color: "var(--color-text)" }}>
+              Resume Active · AI Matching Enabled
+            </span>
+            {stats.lastSync && (
+              <span className="hidden md:inline text-[0.7rem]" style={{ color: "var(--color-muted)" }}>
+                · Last Synced {formatRelative(stats.lastSync)}
+              </span>
+            )}
+          </div>
+          <Link href="/resume" className="font-semibold hover:underline" style={{ color: "var(--color-gold)" }}>
+            Manage Profile →
+          </Link>
+        </div>
+      )}
+
+      {/* ── 3. Discovery & Scoring Key Metrics ──────────────────────── */}
+      <div>
         <p
           className="text-xs uppercase tracking-wider font-semibold mb-3"
           style={{ color: "var(--color-muted)" }}
         >
-          Match & Application Metrics
+          Overview & Metrics
         </p>
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {loading ? (
             <>
@@ -314,9 +401,18 @@ export default function DashboardPage() {
           ) : (
             <>
               <StatCard
+                label="Total Jobs"
+                value={dashStats ? String(dashStats.total_jobs) : "—"}
+                icon="💼"
+                href="/jobs"
+                sub="RemoteOK + YC"
+              />
+              <StatCard
                 label="Scored Jobs"
                 value={dashStats ? String(dashStats.scored_jobs) : "—"}
                 icon="🧮"
+                href="/jobs?scored=true"
+                sub="Evaluated by Gemini"
               />
               <StatCard
                 label="Average Match"
@@ -328,11 +424,11 @@ export default function DashboardPage() {
                       : "—"
                 }
                 icon="📊"
-                href={!stats.hasResume ? "/resume" : undefined}
-                sub={!stats.hasResume ? "Upload Resume" : undefined}
+                valueColor={dashStats?.average_match_score && dashStats.average_match_score >= 70 ? "var(--color-green)" : undefined}
+                sub={!stats.hasResume ? "Upload Resume" : "Overall candidate fit"}
               />
               <StatCard
-                label="Best Match"
+                label="Top Match"
                 value={
                   !stats.hasResume
                     ? "—"
@@ -342,29 +438,116 @@ export default function DashboardPage() {
                 }
                 icon="🏆"
                 valueColor="var(--color-green)"
-                href={!stats.hasResume ? "/resume" : undefined}
-                sub={!stats.hasResume ? "Upload Resume" : undefined}
-              />
-              <StatCard
-                label="Submitted"
-                value={dashStats ? String(dashStats.applications_submitted) : "—"}
-                icon="📨"
+                href={
+                  !stats.hasResume
+                    ? "/resume"
+                    : dashStats?.top_matches[0]?.id
+                      ? `/jobs/${dashStats.top_matches[0].id}`
+                      : undefined
+                }
+                sub={
+                  !stats.hasResume
+                    ? "Upload Resume"
+                    : (dashStats?.top_matches[0]?.company ?? "Highest relevance")
+                }
               />
             </>
           )}
         </div>
       </div>
 
-      {/* ── Top Matches + Match Quality ─────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-        <div className="lg:col-span-2">
+      {/* ── 4. Search & Quick Filters for Dashboard ─────────────────── */}
+      {dashStats && dashStats.top_matches.length > 0 && (
+        <div
+          className="p-3 sm:p-4 rounded-xl border flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3"
+          style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
+        >
+          {/* Search Input */}
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: "var(--color-muted)" }}>
+              🔍
+            </span>
+            <input
+              type="text"
+              placeholder="Search recommendations by title or company…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg text-xs"
+              style={{
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text)",
+              }}
+            />
+          </div>
+
+          {/* Quick Filter Chips */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => {
+                setSourceFilter("all");
+                setMinScoreFilter(null);
+                setSearchQuery("");
+              }}
+              className="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
+              style={{
+                background: sourceFilter === "all" && minScoreFilter === null ? "var(--color-surface-hover)" : "transparent",
+                color: sourceFilter === "all" && minScoreFilter === null ? "var(--color-text)" : "var(--color-subtle)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setMinScoreFilter(minScoreFilter === 80 ? null : 80)}
+              className="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
+              style={{
+                background: minScoreFilter === 80 ? "rgba(34, 197, 94, 0.15)" : "transparent",
+                color: minScoreFilter === 80 ? "var(--color-green)" : "var(--color-subtle)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              ≥ 80% Match
+            </button>
+            <button
+              onClick={() => setSourceFilter(sourceFilter === "remoteok" ? "all" : "remoteok")}
+              className="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
+              style={{
+                background: sourceFilter === "remoteok" ? "var(--color-surface-hover)" : "transparent",
+                color: sourceFilter === "remoteok" ? "var(--color-text)" : "var(--color-subtle)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              RemoteOK
+            </button>
+            <button
+              onClick={() => setSourceFilter(sourceFilter === "yc_jobs" ? "all" : "yc_jobs")}
+              className="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
+              style={{
+                background: sourceFilter === "yc_jobs" ? "var(--color-surface-hover)" : "transparent",
+                color: sourceFilter === "yc_jobs" ? "var(--color-text)" : "var(--color-subtle)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              YC Jobs
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 5. Recommended Jobs (Centerpiece) + Match Quality ───────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-stretch">
+        <div className="lg:col-span-8">
           <TopMatches
-            matches={dashStats?.top_matches ?? []}
+            matches={filteredMatches}
             loading={loading}
             hasResume={stats.hasResume ?? false}
+            onStatusChanged={handleStatusChanged}
+            onStatusError={(msg) => addToast(msg, "error")}
           />
         </div>
-        <div>
+
+        <div className="lg:col-span-4">
           <MatchQualityBreakdown
             breakdown={dashStats?.quality_breakdown ?? null}
             loading={loading}
@@ -373,32 +556,88 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Quick actions ─────────────────────────────────────────── */}
-      <div className="mb-8">
+      {/* ── 6. Application Pipeline Summary ────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <p
+            className="text-xs uppercase tracking-wider font-semibold"
+            style={{ color: "var(--color-muted)" }}
+          >
+            Application Pipeline
+          </p>
+          <Link href="/jobs" className="text-xs font-medium hover:underline" style={{ color: "var(--color-gold)" }}>
+            View in Catalog →
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: "Saved", count: "—", status: "saved", desc: "Bookmarked to review", href: "/jobs?status=saved" },
+            { label: "Applied", count: dashStats ? String(dashStats.applications_submitted) : "—", status: "applied", desc: "Submitted to employer", href: "/jobs?status=applied" },
+            { label: "Interview", count: "—", status: "interview", desc: "Active conversations", href: "/jobs?status=interview" },
+            { label: "Offer", count: "—", status: "offer", desc: "Offers received", href: "/jobs?status=offer" },
+          ].map((col) => (
+            <Link key={col.label} href={col.href} className="block transition-transform hover:-translate-y-0.5">
+              <div
+                className="p-3.5 sm:p-4 rounded-xl border card-interactive"
+                style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold" style={{ color: "var(--color-text)" }}>
+                    {col.label}
+                  </span>
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{
+                      background:
+                        col.status === "offer"
+                          ? "var(--color-green)"
+                          : col.status === "interview"
+                            ? "var(--color-gold)"
+                            : col.status === "applied"
+                              ? "var(--color-sky)"
+                              : "var(--color-muted)",
+                    }}
+                  />
+                </div>
+                <p className="text-lg sm:text-xl font-extrabold mt-1" style={{ color: "var(--color-text)" }}>
+                  {col.count}
+                </p>
+                <p className="text-[0.6875rem] mt-0.5 truncate" style={{ color: "var(--color-subtle)" }}>
+                  {col.desc}
+                </p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* ── 7. Quick Actions ────────────────────────────────────────── */}
+      <div>
         <p
           className="text-xs uppercase tracking-wider font-semibold mb-3"
           style={{ color: "var(--color-muted)" }}
         >
-          Quick Actions
+          Tools & Workflows
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <QuickAction
             href="/jobs"
             icon="🔍"
-            label="Browse jobs"
-            desc="Explore all aggregated internships"
+            label="Browse All Jobs"
+            desc="Filter by source, scored status, and keyword"
           />
           <QuickAction
             href="/resume"
             icon="📎"
-            label="Manage resume"
-            desc="Update profile for AI match scoring"
+            label="Manage Resume & Skills"
+            desc="Update profile for fresh AI match scores"
           />
           <QuickAction
             href="/resume-review"
             icon="📝"
             label="Resume Gap Analyzer"
-            desc="Analyze resume against any job description"
+            desc="Deep-dive analysis against any job description"
           />
         </div>
       </div>
@@ -426,7 +665,7 @@ function StatCard({
   sub?: string;
 }) {
   const inner = (
-    <Card padding="md" hoverable={!!href} className="h-full card-elevated">
+    <Card padding="md" hoverable={!!href} className="h-full card-interactive border" style={{ borderColor: "var(--color-border)" }}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p
@@ -443,11 +682,11 @@ function StatCard({
           </p>
           <p
             style={{
-              fontSize: "1.5rem",
+              fontSize: "1.6rem",
               fontWeight: 800,
               color: valueColor ?? "var(--color-text)",
-              lineHeight: 1.2,
-              marginTop: "0.25rem",
+              lineHeight: 1.15,
+              marginTop: "0.3rem",
             }}
             className="truncate"
           >
@@ -457,8 +696,8 @@ function StatCard({
             <p
               style={{
                 color: "var(--color-subtle)",
-                fontSize: "0.75rem",
-                marginTop: "0.2rem",
+                fontSize: "0.72rem",
+                marginTop: "0.25rem",
               }}
               className="truncate"
             >
@@ -466,7 +705,7 @@ function StatCard({
             </p>
           )}
         </div>
-        <span className="text-xl sm:text-2xl opacity-60 flex-shrink-0">{icon}</span>
+        <span className="text-xl sm:text-2xl opacity-70 flex-shrink-0">{icon}</span>
       </div>
     </Card>
   );
@@ -496,13 +735,14 @@ function QuickAction({
       <Card
         padding="md"
         hoverable
-        className="flex items-center gap-3.5 cursor-pointer card-elevated h-full"
+        className="flex items-center gap-3.5 cursor-pointer card-interactive h-full border"
+        style={{ borderColor: "var(--color-border)" }}
       >
         <span className="text-2xl flex-shrink-0 opacity-80">{icon}</span>
         <div className="min-w-0">
           <p
             style={{
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: "0.875rem",
               color: "var(--color-text)",
             }}
