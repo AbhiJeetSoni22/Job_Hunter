@@ -154,9 +154,9 @@ function StepNode({
           width: "1.75rem",
           height: "1.75rem",
           borderRadius: "9999px",
-          background: "rgba(203, 41, 87, 0.15)",
+          background: "var(--color-accent-subtle)",
           border: "1.5px solid var(--color-accent)",
-          boxShadow: "0 0 12px rgba(203, 41, 87, 0.35)",
+          boxShadow: "0 0 12px rgba(143, 23, 51, 0.4)",
         }}
         aria-hidden="true"
       >
@@ -269,7 +269,7 @@ export function ResumeUploadProgress({
       ? { label: "Complete", color: "var(--color-green)" }
       : status === "error"
         ? { label: "Failed", color: "var(--color-red)" }
-        : { label: "Processing", color: "var(--color-accent)" };
+        : { label: "Processing", color: "var(--color-gold)" };
 
   return (
     <Card
@@ -280,11 +280,11 @@ export function ResumeUploadProgress({
       aria-label="Resume upload progress"
     >
       <div
-        className="px-5 py-4"
+        className="px-4 sm:px-5 py-3.5 sm:py-4"
         style={{
           borderBottom: "1px solid var(--color-border)",
           background:
-            "linear-gradient(135deg, rgba(203, 41, 87, 0.06) 0%, transparent 55%)",
+            "linear-gradient(180deg, rgba(143, 23, 51, 0.08) 0%, transparent 100%)",
         }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -292,9 +292,9 @@ export function ResumeUploadProgress({
             <div
               className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${status === "uploading" ? "upload-agent-glow" : ""}`}
               style={{
-                background: "rgba(203, 41, 87, 0.1)",
-                color: "var(--color-accent)",
-                border: "1px solid rgba(203, 41, 87, 0.25)",
+                background: "var(--color-accent-subtle)",
+                color: "var(--color-gold)",
+                border: "1px solid var(--color-accent-border)",
               }}
             >
               <AgentIcon />
@@ -316,11 +316,11 @@ export function ResumeUploadProgress({
             </div>
           </div>
           <span
-            className="text-[0.65rem] font-semibold px-2.5 py-1 rounded-full flex-shrink-0 uppercase tracking-wide"
+            className="text-[0.65rem] font-semibold px-2.5 py-1 rounded-full flex-shrink-0 uppercase tracking-wider"
             style={{
               color: headerBadge.color,
               background: `color-mix(in srgb, ${headerBadge.color} 12%, transparent)`,
-              border: `1px solid color-mix(in srgb, ${headerBadge.color} 25%, transparent)`,
+              border: `1px solid color-mix(in srgb, ${headerBadge.color} 28%, transparent)`,
             }}
           >
             {headerBadge.label}
@@ -351,10 +351,10 @@ export function ResumeUploadProgress({
                     ? "var(--color-red)"
                     : status === "success"
                       ? "var(--color-green)"
-                      : "linear-gradient(90deg, var(--color-accent), var(--color-accent-h))",
+                      : "linear-gradient(90deg, var(--color-accent), var(--color-gold))",
                 boxShadow:
                   status === "uploading"
-                    ? "0 0 12px rgba(203, 41, 87, 0.4)"
+                    ? "0 0 12px rgba(143, 23, 51, 0.5)"
                     : undefined,
               }}
             />
@@ -362,7 +362,7 @@ export function ResumeUploadProgress({
         </div>
       </div>
 
-      <div className="px-5 py-4">
+      <div className="px-4 sm:px-5 py-4">
         <p
           className="text-[0.65rem] uppercase tracking-wider font-semibold mb-3"
           style={{ color: "var(--color-muted)" }}
@@ -394,7 +394,7 @@ export function ResumeUploadProgress({
 
                 <div className={`pb-3.5 ${isLast ? "pb-0" : ""} min-w-0 flex-1 pt-0.5`}>
                   <p
-                    className="text-sm leading-5"
+                    className="text-xs sm:text-sm leading-5"
                     style={{
                       color:
                         stepState === "pending"
@@ -402,7 +402,7 @@ export function ResumeUploadProgress({
                           : stepState === "failed"
                             ? "var(--color-red)"
                             : "var(--color-text)",
-                      fontWeight: stepState === "active" ? 500 : 400,
+                      fontWeight: stepState === "active" ? 600 : 400,
                       opacity: stepState === "pending" ? 0.55 : 1,
                       transition: "color 200ms ease, opacity 200ms ease",
                     }}
@@ -411,7 +411,7 @@ export function ResumeUploadProgress({
                     {stepState === "active" && status === "uploading" && (
                       <span
                         className="inline-block ml-1.5 upload-dots"
-                        style={{ color: "var(--color-accent-h)" }}
+                        style={{ color: "var(--color-gold)" }}
                         aria-hidden="true"
                       >
                         …
@@ -426,23 +426,24 @@ export function ResumeUploadProgress({
 
         {status === "error" && errorMessage && (
           <div
-            className="mt-2 px-3 py-2.5 rounded-lg text-sm"
+            className="mt-3 px-3 py-2.5 rounded-lg text-xs sm:text-sm flex items-start gap-2"
             style={{
               color: "var(--color-red)",
-              background: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.2)",
+              background: "rgba(239, 68, 68, 0.1)",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
             }}
           >
-            {errorMessage}
+            <span className="font-bold">✕</span>
+            <span>{errorMessage}</span>
           </div>
         )}
 
         {status === "success" && (
           <p
-            className="mt-2 text-xs text-center"
+            className="mt-3 text-xs text-center font-medium"
             style={{ color: "var(--color-green)" }}
           >
-            Resume profile ready — updating dashboard…
+            ✓ Resume profile ready — updating dashboard…
           </p>
         )}
       </div>

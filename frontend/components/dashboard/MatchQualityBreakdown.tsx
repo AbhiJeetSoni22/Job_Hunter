@@ -38,23 +38,23 @@ export function MatchQualityBreakdown({
 }: MatchQualityBreakdownProps) {
   if (!loading && !hasResume) {
     return (
-      <Card padding="md">
+      <Card padding="md" className="card-elevated h-full">
         <h2
           style={{
             fontWeight: 700,
-            fontSize: "1rem",
+            fontSize: "0.95rem",
             color: "var(--color-text)",
             marginBottom: "0.9rem",
           }}
         >
           Match Quality
         </h2>
-        <div className="text-center py-4">
+        <div className="text-center py-6">
           <p
             style={{
               fontSize: "0.95rem",
               fontWeight: 600,
-              color: "var(--color-subtle)",
+              color: "var(--color-text)",
             }}
           >
             Resume Required
@@ -66,7 +66,7 @@ export function MatchQualityBreakdown({
               marginTop: "0.4rem",
             }}
           >
-            Upload a resume to view match quality insights.
+            Upload a resume to view candidate match quality insights.
           </p>
         </div>
       </Card>
@@ -74,26 +74,38 @@ export function MatchQualityBreakdown({
   }
 
   return (
-    <Card padding="md">
-      <h2
-        style={{
-          fontWeight: 700,
-          fontSize: "1rem",
-          color: "var(--color-text)",
-          marginBottom: "0.9rem",
-        }}
-      >
-        Match Quality
-      </h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <Card padding="md" className="card-elevated h-full">
+      <div className="flex items-center justify-between mb-4">
+        <h2
+          style={{
+            fontWeight: 700,
+            fontSize: "0.95rem",
+            color: "var(--color-text)",
+          }}
+        >
+          Match Quality
+        </h2>
+        <span className="text-[0.7rem] uppercase tracking-wider font-medium" style={{ color: "var(--color-muted)" }}>
+          Distribution
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {loading
           ? TIERS.map((tier) => <MatchQualityTierSkeleton key={tier.key} />)
           : TIERS.map((tier) => (
-              <div key={tier.key} className="text-center">
+              <div
+                key={tier.key}
+                className="text-center p-2.5 sm:p-3 rounded-lg"
+                style={{
+                  background: "var(--color-bg)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
                 <p
                   style={{
-                    fontSize: "1.4rem",
-                    fontWeight: 700,
+                    fontSize: "1.35rem",
+                    fontWeight: 800,
                     color: tier.color,
                     lineHeight: 1.2,
                   }}
@@ -105,12 +117,12 @@ export function MatchQualityBreakdown({
                     fontSize: "0.75rem",
                     fontWeight: 600,
                     color: "var(--color-text)",
-                    marginTop: "0.15rem",
+                    marginTop: "0.2rem",
                   }}
                 >
                   {tier.label}
                 </p>
-                <p style={{ fontSize: "0.7rem", color: "var(--color-subtle)" }}>
+                <p style={{ fontSize: "0.6875rem", color: "var(--color-muted)", marginTop: "0.1rem" }}>
                   {tier.range}
                 </p>
               </div>

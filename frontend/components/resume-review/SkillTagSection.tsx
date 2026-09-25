@@ -17,25 +17,25 @@ export function SkillTagSection({
   animationClass = "",
 }: SkillTagSectionProps) {
   return (
-    <Card padding="md" className={animationClass}>
+    <Card padding="md" className={`card-elevated ${animationClass}`}>
       <h3
         style={{
-          fontSize: "0.75rem",
+          fontSize: "0.72rem",
           fontWeight: 700,
-          color: "var(--color-subtle)",
+          color: missing ? "var(--color-red)" : "var(--color-gold)",
           textTransform: "uppercase",
-          letterSpacing: "0.04em",
+          letterSpacing: "0.06em",
         }}
         className="mb-3"
       >
         {title}
       </h3>
       {skills.length === 0 ? (
-        <p style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>
+        <p style={{ fontSize: "0.8125rem", color: "var(--color-muted)" }}>
           {emptyMessage}
         </p>
       ) : (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
           {skills.map((skill) => (
             <SkillChip key={skill} skill={skill} missing={missing} />
           ))}

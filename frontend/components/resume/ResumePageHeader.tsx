@@ -4,7 +4,6 @@ import type { Resume } from "@/lib/types";
 
 interface ResumePageHeaderProps {
   resume: Resume | null;
-  /** Optional — when set (with backLabel), renders a BackButton above the title. */
   backHref?: string;
   backLabel?: string;
 }
@@ -32,35 +31,34 @@ export function ResumePageHeader({
         </div>
       )}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-      <div className="min-w-0">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h1
-            className="text-2xl font-bold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+        <div className="min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1
+              className="text-xl sm:text-2xl font-bold tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
+              Resume Profile
+            </h1>
+            {resume ? (
+              <Badge color="green" dot>
+                Active
+              </Badge>
+            ) : (
+              <Badge color="default">No Resume Uploaded</Badge>
+            )}
+          </div>
+          <p
+            className="text-xs sm:text-sm mt-1.5 max-w-xl leading-relaxed"
+            style={{ color: "var(--color-subtle)" }}
           >
-            Resume Profile
-          </h1>
-          {resume ? (
-            <Badge color="green" dot>
-              Active
-            </Badge>
-          ) : (
-            <Badge color="default">Not Uploaded</Badge>
+            Manage your resume profile to drive AI matching, gap analysis, and tailored interview preparation.
+          </p>
+          {resume && (
+            <p className="text-xs mt-2" style={{ color: "var(--color-muted)" }}>
+              Last updated {formatRelative(resume.uploaded_at)}
+            </p>
           )}
         </div>
-        <p
-          className="text-sm mt-1.5 max-w-xl"
-          style={{ color: "var(--color-subtle)" }}
-        >
-          Upload and manage your resume to unlock AI-powered job matching,
-          gap analysis, and personalized recommendations.
-        </p>
-        {resume && (
-          <p className="text-xs mt-2" style={{ color: "var(--color-muted)" }}>
-            Last updated {formatRelative(resume.uploaded_at)}
-          </p>
-        )}
-      </div>
       </div>
     </div>
   );

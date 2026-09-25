@@ -33,20 +33,20 @@ function MetricTile({
 }) {
   return (
     <div
-      className="p-4 rounded-lg"
+      className="p-3.5 sm:p-4 rounded-lg"
       style={{
         background: "var(--color-bg)",
         border: "1px solid var(--color-border)",
       }}
     >
       <p
-        className="text-[0.65rem] uppercase tracking-wider font-semibold"
+        className="text-[0.65rem] uppercase tracking-wider font-semibold truncate"
         style={{ color: "var(--color-muted)" }}
       >
         {label}
       </p>
       <p
-        className="text-lg font-semibold mt-1 truncate"
+        className="text-base sm:text-lg font-bold mt-1 truncate"
         style={{ color: "var(--color-text)" }}
         title={String(value)}
       >
@@ -90,23 +90,23 @@ export function ResumeOverviewCard({
   return (
     <Card padding="none" className="card-elevated overflow-hidden fade-up-1">
       <div
-        className="px-5 py-4 flex items-start justify-between gap-3"
+        className="px-4 sm:px-5 py-3.5 sm:py-4 flex items-start justify-between gap-3"
         style={{ borderBottom: "1px solid var(--color-border)" }}
       >
         <div className="flex items-center gap-3 min-w-0">
           <div
             className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{
-              background: "rgba(203, 41, 87, 0.08)",
-              color: "var(--color-accent)",
-              border: "1px solid rgba(203, 41, 87, 0.2)",
+              background: "var(--color-accent-subtle)",
+              color: "#E28296",
+              border: "1px solid var(--color-accent-border)",
             }}
           >
             <FileIcon />
           </div>
           <div className="min-w-0">
             <h2
-              className="text-sm font-semibold"
+              className="text-sm font-semibold truncate"
               style={{ color: "var(--color-text)" }}
             >
               Resume Overview
@@ -120,10 +120,12 @@ export function ResumeOverviewCard({
             </p>
           </div>
         </div>
-        <Badge color={quality.color}>{quality.label}</Badge>
+        <div className="flex-shrink-0">
+          <Badge color={quality.color}>{quality.label}</Badge>
+        </div>
       </div>
 
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         <div className="grid grid-cols-2 gap-3">
           <MetricTile
             label="Skills Detected"
@@ -138,7 +140,7 @@ export function ResumeOverviewCard({
         </div>
 
         <p
-          className="text-xs mt-4 px-3 py-2.5 rounded-lg"
+          className="text-xs mt-4 px-3.5 py-2.5 rounded-lg leading-relaxed"
           style={{
             color: "var(--color-subtle)",
             background: "var(--color-bg)",
@@ -148,9 +150,9 @@ export function ResumeOverviewCard({
           {quality.description}
         </p>
 
-        <div className="mt-4 pt-4 flex items-center justify-between gap-3 flex-wrap">
+        <div className="mt-4 pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t" style={{ borderColor: "var(--color-border)" }}>
           <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-            Uploading a new PDF replaces this profile.
+            Uploading a new PDF replaces this active profile.
           </p>
           <Button
             variant="danger"
@@ -158,6 +160,7 @@ export function ResumeOverviewCard({
             loading={deleting}
             disabled={deleting}
             onClick={onDelete}
+            className="self-start sm:self-auto"
           >
             {deleting ? "Deleting…" : "Delete Resume"}
           </Button>

@@ -21,35 +21,34 @@ export function ResumeEmptyPanel({ onUploadClick }: ResumeEmptyPanelProps) {
       className="card-elevated overflow-hidden fade-up-1 h-full"
     >
       <div
-        className="px-6 py-8 text-center"
+        className="px-5 sm:px-6 py-8 sm:py-10 text-center"
         style={{
           background:
-            "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(203, 41, 87, 0.08) 0%, transparent 70%)",
+            "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(143, 23, 51, 0.12) 0%, transparent 70%)",
         }}
       >
         <div
-          className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center text-2xl mb-4"
+          className="w-14 h-14 mx-auto rounded-xl flex items-center justify-center text-2xl mb-4"
           style={{
-            background: "rgba(203, 41, 87, 0.1)",
-            border: "1px solid rgba(203, 41, 87, 0.25)",
-            boxShadow: "0 0 40px -10px rgba(203, 41, 87, 0.25)",
+            background: "var(--color-accent-subtle)",
+            border: "1px solid var(--color-accent-border)",
+            boxShadow: "0 0 30px -5px rgba(143, 23, 51, 0.35)",
           }}
         >
           🎯
         </div>
 
         <h2
-          className="text-lg font-semibold tracking-tight"
+          className="text-lg sm:text-xl font-bold tracking-tight"
           style={{ color: "var(--color-text)" }}
         >
           Upload Your Resume
         </h2>
         <p
-          className="text-sm mt-2 max-w-sm mx-auto"
+          className="text-xs sm:text-sm mt-2 max-w-sm mx-auto leading-relaxed"
           style={{ color: "var(--color-subtle)" }}
         >
-          Upload your resume to unlock AI-powered tools that help you find and
-          land the right internship.
+          Upload your resume to unlock AI-powered match scoring, gap analysis, and tailored interview preparation.
         </p>
 
         <Button
@@ -58,29 +57,29 @@ export function ResumeEmptyPanel({ onUploadClick }: ResumeEmptyPanelProps) {
           className="mt-6"
           onClick={onUploadClick}
         >
-          Upload Resume
+          Upload Resume Now
         </Button>
       </div>
 
       <div
-        className="px-5 py-5 grid grid-cols-1 sm:grid-cols-2 gap-3"
+        className="px-4 sm:px-5 py-4 sm:py-5 grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3"
         style={{ borderTop: "1px solid var(--color-border)" }}
       >
         {FEATURES.map(({ icon, title, desc }) => (
           <div
             key={title}
-            className="flex gap-3 p-3 rounded-lg"
+            className="flex items-start gap-3 p-3 rounded-lg"
             style={{
               background: "var(--color-bg)",
               border: "1px solid var(--color-border)",
             }}
           >
-            <span className="text-lg flex-shrink-0" aria-hidden="true">
+            <span className="text-base sm:text-lg flex-shrink-0" aria-hidden="true">
               {icon}
             </span>
             <div className="min-w-0">
               <p
-                className="text-sm font-medium"
+                className="text-xs sm:text-sm font-semibold truncate"
                 style={{ color: "var(--color-text)" }}
               >
                 {title}

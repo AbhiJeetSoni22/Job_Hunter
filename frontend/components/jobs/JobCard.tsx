@@ -40,34 +40,47 @@ export function JobCard({
       <Card
         padding="md"
         hoverable
+        className="card-elevated"
         style={{
           borderColor: "var(--color-border)",
         }}
       >
-        <div className="flex items-start justify-between gap-4">
-          {/* Left: title + meta */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+          {/* Main content: title + meta */}
           <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2 sm:block">
+              <h3
+                className="font-semibold text-sm sm:text-base leading-snug group-hover:text-[var(--color-text)] transition-colors break-words"
+                style={{ color: "var(--color-text)" }}
+              >
+                {job.title}
+              </h3>
+
+              {/* Source/date on extra small mobile screens when stacked */}
+              <div className="text-right flex-shrink-0 sm:hidden">
+                <span className="text-[0.7rem] uppercase tracking-wider block" style={{ color: "var(--color-muted)" }}>
+                  {SOURCE_LABEL[job.source] ?? job.source}
+                </span>
+                <span className="text-[0.6875rem] block mt-0.5" style={{ color: "var(--color-muted)" }}>
+                  {formatDate(job.posted_at ?? job.created_at)}
+                </span>
+              </div>
+            </div>
+
             <p
-              className="font-semibold truncate group-hover:underline"
-              style={{ color: "var(--color-text)", fontSize: "0.95rem" }}
-            >
-              {job.title}
-            </p>
-            <p
-              className="text-sm mt-0.5 truncate"
+              className="text-xs sm:text-sm mt-1 truncate"
               style={{ color: "var(--color-subtle)" }}
             >
-              {job.company}
+              <span className="font-medium text-[var(--color-text)] opacity-90">{job.company}</span>
               {job.location && (
                 <span style={{ color: "var(--color-muted)" }}>
-                  {" "}
-                  · {job.location}
+                  {" "}· {job.location}
                 </span>
               )}
             </p>
 
             {/* Badges row */}
-            <div className="flex flex-wrap gap-1.5 mt-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-3">
               <StatusSelect
                 jobId={job.id}
                 status={job.status}
@@ -86,9 +99,9 @@ export function JobCard({
             </div>
           </div>
 
-          {/* Right: source + date */}
-          <div className="text-right flex-shrink-0">
-            <p style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>
+          {/* Desktop Right: source + date */}
+          <div className="hidden sm:block text-right flex-shrink-0 pl-2">
+            <p className="text-[0.75rem] uppercase tracking-wider font-medium" style={{ color: "var(--color-muted)" }}>
               {SOURCE_LABEL[job.source] ?? job.source}
             </p>
             <p

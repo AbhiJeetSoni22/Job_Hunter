@@ -53,8 +53,7 @@ export default function JobDetailPage({ params }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Resume presence — fetched independently, consistent with Dashboard's
-  // and the Jobs list's rule: no active resume, no match-score display.
+  // Resume presence
   const [hasResume, setHasResume] = useState<boolean | null>(null);
 
   // Score state
@@ -85,7 +84,6 @@ export default function JobDetailPage({ params }: Props) {
       setJob(j);
       setStatus(j.status);
       setNotes(j.notes ?? "");
-      // Populate score panel from stored data if present
       if (j.match_score !== null && j.match_summary !== null) {
         setScoreResult({
           match_score: j.match_score,
@@ -124,7 +122,6 @@ export default function JobDetailPage({ params }: Props) {
     try {
       const result = await scoreJob(id);
       setScoreResult(result);
-      // Refresh job to get updated needs_rescore / match_score badge
       const updated = await getJob(id);
       setJob(updated);
       addToast(
@@ -166,16 +163,16 @@ export default function JobDetailPage({ params }: Props) {
   async function handleStatusChange(newStatus: JobStatus) {
     if (savingStatus || newStatus === status) return;
     const prev = status;
-    setStatus(newStatus); // optimistic
+    setStatus(newStatus);
     setSavingStatus(true);
     try {
-      await updateJob(id, { status: newStatus });
-      setJob((j) => (j ? { ...j, status: newStatus } : j));
+      const updated = await updateJob(id, { status: newStatus });
+      setJob((prev) => (prev ? { ...prev, status: updated.status } : null));
       addToast(`Status updated to "${newStatus}".`, "success");
     } catch (err) {
-      setStatus(prev); // rollback
+      setStatus(prev);
       addToast(
-        err instanceof ApiClientError ? err.message : "Status update failed.",
+        err instanceof ApiClientError ? err.message : "Failed to update status.",
         "error",
       );
     } finally {
@@ -189,8 +186,8 @@ export default function JobDetailPage({ params }: Props) {
     if (savingNotes) return;
     setSavingNotes(true);
     try {
-      await updateJob(id, { notes });
-      setJob((j) => (j ? { ...j, notes } : j));
+      const updated = await updateJob(id, { notes: notes.trim() });
+      setJob((prev) => (prev ? { ...prev, notes: updated.notes } : null));
       setNotesDirty(false);
       addToast("Notes saved.", "success");
     } catch (err) {
@@ -205,7 +202,17 @@ export default function JobDetailPage({ params }: Props) {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
-  if (loading) return <LoadingSpinner label="Loading job…" />;
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <LoadingSpinner />
+        <p className="text-xs uppercase tracking-wider font-semibold" style={{ color: "var(--color-muted)" }}>
+          Loading opportunity details…
+        </p>
+      </div>
+    );
+  }
+
   if (loadError)
     return (
       <div>
@@ -216,7 +223,7 @@ export default function JobDetailPage({ params }: Props) {
   if (!job) return null;
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-4xl mx-auto pb-8">
       <PageHeader
         title={job.title}
         subtitle={job.company + (job.location ? ` · ${job.location}` : "")}
@@ -225,7 +232,7 @@ export default function JobDetailPage({ params }: Props) {
       />
 
       {/* ── Badges ───────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div className="flex flex-wrap items-center gap-2 mb-6">
         <StatusBadge status={status} />
         {hasResume === false ? (
           <ResumeRequiredBadge />
@@ -245,12 +252,12 @@ export default function JobDetailPage({ params }: Props) {
       </div>
 
       {/* ── Score panel ──────────────────────────────────────────────────── */}
-      <Card padding="md" className="mb-4">
+      <Card padding="lg" className="mb-5 card-elevated">
         <p
-          className="text-xs uppercase tracking-wide mb-3"
-          style={{ color: "var(--color-muted)" }}
+          className="text-xs uppercase tracking-wider font-semibold mb-3"
+          style={{ color: "var(--color-gold)" }}
         >
-          AI Match Score
+          AI Compatibility Score
         </p>
         {hasResume === false ? (
           <div>
@@ -261,7 +268,7 @@ export default function JobDetailPage({ params }: Props) {
                 marginBottom: "0.75rem",
               }}
             >
-              Upload a resume to score this job and see how well it fits.
+              Upload a resume to score this job and see how well your skills match.
             </p>
             <Link href="/resume">
               <Button size="sm">Upload Resume</Button>
@@ -272,9 +279,10 @@ export default function JobDetailPage({ params }: Props) {
             <div className="flex items-center gap-3 mb-3 flex-wrap">
               <span
                 style={{
-                  fontSize: "2rem",
-                  fontWeight: 700,
+                  fontSize: "2.25rem",
+                  fontWeight: 800,
                   color: "var(--color-text)",
+                  lineHeight: 1,
                 }}
               >
                 {scoreResult.match_score}%
@@ -289,20 +297,20 @@ export default function JobDetailPage({ params }: Props) {
               style={{
                 fontSize: "0.875rem",
                 color: "var(--color-text)",
-                lineHeight: 1.6,
-                marginBottom: "0.75rem",
+                lineHeight: 1.65,
+                marginBottom: "0.875rem",
               }}
             >
               {scoreResult.match_summary}
             </p>
 
             {scoreResult.missing_skills.length > 0 && (
-              <div>
+              <div className="mt-3">
                 <p
-                  className="text-xs uppercase tracking-wide mb-1.5"
+                  className="text-xs uppercase tracking-wider font-semibold mb-2"
                   style={{ color: "var(--color-muted)" }}
                 >
-                  Missing skills
+                  Identified Skill Gaps
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {scoreResult.missing_skills.map((s) => (
@@ -314,7 +322,7 @@ export default function JobDetailPage({ params }: Props) {
               </div>
             )}
 
-            <div className="mt-3">
+            <div className="mt-4 pt-3 border-t" style={{ borderColor: "var(--color-border)" }}>
               <Button
                 variant="secondary"
                 size="sm"
@@ -322,7 +330,7 @@ export default function JobDetailPage({ params }: Props) {
                 disabled={scoring}
                 onClick={handleScore}
               >
-                {scoring ? "Scoring…" : "↻ Re-score"}
+                {scoring ? "Scoring…" : "↻ Re-score with Latest Profile"}
               </Button>
             </div>
           </div>
@@ -335,7 +343,7 @@ export default function JobDetailPage({ params }: Props) {
                 marginBottom: "0.75rem",
               }}
             >
-              No score yet. Click below to run AI match scoring.
+              No score calculated yet. Run AI scoring against your uploaded resume.
             </p>
             <Button
               size="sm"
@@ -343,19 +351,19 @@ export default function JobDetailPage({ params }: Props) {
               disabled={scoring}
               onClick={handleScore}
             >
-              {scoring ? "Scoring…" : "⭐ Score Job"}
+              {scoring ? "Scoring…" : "⭐ Score Job Now"}
             </Button>
           </div>
         )}
       </Card>
 
       {/* ── Interview Prep ──────────────────────────────────────────────── */}
-      <Card padding="md" className="mb-4">
+      <Card padding="lg" className="mb-5 card-elevated">
         <p
-          className="text-xs uppercase tracking-wide mb-3"
-          style={{ color: "var(--color-muted)" }}
+          className="text-xs uppercase tracking-wider font-semibold mb-3"
+          style={{ color: "var(--color-gold)" }}
         >
-          AI Interview Prep
+          AI Interview Preparation
         </p>
         {hasResume === false ? (
           <div>
@@ -366,8 +374,7 @@ export default function JobDetailPage({ params }: Props) {
                 marginBottom: "0.75rem",
               }}
             >
-              Upload a resume to generate interview preparation material for
-              this job.
+              Upload a resume to generate interview preparation material for this job.
             </p>
             <Link href="/resume">
               <Button size="sm">Upload Resume</Button>
@@ -376,7 +383,7 @@ export default function JobDetailPage({ params }: Props) {
         ) : interviewPrep ? (
           <div>
             <InterviewPrepPanel result={interviewPrep} />
-            <div className="mt-3">
+            <div className="mt-4 pt-3 border-t" style={{ borderColor: "var(--color-border)" }}>
               <Button
                 variant="secondary"
                 size="sm"
@@ -384,7 +391,7 @@ export default function JobDetailPage({ params }: Props) {
                 disabled={generatingPrep}
                 onClick={handleGenerateInterviewPrep}
               >
-                {generatingPrep ? "Generating…" : "↻ Regenerate"}
+                {generatingPrep ? "Generating…" : "↻ Regenerate Questions"}
               </Button>
             </div>
           </div>
@@ -397,8 +404,7 @@ export default function JobDetailPage({ params }: Props) {
                 marginBottom: "0.75rem",
               }}
             >
-              Generate tailored interview questions, topics to revise, and tips
-              based on your resume and this job.
+              Generate tailored interview questions, revision topics, and strategy tips based on this job and your resume.
             </p>
             <Button
               size="sm"
@@ -413,9 +419,9 @@ export default function JobDetailPage({ params }: Props) {
       </Card>
 
       {/* ── Status dropdown ──────────────────────────────────────────────── */}
-      <Card padding="md" className="mb-4">
+      <Card padding="md" className="mb-5 card-elevated">
         <p
-          className="text-xs uppercase tracking-wide mb-3"
+          className="text-xs uppercase tracking-wider font-semibold mb-2.5"
           style={{ color: "var(--color-muted)" }}
         >
           Application Status
@@ -430,33 +436,34 @@ export default function JobDetailPage({ params }: Props) {
               border: "1px solid var(--color-border)",
               borderRadius: "0.375rem",
               color: "var(--color-text)",
-              padding: "0.4rem 0.75rem",
-              fontSize: "0.875rem",
+              padding: "0.45rem 0.85rem",
+              fontSize: "0.85rem",
               cursor: savingStatus ? "not-allowed" : "pointer",
               opacity: savingStatus ? 0.6 : 1,
             }}
+            className="focus:outline-none focus:border-[var(--color-gold)] transition-colors min-h-[38px]"
           >
             {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
+              <option key={o.value} value={o.value} style={{ background: "#161616", color: "#F5F1E8" }}>
                 {o.label}
               </option>
             ))}
           </select>
           {savingStatus && (
-            <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>
-              Saving…
+            <span style={{ fontSize: "0.75rem", color: "var(--color-muted)" }}>
+              Updating…
             </span>
           )}
         </div>
       </Card>
 
       {/* ── Notes ────────────────────────────────────────────────────────── */}
-      <Card padding="md" className="mb-4">
+      <Card padding="md" className="mb-5 card-elevated">
         <p
-          className="text-xs uppercase tracking-wide mb-3"
+          className="text-xs uppercase tracking-wider font-semibold mb-2.5"
           style={{ color: "var(--color-muted)" }}
         >
-          Notes
+          Application Notes
         </p>
         <textarea
           value={notes}
@@ -464,7 +471,7 @@ export default function JobDetailPage({ params }: Props) {
             setNotes(e.target.value);
             setNotesDirty(true);
           }}
-          placeholder="Add notes about this application…"
+          placeholder="Add notes about your application, recruiter contacts, or referral details…"
           rows={4}
           style={{
             width: "100%",
@@ -472,12 +479,13 @@ export default function JobDetailPage({ params }: Props) {
             border: "1px solid var(--color-border)",
             borderRadius: "0.375rem",
             color: "var(--color-text)",
-            padding: "0.5rem 0.75rem",
-            fontSize: "0.875rem",
+            padding: "0.6rem 0.85rem",
+            fontSize: "0.85rem",
             resize: "vertical",
             fontFamily: "inherit",
             lineHeight: 1.6,
           }}
+          className="focus:outline-none focus:border-[var(--color-gold)] transition-colors"
         />
         <div className="flex items-center gap-3 mt-3">
           <Button
@@ -489,26 +497,26 @@ export default function JobDetailPage({ params }: Props) {
             {savingNotes ? "Saving…" : "Save Notes"}
           </Button>
           {!notesDirty && notes && (
-            <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>
-              Saved
+            <span style={{ fontSize: "0.75rem", color: "var(--color-green)" }}>
+              ✓ Saved
             </span>
           )}
         </div>
       </Card>
 
       {/* ── Description ──────────────────────────────────────────────────── */}
-      <Card padding="md" className="mb-4">
+      <Card padding="lg" className="mb-6 card-elevated">
         <p
-          className="text-xs uppercase tracking-wide mb-2"
+          className="text-xs uppercase tracking-wider font-semibold mb-3"
           style={{ color: "var(--color-muted)" }}
         >
-          Description
+          Role Description
         </p>
         <p
           style={{
             color: "var(--color-text)",
             fontSize: "0.875rem",
-            lineHeight: 1.7,
+            lineHeight: 1.75,
             whiteSpace: "pre-wrap",
           }}
         >
@@ -517,21 +525,23 @@ export default function JobDetailPage({ params }: Props) {
       </Card>
 
       {/* ── Links ────────────────────────────────────────────────────────── */}
-      <div className="flex gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <a
           href={job.url}
           target="_blank"
           rel="noopener noreferrer"
           style={{
             background: "var(--color-accent)",
-            color: "white",
-            padding: "0.4rem 1rem",
+            color: "#F5F1E8",
+            border: "1px solid var(--color-accent-border)",
+            padding: "0.5rem 1.25rem",
             borderRadius: "0.375rem",
             fontSize: "0.875rem",
-            fontWeight: 500,
+            fontWeight: 600,
           }}
+          className="btn-fx inline-flex items-center gap-1.5"
         >
-          Apply →
+          Apply on Site →
         </a>
         {job.company_url && (
           <a
@@ -542,13 +552,14 @@ export default function JobDetailPage({ params }: Props) {
               background: "var(--color-surface)",
               color: "var(--color-text)",
               border: "1px solid var(--color-border)",
-              padding: "0.4rem 1rem",
+              padding: "0.5rem 1.25rem",
               borderRadius: "0.375rem",
               fontSize: "0.875rem",
               fontWeight: 500,
             }}
+            className="btn-fx inline-flex items-center gap-1.5"
           >
-            Company site
+            Company Website
           </a>
         )}
       </div>

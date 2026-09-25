@@ -14,32 +14,32 @@ const CATEGORY_COLORS: Record<
   { bg: string; text: string; border: string }
 > = {
   Frontend: {
-    bg: "rgba(56,189,248,0.1)",
+    bg: "rgba(56, 189, 248, 0.12)",
     text: "var(--color-sky)",
-    border: "rgba(56,189,248,0.25)",
+    border: "rgba(56, 189, 248, 0.28)",
   },
   Backend: {
-    bg: "rgba(203,41,87,0.08)",
-    text: "var(--color-accent)",
-    border: "rgba(203,41,87,0.25)",
+    bg: "rgba(143, 23, 51, 0.16)",
+    text: "#E28296",
+    border: "rgba(143, 23, 51, 0.4)",
   },
   Database: {
-    bg: "rgba(34,197,94,0.1)",
+    bg: "rgba(34, 197, 94, 0.12)",
     text: "var(--color-green)",
-    border: "rgba(34,197,94,0.25)",
+    border: "rgba(34, 197, 94, 0.28)",
   },
   Cloud: {
-    bg: "rgba(245,158,11,0.1)",
+    bg: "rgba(234, 179, 8, 0.12)",
     text: "var(--color-amber)",
-    border: "rgba(245,158,11,0.25)",
+    border: "rgba(234, 179, 8, 0.28)",
   },
   "AI/ML": {
-    bg: "rgba(168,85,247,0.12)",
-    text: "#c084fc",
-    border: "rgba(168,85,247,0.3)",
+    bg: "var(--color-gold-subtle)",
+    text: "var(--color-gold)",
+    border: "var(--color-gold-border)",
   },
   Other: {
-    bg: "rgba(0,0,0,0.05)",
+    bg: "rgba(255, 255, 255, 0.05)",
     text: "var(--color-subtle)",
     border: "var(--color-border)",
   },
@@ -70,11 +70,11 @@ export function ResumeSkillsCard({ resume }: ResumeSkillsCardProps) {
   return (
     <Card padding="none" className="card-elevated overflow-hidden fade-up-2">
       <div
-        className="px-5 py-4 flex items-center justify-between gap-3"
+        className="px-4 sm:px-5 py-3.5 sm:py-4 flex items-center justify-between gap-3"
         style={{ borderBottom: "1px solid var(--color-border)" }}
       >
         <div className="flex items-center gap-2.5">
-          <span style={{ color: "var(--color-accent-h)" }}>
+          <span style={{ color: "var(--color-gold)" }}>
             <SparklesIcon />
           </span>
           <div>
@@ -92,7 +92,7 @@ export function ResumeSkillsCard({ resume }: ResumeSkillsCardProps) {
         </div>
       </div>
 
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         {resume.skills.length === 0 ? (
           <p
             className="text-sm text-center py-8"
@@ -118,13 +118,13 @@ export function ResumeSkillsCard({ resume }: ResumeSkillsCardProps) {
                       {category}
                     </span>
                     <span
-                      className="text-[0.65rem]"
+                      className="text-[0.6875rem]"
                       style={{ color: "var(--color-muted)" }}
                     >
-                      {skills.length}
+                      ({skills.length})
                     </span>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2">
                     {skills.map((skill) => (
                       <SkillChip
                         key={skill}

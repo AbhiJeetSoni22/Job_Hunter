@@ -14,8 +14,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const variantStyles: Record<Variant, React.CSSProperties> = {
   primary: {
     background: "var(--color-accent)",
-    color: "white",
-    border: "1px solid transparent",
+    color: "#F5F1E8",
+    border: "1px solid var(--color-accent-border)",
   },
   secondary: {
     background: "var(--color-surface)",
@@ -28,16 +28,16 @@ const variantStyles: Record<Variant, React.CSSProperties> = {
     border: "1px solid transparent",
   },
   danger: {
-    background: "transparent",
+    background: "rgba(239, 68, 68, 0.1)",
     color: "var(--color-red)",
-    border: "1px solid var(--color-red)",
+    border: "1px solid rgba(239, 68, 68, 0.35)",
   },
 };
 
 const sizeStyles: Record<Size, string> = {
-  sm: "px-2.5 py-1 text-xs rounded",
-  md: "px-4 py-1.5 text-sm rounded-md",
-  lg: "px-5 py-2 text-base rounded-md",
+  sm: "px-3 py-1.5 text-xs rounded min-h-[32px]",
+  md: "px-4 py-2 text-sm rounded-md min-h-[38px]",
+  lg: "px-5 py-2.5 text-base rounded-md min-h-[44px]",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -63,15 +63,15 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           opacity: disabled || loading ? 0.5 : 1,
           cursor: disabled || loading ? "not-allowed" : "pointer",
           fontWeight: 500,
-          transition: "opacity 150ms",
+          transition: "opacity 150ms, background-color 150ms, border-color 150ms",
           ...style,
         }}
-        className={`inline-flex items-center gap-1.5 select-none btn-fx ${sizeStyles[size]} ${className}`}
+        className={`inline-flex items-center justify-center gap-1.5 select-none btn-fx ${sizeStyles[size]} ${className}`}
         {...rest}
       >
         {loading && (
           <svg
-            className="animate-spin w-3.5 h-3.5"
+            className="animate-spin w-3.5 h-3.5 flex-shrink-0"
             viewBox="0 0 24 24"
             fill="none"
           >

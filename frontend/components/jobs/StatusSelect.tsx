@@ -12,31 +12,36 @@ interface StatusSelectProps {
   onError?: (message: string) => void;
 }
 
-const CONFIG: Record<JobStatus, { label: string; bg: string; text: string }> = {
+const CONFIG: Record<JobStatus, { label: string; bg: string; text: string; border: string }> = {
   saved: {
     label: "Saved",
-    bg: "rgba(0,0,0,0.06)",
+    bg: "rgba(255, 255, 255, 0.06)",
     text: "var(--color-subtle)",
+    border: "rgba(255, 255, 255, 0.14)",
   },
   applied: {
     label: "Applied",
-    bg: "rgba(56,189,248,0.15)",
+    bg: "rgba(56, 189, 248, 0.12)",
     text: "var(--color-sky)",
+    border: "rgba(56, 189, 248, 0.28)",
   },
   interview: {
     label: "Interview",
-    bg: "rgba(203,41,87,0.12)",
-    text: "var(--color-accent)",
+    bg: "var(--color-gold-subtle)",
+    text: "var(--color-gold)",
+    border: "var(--color-gold-border)",
   },
   offer: {
     label: "Offer",
-    bg: "rgba(34,197,94,0.15)",
+    bg: "rgba(34, 197, 94, 0.12)",
     text: "var(--color-green)",
+    border: "rgba(34, 197, 94, 0.28)",
   },
   rejected: {
     label: "Rejected",
-    bg: "rgba(239,68,68,0.15)",
+    bg: "rgba(239, 68, 68, 0.12)",
     text: "var(--color-red)",
+    border: "rgba(239, 68, 68, 0.28)",
   },
 };
 
@@ -48,11 +53,6 @@ const OPTIONS: JobStatus[] = [
   "rejected",
 ];
 
-/**
- * Compact badge-styled status dropdown for use inside JobCard.
- * Stops click/mousedown propagation so it works inside the card's
- * outer <Link> without triggering navigation.
- */
 export function StatusSelect({
   jobId,
   status,
@@ -61,7 +61,7 @@ export function StatusSelect({
 }: StatusSelectProps) {
   const [current, setCurrent] = useState<JobStatus>(status);
   const [saving, setSaving] = useState(false);
-  const { bg, text } = CONFIG[current] ?? CONFIG.saved;
+  const { bg, text, border } = CONFIG[current] ?? CONFIG.saved;
 
   async function handleChange(newStatus: JobStatus) {
     if (saving || newStatus === current) return;
@@ -95,26 +95,28 @@ export function StatusSelect({
       style={{
         background: bg,
         color: text,
-        fontSize: "0.7rem",
+        border: `1px solid ${border}`,
+        fontSize: "0.6875rem",
         fontWeight: 600,
         letterSpacing: "0.03em",
         textTransform: "uppercase",
-        border: "none",
         borderRadius: "9999px",
-        padding: "0.15rem 0.5rem",
+        padding: "0.2rem 0.55rem",
         cursor: saving ? "not-allowed" : "pointer",
         opacity: saving ? 0.6 : 1,
         appearance: "none",
         WebkitAppearance: "none",
+        minHeight: "26px",
       }}
+      className="transition-colors hover:brightness-110"
     >
       {OPTIONS.map((s) => (
         <option
           key={s}
           value={s}
           style={{
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
+            background: "#181818",
+            color: "#F5F1E8",
           }}
         >
           {CONFIG[s].label}

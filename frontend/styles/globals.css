@@ -1,60 +1,88 @@
 @import "tailwindcss";
 
 :root {
-  /* Core Foundation Palette */
-  --color-bg:            #EEEEEE;   /* Soft background */
-  --color-surface:       #FFFFFF;   /* Clean white cards and surfaces */
-  --color-surface-hover: #F8F8F8;   /* Subtle surface hover */
-  --color-border:        #DDDDDD;   /* Secondary gray border */
-  --color-border-hover:  #B5B5B5;   /* Neutral border hover */
-  --color-muted:         #777777;   /* Metadata / muted text */
-  --color-text:          #000000;   /* Primary dark text / black */
-  --color-subtle:        #333333;   /* Secondary text */
+  /* ── Core Dark Theme Foundation Palette ─────────────────────────────────── */
+  /* Near-black obsidian & charcoal surfaces inspired by creative-tech editorial aesthetic */
+  --color-bg:               #070707;   /* Page canvas background (deep obsidian) */
+  --color-bg-subtle:        #0E0E0E;   /* Secondary background (inputs, nested wells) */
+  --color-surface:          #131313;   /* Primary cards, headers, panels */
+  --color-surface-hover:    #1A1A1A;   /* Interactive hover surface */
+  --color-surface-elevated: #171717;   /* Modals, popovers, elevated dialogs */
+  --color-border:           #222222;   /* Subtle 1px structural border */
+  --color-border-hover:     #363636;   /* Hover / subtle focus border */
+  --color-border-subtle:    rgba(255, 255, 255, 0.07);
 
-  /* Accent & Interaction Tokens */
-  --color-accent:        #CB2957;   /* Primary Pink accent */
-  --color-accent-h:      #B02047;   /* Pink hover */
-  --color-accent-subtle: rgba(203, 41, 87, 0.08); /* Pink tint */
+  /* ── Typography (Warm off-white / editorial tone) ────────────────────────── */
+  --color-text:             #F5F1E8;   /* Primary text: warm off-white / cream */
+  --color-subtle:           #A6A6A6;   /* Secondary text: neutral muted gray */
+  --color-muted:            #6B6B6B;   /* Metadata, captions, timestamps */
 
-  /* Dark high-emphasis accents */
-  --color-dark:          #000000;
-  --color-dark-surface:  #111111;
-  --color-dark-border:   #222222;
+  /* ── Deep Burgundy / Wine Accent (Primary CTA, focus, high emphasis) ────── */
+  --color-accent:           #8F1733;   /* Deep burgundy / wine red */
+  --color-accent-h:         #A81F3E;   /* Wine red hover */
+  --color-accent-subtle:    rgba(143, 23, 51, 0.16); /* Wine tint */
+  --color-accent-border:    rgba(143, 23, 51, 0.45);
 
-  /* Semantic status colors (preserved for match scores and application stages) */
-  --color-green:         #16a34a;
-  --color-amber:         #d97706;
-  --color-red:           #dc2626;
-  --color-sky:           #0284c7;
+  /* ── Warm Beige / Muted Gold Accent (Secondary highlights, badges, tags) ── */
+  --color-gold:             #C9A66B;   /* Warm beige / muted gold */
+  --color-gold-h:           #D8B16A;   /* Gold hover */
+  --color-gold-subtle:      rgba(201, 166, 107, 0.12); /* Gold tint */
+  --color-gold-border:      rgba(201, 166, 107, 0.35);
+
+  /* ── High Contrast Dark Elements ────────────────────────────────────────── */
+  --color-dark:             #050505;
+  --color-dark-surface:     #0F0F0F;
+  --color-dark-border:      #1C1C1C;
+
+  /* ── Semantic Status Colors (Tailored for dark surfaces) ───────────────── */
+  --color-green:            #22C55E;   /* High match, offer, active */
+  --color-green-subtle:     rgba(34, 197, 94, 0.12);
+  --color-amber:            #EAB308;   /* Medium match, warning */
+  --color-amber-subtle:     rgba(234, 179, 8, 0.12);
+  --color-red:              #EF4444;   /* Low match, rejected, error */
+  --color-red-subtle:       rgba(239, 68, 68, 0.12);
+  --color-sky:              #38BDF8;   /* Applied status, informational */
+  --color-sky-subtle:       rgba(56, 189, 248, 0.12);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  color-scheme: dark;
+  background-color: var(--color-bg);
+}
+
 body {
   background-color: var(--color-bg);
   color: var(--color-text);
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 ::selection {
   background-color: var(--color-accent);
-  color: white;
+  color: #F5F1E8;
 }
 
-/* Scrollbar — clean on light background */
+/* ── Scrollbar — sleek charcoal on black ───────────────────────────────────── */
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--color-bg); }
-::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #B5B5B5; }
+::-webkit-scrollbar-thumb { background: #222222; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #363636; }
+
+/* ── Focus states ──────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
 
 /* ── Micro-interaction primitives ─────────────────────────────────────────── */
-/* Kept CSS-only (no JS animation lib) to keep bundle size unchanged. */
-
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -63,59 +91,63 @@ body {
   to   { opacity: 1; }
 }
 
-/* Entrance animation — landing page sections/cards. Idempotent, one-shot. */
 .fade-up {
-  animation: fadeInUp 380ms ease both;
+  animation: fadeInUp 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.fade-up-1 { animation-delay: 60ms; }
-.fade-up-2 { animation-delay: 120ms; }
-.fade-up-3 { animation-delay: 180ms; }
-.fade-up-4 { animation-delay: 240ms; }
+.fade-up-1 { animation-delay: 40ms; }
+.fade-up-2 { animation-delay: 80ms; }
+.fade-up-3 { animation-delay: 120ms; }
+.fade-up-4 { animation-delay: 160ms; }
 
-/* Route-level fade, applied per-page via app/template.tsx */
 .page-fade {
   animation: fadeInPage 180ms ease both;
 }
 
-/* Card hover — opt-in via Card's `hoverable` prop. Subtle lift + border emphasis. */
+/* ── Card hover: subtle lift + refined border highlight ────────────────────── */
 .card-hover {
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 .card-hover:hover {
   transform: translateY(-2px);
-  border-color: var(--color-accent);
-  box-shadow: 0 8px 20px -4px rgba(203, 41, 87, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+  border-color: #383838;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
-/* Button hover — subtle scale + brightness lift. */
+/* ── Elevated cards ───────────────────────────────────────────────────────── */
+.card-elevated {
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Button hover effects ─────────────────────────────────────────────────── */
 .btn-fx {
-  transition: transform 150ms ease, filter 150ms ease, opacity 150ms ease;
+  transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
 .btn-fx:hover:not(:disabled) {
-  transform: scale(1.015);
-  filter: brightness(0.96);
+  transform: translateY(-1px);
+  filter: brightness(1.08);
 }
 .btn-fx:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: translateY(0) scale(0.98);
 }
 
-/* Back button — drill-down pages (Job Detail, Resume, Resume Review). */
+/* ── Back button ──────────────────────────────────────────────────────────── */
 .back-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
   background: transparent;
   border: none;
-  padding: 0.25rem 0.125rem;
-  margin: -0.25rem -0.125rem;
+  padding: 0.375rem 0.25rem;
+  margin: -0.25rem -0.25rem;
   cursor: pointer;
   transition: color 150ms ease;
+  min-height: 2rem;
 }
 .back-btn:hover {
-  color: var(--color-accent) !important;
+  color: var(--color-gold) !important;
 }
 .back-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-gold);
   outline-offset: 3px;
   border-radius: 0.25rem;
 }
@@ -126,7 +158,7 @@ body {
   transform: translateX(-3px);
 }
 
-/* Skeleton shimmer — used by <Skeleton /> in loading states. */
+/* ── Skeleton shimmer for dark theme ──────────────────────────────────────── */
 @keyframes skeletonShimmer {
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -134,19 +166,27 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    #E8E8E8 25%,
-    #DCDCDC 50%,
-    #E8E8E8 75%
+    #141414 25%,
+    #202020 50%,
+    #141414 75%
   );
   background-size: 200% 100%;
   animation: skeletonShimmer 1.4s ease-in-out infinite;
   border-radius: 0.375rem;
 }
 
-/* Upload progress — active step pulse + check appear. */
+/* ── Upload dropzone & animations ─────────────────────────────────────────── */
+.upload-dropzone:not([aria-busy="true"]):hover {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 3px rgba(143, 23, 51, 0.15);
+}
+.upload-dropzone-active {
+  transform: scale(1.005);
+}
+
 @keyframes stepPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(203, 41, 87, 0.4); }
-  50%       { box-shadow: 0 0 0 6px rgba(203, 41, 87, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(143, 23, 51, 0.5); }
+  50%       { box-shadow: 0 0 0 5px rgba(143, 23, 51, 0); }
 }
 
 @keyframes stepComplete {
@@ -162,27 +202,9 @@ body {
   animation: stepComplete 200ms ease both;
 }
 
-/* Elevated card — subtle depth for dashboard panels. */
-.card-elevated {
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.05),
-    0 4px 12px -2px rgba(0, 0, 0, 0.05);
-}
-
-/* Upload dropzone hover (non-drag). */
-.upload-dropzone:not([aria-busy="true"]):hover {
-  border-color: var(--color-accent) !important;
-  box-shadow: 0 0 0 4px rgba(203, 41, 87, 0.08);
-}
-
-.upload-dropzone-active {
-  transform: scale(1.005);
-}
-
-/* AI agent icon glow during processing. */
 @keyframes agentGlow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(203, 41, 87, 0.3); }
-  50%       { box-shadow: 0 0 16px 2px rgba(203, 41, 87, 0.25); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(143, 23, 51, 0.3); }
+  50%       { box-shadow: 0 0 16px 2px rgba(143, 23, 51, 0.3); }
 }
 
 .upload-agent-glow {
@@ -198,7 +220,7 @@ body {
   animation: dotPulse 1.2s ease-in-out infinite;
 }
 
-/* Respect prefers-reduced-motion: strip all durations to effectively instant. */
+/* ── Respect prefers-reduced-motion ───────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

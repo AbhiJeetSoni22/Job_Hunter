@@ -49,7 +49,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
       onClick={() => {
         if (!loading) onCancel();
       }}
@@ -57,11 +57,17 @@ export function ConfirmDialog({
       <Card
         padding="lg"
         className="card-elevated w-full max-w-md"
+        style={{
+          background: "var(--color-surface-elevated)",
+          borderColor: "var(--color-border)",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="space-y-5">
           <div>
-            <h2 className="text-lg font-semibold">{title}</h2>
+            <h2 className="text-lg font-semibold" style={{ color: "var(--color-text)" }}>
+              {title}
+            </h2>
 
             <p
               className="mt-2 text-sm leading-6"
@@ -71,12 +77,12 @@ export function ConfirmDialog({
             </p>
           </div>
 
-          <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={onCancel} disabled={loading}>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 sm:gap-3">
+            <Button variant="secondary" onClick={onCancel} disabled={loading} className="w-full sm:w-auto">
               {cancelText}
             </Button>
 
-            <Button variant="danger" loading={loading} onClick={onConfirm}>
+            <Button variant="danger" loading={loading} onClick={onConfirm} className="w-full sm:w-auto">
               {confirmText}
             </Button>
           </div>

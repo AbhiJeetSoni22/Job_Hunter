@@ -28,11 +28,11 @@ export function ResumeUploadCard({
   return (
     <Card padding="none" className="card-elevated overflow-hidden fade-up">
       <div
-        className="px-5 py-4"
+        className="px-4 sm:px-5 py-3.5 sm:py-4"
         style={{
           borderBottom: "1px solid var(--color-border)",
           background:
-            "linear-gradient(135deg, rgba(203, 41, 87, 0.05) 0%, transparent 60%)",
+            "linear-gradient(180deg, rgba(143, 23, 51, 0.08) 0%, transparent 100%)",
         }}
       >
         <h2
@@ -43,12 +43,12 @@ export function ResumeUploadCard({
         </h2>
         <p className="text-xs mt-0.5" style={{ color: "var(--color-subtle)" }}>
           {isReplace
-            ? "Upload a new PDF to replace your current profile."
-            : "Drag and drop your resume or browse from your device."}
+            ? "Upload a new PDF to update your skills and match rankings."
+            : "Drag and drop your resume or browse to enable AI scoring."}
         </p>
       </div>
 
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         <ResumeUploader
           ref={uploaderRef}
           onFileSelected={onFileSelected}
@@ -59,17 +59,17 @@ export function ResumeUploadCard({
           {REQUIREMENTS.map(({ label, icon }) => (
             <div
               key={label}
-              className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg text-center"
+              className="flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-center"
               style={{
                 background: "var(--color-bg)",
                 border: "1px solid var(--color-border)",
               }}
             >
-              <span className="text-base" aria-hidden="true">
+              <span className="text-sm sm:text-base" aria-hidden="true">
                 {icon}
               </span>
               <span
-                className="text-[0.65rem] font-medium leading-tight"
+                className="text-[0.65rem] font-medium leading-tight truncate w-full"
                 style={{ color: "var(--color-subtle)" }}
               >
                 {label}

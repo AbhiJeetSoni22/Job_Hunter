@@ -16,9 +16,9 @@ interface ToastProps {
 }
 
 const COLORS: Record<ToastVariant, { bg: string; border: string; icon: string }> = {
-  success: { bg: "var(--color-surface)", border: "var(--color-green)",  icon: "✅" },
-  error:   { bg: "var(--color-surface)", border: "var(--color-red)",    icon: "❌" },
-  info:    { bg: "var(--color-surface)", border: "var(--color-accent)", icon: "ℹ️" },
+  success: { bg: "var(--color-surface-elevated)", border: "var(--color-green)", icon: "✓" },
+  error:   { bg: "var(--color-surface-elevated)", border: "var(--color-red)",   icon: "✕" },
+  info:    { bg: "var(--color-surface-elevated)", border: "var(--color-gold)",  icon: "ℹ" },
 };
 
 function Toast({ toast, onDismiss }: { toast: ToastMessage; onDismiss: (id: number) => void }) {
@@ -39,19 +39,29 @@ function Toast({ toast, onDismiss }: { toast: ToastMessage; onDismiss: (id: numb
         padding: "0.75rem 1rem",
         display: "flex",
         alignItems: "flex-start",
-        gap: "0.5rem",
-        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+        gap: "0.625rem",
+        boxShadow: "0 8px 30px rgba(0, 0, 0, 0.7)",
         minWidth: "260px",
-        maxWidth: "380px",
+        maxWidth: "min(380px, calc(100vw - 2rem))",
         fontSize: "0.85rem",
         color: "var(--color-text)",
       }}
+      className="fade-up"
     >
-      <span>{icon}</span>
-      <span style={{ flex: 1 }}>{toast.message}</span>
+      <span className="font-bold flex-shrink-0" style={{ color: border }}>{icon}</span>
+      <span style={{ flex: 1, lineHeight: 1.4 }}>{toast.message}</span>
       <button
         onClick={() => onDismiss(toast.id)}
-        style={{ color: "var(--color-muted)", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}
+        style={{
+          color: "var(--color-muted)",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          lineHeight: 1,
+          padding: "0.25rem",
+          margin: "-0.25rem -0.25rem 0 0",
+        }}
+        className="hover:text-white transition-colors"
         aria-label="Dismiss"
       >
         ×
@@ -64,19 +74,12 @@ export function ToastContainer({ toasts, onDismiss }: ToastProps) {
   if (toasts.length === 0) return null;
   return (
     <div
-      style={{
-        position: "fixed",
-        bottom: "1.5rem",
-        right: "1.5rem",
-        zIndex: 9999,
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.5rem",
-        alignItems: "flex-end",
-      }}
+      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none items-end max-w-[calc(100vw-2rem)]"
     >
       {toasts.map((t) => (
-        <Toast key={t.id} toast={t} onDismiss={onDismiss} />
+        <div key={t.id} className="pointer-events-auto">
+          <Toast toast={t} onDismiss={onDismiss} />
+        </div>
       ))}
     </div>
   );

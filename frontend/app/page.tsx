@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 // ── Static content ───────────────────────────────────────────────────────────
 
 const VALUE_BAR = [
-  { icon: "🤖", label: "AI-Powered Matching" },
+  { icon: "⚡", label: "AI-Powered Matching" },
   { icon: "🌐", label: "Multi-Source Job Discovery" },
   { icon: "📄", label: "Resume Skill Extraction" },
   { icon: "📊", label: "Application Tracking" },
@@ -23,22 +23,22 @@ const VALUE_BAR = [
 
 const STEPS = [
   {
-    n: "1",
+    n: "01",
     icon: "📎",
     title: "Upload Resume",
-    desc: "Automatically extract skills and profile information with AI.",
+    desc: "Automatically extract skills and profile information using Gemini AI.",
   },
   {
-    n: "2",
+    n: "02",
     icon: "🔄",
     title: "Sync Jobs",
     desc: "Aggregate internships and jobs from multiple sources in one place.",
   },
   {
-    n: "3",
+    n: "03",
     icon: "⭐",
     title: "Get AI Matches",
-    desc: "See personalized match scores and discover relevant opportunities.",
+    desc: "See personalized match scores and discover relevant opportunities ranked by fit.",
   },
 ];
 
@@ -46,32 +46,32 @@ const FEATURES = [
   {
     icon: "🧠",
     title: "AI Resume Analysis",
-    desc: "Extracts skills automatically from your resume — no manual tagging.",
+    desc: "Extracts skills automatically from your resume — no tedious manual tagging.",
   },
   {
     icon: "🎯",
     title: "Smart Job Matching",
-    desc: "Find opportunities relevant to your profile, ranked by fit.",
+    desc: "Find opportunities tailored to your skill profile, scored and ranked by fit.",
   },
   {
     icon: "📋",
     title: "Application Tracking",
-    desc: "Track Saved, Applied, Interview, Offer, and Rejected in one workflow.",
+    desc: "Track Saved, Applied, Interview, Offer, and Rejected in a unified workflow.",
   },
   {
     icon: "📈",
     title: "Dashboard Analytics",
-    desc: "Monitor opportunities and match quality at a glance.",
+    desc: "Monitor your candidate pipeline and match quality at a single glance.",
   },
   {
     icon: "🌐",
     title: "Multi-Source Discovery",
-    desc: "Jobs collected and de-duplicated from multiple providers.",
+    desc: "Fresh internships collected and de-duplicated from leading tech boards.",
   },
   {
-    icon: "✅",
-    title: "Resume Validation",
-    desc: "Prevents invalid uploads and improves matching quality.",
+    icon: "✨",
+    title: "Interview Prep & ATS",
+    desc: "Generate targeted technical & behavioral interview questions on demand.",
   },
 ];
 
@@ -79,42 +79,42 @@ const BENEFITS = [
   {
     icon: "⏱️",
     title: "Save Time",
-    desc: "No manual searching across a dozen job boards.",
+    desc: "No manual scouring across dozens of disparate job boards.",
   },
   {
     icon: "🎯",
     title: "Better Opportunities",
-    desc: "AI identifies roles that actually fit your skills.",
+    desc: "AI identifies roles that truly fit your technical skills.",
   },
   {
     icon: "🗂️",
     title: "Organized Workflow",
-    desc: "Track every application stage in one dashboard.",
+    desc: "Track every application stage in one unified workspace.",
   },
   {
     icon: "🎓",
     title: "Career Focused",
-    desc: "Built specifically for students and early-career freshers.",
+    desc: "Built specifically for students, freshers, and early-career engineers.",
   },
 ];
 
 const PREVIEW_JOBS = [
   {
     company: "Nimbus Labs",
-    role: "Frontend Intern",
-    score: 92,
+    role: "Frontend Engineer Intern",
+    score: 94,
     status: "applied" as const,
   },
   {
     company: "Vectra AI",
-    role: "ML Intern",
-    score: 87,
+    role: "Machine Learning Intern",
+    score: 88,
     status: "saved" as const,
   },
   {
     company: "Corelogic",
-    role: "SWE Intern",
-    score: 74,
+    role: "Software Engineer Intern",
+    score: 76,
     status: "interview" as const,
   },
 ];
@@ -123,94 +123,85 @@ const PREVIEW_JOBS = [
 
 export default function LandingPage() {
   return (
-    <div className="flex flex-col gap-20 md:gap-28 pb-8">
+    <div className="flex flex-col gap-16 sm:gap-24 pb-12">
       {/* ── 1. Hero ──────────────────────────────────────────────────── */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center pt-4">
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 items-center pt-2 sm:pt-6">
         <div>
-          <Badge color="indigo">AI-Powered Job Search</Badge>
+          <Badge color="indigo">AI-Powered Job Platform</Badge>
           <h1
-            className="mt-4 fade-up fade-up-1"
-            style={{
-              fontSize: "2.5rem",
-              lineHeight: 1.15,
-              fontWeight: 800,
-              color: "var(--color-text)",
-              letterSpacing: "-0.02em",
-            }}
+            className="mt-4 text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-[1.12] fade-up fade-up-1"
+            style={{ color: "var(--color-text)" }}
           >
-            Find Better Internships Faster With AI
+            Find Better Internships <span style={{ color: "var(--color-gold)" }}>Faster</span> With AI
           </h1>
           <p
-            className="mt-4 max-w-lg fade-up fade-up-2"
-            style={{
-              fontSize: "1.05rem",
-              color: "var(--color-subtle)",
-              lineHeight: 1.6,
-            }}
+            className="mt-4 max-w-lg text-sm sm:text-base leading-relaxed fade-up fade-up-2"
+            style={{ color: "var(--color-subtle)" }}
           >
-            Upload your resume, discover opportunities from multiple sources,
-            and instantly see which jobs match your skills.
+            Upload your resume, aggregate opportunities from multiple sources,
+            and instantly see which engineering roles match your exact skills.
           </p>
           <div className="flex flex-wrap items-center gap-3 mt-7 fade-up fade-up-3">
-            <Link href="/dashboard">
-              <Button size="lg">Get Started</Button>
+            <Link href="/dashboard" className="w-full xs:w-auto">
+              <Button size="lg" className="w-full xs:w-auto">
+                Get Started
+              </Button>
             </Link>
-            <Link href="/jobs">
-              <Button size="lg" variant="secondary">
+            <Link href="/jobs" className="w-full xs:w-auto">
+              <Button size="lg" variant="secondary" className="w-full xs:w-auto">
                 View Jobs
               </Button>
             </Link>
           </div>
         </div>
 
-        {/* Hero visual — CSS-only mockup, no stock imagery */}
-        <div className="relative fade-up fade-up-2">
+        {/* Hero visual — CSS-only mockup */}
+        <div className="relative fade-up fade-up-2 w-full max-w-lg mx-auto lg:max-w-none">
           <div
             aria-hidden
-            className="absolute -inset-8 rounded-full"
+            className="absolute -inset-4 sm:-inset-8 rounded-full pointer-events-none"
             style={{
               background:
-                "radial-gradient(circle at 30% 20%, rgba(203, 41, 87, 0.15), transparent 60%)",
-              filter: "blur(10px)",
+                "radial-gradient(circle at 40% 30%, rgba(143, 23, 51, 0.18), transparent 70%)",
+              filter: "blur(24px)",
             }}
           />
-          <Card padding="lg" className="relative">
-            <p
-              className="text-xs uppercase tracking-wide mb-4"
-              style={{ color: "var(--color-muted)" }}
-            >
-              Match Score Preview
-            </p>
-            <div className="flex flex-col gap-3">
+          <Card padding="lg" className="relative card-elevated" style={{ borderColor: "var(--color-border)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <p
+                className="text-[0.7rem] uppercase tracking-wider font-semibold"
+                style={{ color: "var(--color-muted)" }}
+              >
+                Match Score Preview
+              </p>
+              <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--color-green)" }} />
+            </div>
+
+            <div className="flex flex-col gap-2.5">
               {PREVIEW_JOBS.map((job) => (
                 <div
                   key={job.company}
-                  className="flex items-center justify-between gap-3 p-3 rounded-lg"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 p-3 rounded-lg"
                   style={{
                     background: "var(--color-bg)",
                     border: "1px solid var(--color-border)",
                   }}
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p
-                      style={{
-                        fontWeight: 600,
-                        fontSize: "0.875rem",
-                        color: "var(--color-text)",
-                      }}
+                      className="font-semibold text-sm truncate"
+                      style={{ color: "var(--color-text)" }}
                     >
                       {job.role}
                     </p>
                     <p
-                      style={{
-                        fontSize: "0.78rem",
-                        color: "var(--color-subtle)",
-                      }}
+                      className="text-xs truncate mt-0.5"
+                      style={{ color: "var(--color-subtle)" }}
                     >
                       {job.company}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0 self-start sm:self-auto">
                     <StatusBadge status={job.status} />
                     <ScoreBadge score={job.score} />
                   </div>
@@ -223,17 +214,13 @@ export default function LandingPage() {
 
       {/* ── 2. Trust / value bar ─────────────────────────────────────── */}
       <section>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           {VALUE_BAR.map((item) => (
             <Card key={item.label} padding="md" className="text-center">
-              <div style={{ fontSize: "1.4rem" }}>{item.icon}</div>
+              <div className="text-xl sm:text-2xl">{item.icon}</div>
               <p
-                className="mt-2"
-                style={{
-                  fontSize: "0.8rem",
-                  fontWeight: 600,
-                  color: "var(--color-subtle)",
-                }}
+                className="mt-2 text-xs sm:text-sm font-semibold truncate"
+                style={{ color: "var(--color-subtle)" }}
               >
                 {item.label}
               </p>
@@ -244,17 +231,19 @@ export default function LandingPage() {
 
       {/* ── 3. How it works ──────────────────────────────────────────── */}
       <section>
-        <h2
-          className="text-center"
-          style={{
-            fontSize: "1.75rem",
-            fontWeight: 700,
-            color: "var(--color-text)",
-          }}
-        >
-          How It Works
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-8">
+        <div className="text-center max-w-xl mx-auto mb-8 sm:mb-10">
+          <p className="text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: "var(--color-gold)" }}>
+            Workflow
+          </p>
+          <h2
+            className="text-2xl sm:text-3xl font-bold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            How It Works
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
           {STEPS.map((step, i) => (
             <Card
               key={step.n}
@@ -263,29 +252,21 @@ export default function LandingPage() {
               className={`relative fade-up fade-up-${i + 1}`}
             >
               <span
-                className="absolute top-4 right-4"
-                style={{
-                  fontSize: "1.75rem",
-                  fontWeight: 800,
-                  color: "var(--color-border)",
-                }}
+                className="absolute top-4 right-4 font-mono font-bold text-lg select-none"
+                style={{ color: "var(--color-border-hover)" }}
               >
                 {step.n}
               </span>
-              <div style={{ fontSize: "1.5rem" }}>{step.icon}</div>
+              <div className="text-2xl">{step.icon}</div>
               <h3
-                className="mt-3"
-                style={{
-                  fontSize: "1.05rem",
-                  fontWeight: 700,
-                  color: "var(--color-text)",
-                }}
+                className="mt-3 text-base sm:text-lg font-bold"
+                style={{ color: "var(--color-text)" }}
               >
                 {step.title}
               </h3>
               <p
-                className="mt-1.5"
-                style={{ fontSize: "0.875rem", color: "var(--color-subtle)" }}
+                className="mt-1.5 text-xs sm:text-sm leading-relaxed"
+                style={{ color: "var(--color-subtle)" }}
               >
                 {step.desc}
               </p>
@@ -296,33 +277,31 @@ export default function LandingPage() {
 
       {/* ── 4. Features ──────────────────────────────────────────────── */}
       <section>
-        <h2
-          className="text-center"
-          style={{
-            fontSize: "1.75rem",
-            fontWeight: 700,
-            color: "var(--color-text)",
-          }}
-        >
-          Everything You Need To Land An Internship
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-8">
+        <div className="text-center max-w-xl mx-auto mb-8 sm:mb-10">
+          <p className="text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: "var(--color-gold)" }}>
+            Capabilities
+          </p>
+          <h2
+            className="text-2xl sm:text-3xl font-bold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            Engineered For Technical Job Searches
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {FEATURES.map((f) => (
             <Card key={f.title} padding="lg" hoverable>
-              <div style={{ fontSize: "1.4rem" }}>{f.icon}</div>
+              <div className="text-xl sm:text-2xl">{f.icon}</div>
               <h3
-                className="mt-3"
-                style={{
-                  fontSize: "1rem",
-                  fontWeight: 700,
-                  color: "var(--color-text)",
-                }}
+                className="mt-3 text-sm sm:text-base font-bold"
+                style={{ color: "var(--color-text)" }}
               >
                 {f.title}
               </h3>
               <p
-                className="mt-1.5"
-                style={{ fontSize: "0.85rem", color: "var(--color-subtle)" }}
+                className="mt-1.5 text-xs sm:text-sm leading-relaxed"
+                style={{ color: "var(--color-subtle)" }}
               >
                 {f.desc}
               </p>
@@ -333,57 +312,50 @@ export default function LandingPage() {
 
       {/* ── 5. Dashboard preview ─────────────────────────────────────── */}
       <section>
-        <h2
-          className="text-center"
-          style={{
-            fontSize: "1.75rem",
-            fontWeight: 700,
-            color: "var(--color-text)",
-          }}
-        >
-          Your Job Search, At A Glance
-        </h2>
-        <p
-          className="text-center max-w-xl mx-auto mt-2"
-          style={{ color: "var(--color-subtle)", fontSize: "0.95rem" }}
-        >
-          One dashboard for match scores, top jobs, and search statistics.
-        </p>
+        <div className="text-center max-w-xl mx-auto mb-8 sm:mb-10">
+          <h2
+            className="text-2xl sm:text-3xl font-bold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            Your Job Search, At A Glance
+          </h2>
+          <p
+            className="mt-2 text-xs sm:text-sm"
+            style={{ color: "var(--color-subtle)" }}
+          >
+            One centralized cockpit for match scores, scored listings, and status analytics.
+          </p>
+        </div>
 
-        <Card padding="lg" className="mt-8 fade-up">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+        <Card padding="lg" className="fade-up card-elevated">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5">
             <PreviewStat label="Total Jobs" value="164" icon="💼" />
             <PreviewStat
               label="Top Match"
-              value="92%"
+              value="94%"
               icon="⭐"
               valueColor="var(--color-green)"
             />
-            <PreviewStat label="Average Match" value="71%" icon="📊" />
+            <PreviewStat label="Average Match" value="73%" icon="📊" />
             <PreviewStat label="Applications" value="12" icon="📨" />
           </div>
           <div className="flex flex-col gap-2">
             {PREVIEW_JOBS.map((job) => (
               <div
                 key={job.company}
-                className="flex items-center justify-between gap-3 p-3 rounded-lg card-hover"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg card-hover"
                 style={{
                   background: "var(--color-bg)",
                   border: "1px solid var(--color-border)",
                 }}
               >
-                <div>
-                  <p
-                    style={{
-                      fontWeight: 600,
-                      fontSize: "0.875rem",
-                      color: "var(--color-text)",
-                    }}
-                  >
-                    {job.role} · {job.company}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
+                <p
+                  className="font-semibold text-xs sm:text-sm"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {job.role} <span style={{ color: "var(--color-muted)" }}>· {job.company}</span>
+                </p>
+                <div className="flex items-center gap-2 self-start sm:self-auto flex-shrink-0">
                   <StatusBadge status={job.status} />
                   <ScoreBadge score={job.score} />
                 </div>
@@ -395,63 +367,55 @@ export default function LandingPage() {
 
       {/* ── 6. Benefits ──────────────────────────────────────────────── */}
       <section>
-        <h2
-          className="text-center"
-          style={{
-            fontSize: "1.75rem",
-            fontWeight: 700,
-            color: "var(--color-text)",
-          }}
-        >
-          Why Internship Hunter?
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-8">
+        <div className="text-center max-w-xl mx-auto mb-8 sm:mb-10">
+          <h2
+            className="text-2xl sm:text-3xl font-bold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            Why Internship Hunter?
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {BENEFITS.map((b) => (
-            <div key={b.title}>
-              <div style={{ fontSize: "1.4rem" }}>{b.icon}</div>
+            <Card key={b.title} padding="md" className="h-full">
+              <div className="text-xl sm:text-2xl">{b.icon}</div>
               <h3
-                className="mt-2"
-                style={{
-                  fontSize: "0.95rem",
-                  fontWeight: 700,
-                  color: "var(--color-text)",
-                }}
+                className="mt-2.5 text-sm sm:text-base font-bold"
+                style={{ color: "var(--color-text)" }}
               >
                 {b.title}
               </h3>
               <p
-                className="mt-1"
-                style={{ fontSize: "0.83rem", color: "var(--color-subtle)" }}
+                className="mt-1 text-xs sm:text-sm leading-relaxed"
+                style={{ color: "var(--color-subtle)" }}
               >
                 {b.desc}
               </p>
-            </div>
+            </Card>
           ))}
         </div>
       </section>
 
       {/* ── 7. Application tracking ──────────────────────────────────── */}
       <section>
-        <h2
-          className="text-center"
-          style={{
-            fontSize: "1.75rem",
-            fontWeight: 700,
-            color: "var(--color-text)",
-          }}
-        >
-          Manage Every Application Stage
-        </h2>
-        <p
-          className="text-center max-w-xl mx-auto mt-2"
-          style={{ color: "var(--color-subtle)", fontSize: "0.95rem" }}
-        >
-          Move jobs through your pipeline with a single click — from first save
-          to final offer.
-        </p>
+        <div className="text-center max-w-xl mx-auto mb-8">
+          <h2
+            className="text-2xl sm:text-3xl font-bold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            Manage Every Application Stage
+          </h2>
+          <p
+            className="mt-2 text-xs sm:text-sm"
+            style={{ color: "var(--color-subtle)" }}
+          >
+            Move jobs through your pipeline with a single click — from initial save to final offer.
+          </p>
+        </div>
 
-        <Card padding="lg" className="mt-8">
-          <div className="flex flex-wrap items-center justify-center gap-3">
+        <Card padding="lg" className="text-center">
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 py-2">
             <StatusBadge status="saved" />
             <Arrow />
             <StatusBadge status="applied" />
@@ -460,9 +424,9 @@ export default function LandingPage() {
             <Arrow />
             <StatusBadge status="offer" />
           </div>
-          <div className="flex items-center justify-center gap-3 mt-4">
-            <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>
-              or, at any stage after applying
+          <div className="flex items-center justify-center gap-2 mt-4 pt-4 border-t" style={{ borderColor: "var(--color-border)" }}>
+            <span className="text-xs" style={{ color: "var(--color-muted)" }}>
+              or, at any stage:
             </span>
             <Arrow />
             <StatusBadge status="rejected" />
@@ -472,66 +436,32 @@ export default function LandingPage() {
 
       {/* ── 8. Final CTA ─────────────────────────────────────────────── */}
       <section>
-        <Card padding="lg" className="text-center py-10 fade-up">
+        <Card
+          padding="lg"
+          className="text-center py-10 sm:py-12 relative overflow-hidden card-elevated"
+          style={{
+            borderColor: "var(--color-accent-border)",
+            background: "linear-gradient(180deg, var(--color-surface) 0%, rgba(143, 23, 51, 0.08) 100%)",
+          }}
+        >
           <h2
-            style={{
-              fontSize: "1.75rem",
-              fontWeight: 700,
-              color: "var(--color-text)",
-            }}
+            className="text-2xl sm:text-3xl font-bold tracking-tight"
+            style={{ color: "var(--color-text)" }}
           >
             Ready to Find Your Next Opportunity?
           </h2>
           <p
-            className="max-w-md mx-auto mt-2"
-            style={{ color: "var(--color-subtle)", fontSize: "0.95rem" }}
+            className="max-w-md mx-auto mt-2 text-xs sm:text-sm leading-relaxed"
+            style={{ color: "var(--color-subtle)" }}
           >
-            Start matching your skills with internships and jobs in minutes.
+            Upload your resume and start discovering matching internships in minutes.
           </p>
-          <div className="mt-6">
+          <div className="mt-6 flex justify-center">
             <Link href="/dashboard">
-              <Button size="lg">Get Started</Button>
+              <Button size="lg">Get Started Free</Button>
             </Link>
           </div>
         </Card>
-      </section>
-
-      {/* ── 9. In-page footer summary ────────────────────────────────── */}
-      <section
-        className="pt-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-        style={{ borderTop: "1px solid var(--color-border)" }}
-      >
-        <div>
-          <p style={{ fontWeight: 700, color: "var(--color-text)" }}>
-            Internship Hunter
-          </p>
-          <p
-            className="mt-1 max-w-sm"
-            style={{ fontSize: "0.8rem", color: "var(--color-subtle)" }}
-          >
-            AI-powered internship discovery and job matching platform.
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link
-            href="/dashboard"
-            style={{ fontSize: "0.85rem", color: "var(--color-subtle)" }}
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/jobs"
-            style={{ fontSize: "0.85rem", color: "var(--color-subtle)" }}
-          >
-            Jobs
-          </Link>
-          <Link
-            href="/resume"
-            style={{ fontSize: "0.85rem", color: "var(--color-subtle)" }}
-          >
-            Resume
-          </Link>
-        </div>
       </section>
     </div>
   );
@@ -559,20 +489,14 @@ function PreviewStat({
       }}
     >
       <p
-        style={{
-          fontSize: "0.68rem",
-          color: "var(--color-muted)",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-        }}
+        className="text-[0.68rem] uppercase tracking-wider font-semibold truncate"
+        style={{ color: "var(--color-muted)" }}
       >
         {icon} {label}
       </p>
       <p
-        className="mt-1"
+        className="mt-1 text-lg sm:text-xl font-bold"
         style={{
-          fontSize: "1.2rem",
-          fontWeight: 700,
           color: valueColor ?? "var(--color-text)",
         }}
       >
@@ -584,7 +508,7 @@ function PreviewStat({
 
 function Arrow() {
   return (
-    <span style={{ color: "var(--color-muted)", fontSize: "1rem" }} aria-hidden>
+    <span style={{ color: "var(--color-muted)", fontSize: "0.875rem" }} aria-hidden>
       →
     </span>
   );

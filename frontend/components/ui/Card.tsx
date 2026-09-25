@@ -9,8 +9,8 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
 const paddingMap = {
   none: "",
   sm: "p-3",
-  md: "p-5",
-  lg: "p-6",
+  md: "p-4 sm:p-5",
+  lg: "p-5 sm:p-6",
 };
 
 export function Card({
@@ -26,7 +26,7 @@ export function Card({
       style={{
         background: "var(--color-surface)",
         border: "1px solid var(--color-border)",
-        borderRadius: "0.625rem",
+        borderRadius: "0.5rem",
         ...style,
       }}
       className={`${paddingMap[padding]} ${hoverable ? "card-hover" : ""} ${className}`}

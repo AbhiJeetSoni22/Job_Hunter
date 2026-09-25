@@ -27,7 +27,7 @@ function UploadCloudIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
+      strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -75,30 +75,29 @@ export const ResumeUploader = forwardRef<ResumeUploaderHandle, ResumeUploaderPro
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         onClick={() => !loading && inputRef.current?.click()}
-        className={`upload-dropzone flex flex-col items-center gap-4 py-12 px-6 text-center rounded-xl ${isActive ? "upload-dropzone-active" : ""}`}
+        className={`upload-dropzone flex flex-col items-center gap-3.5 sm:gap-4 py-8 sm:py-12 px-4 sm:px-6 text-center rounded-xl transition-all ${isActive ? "upload-dropzone-active" : ""}`}
         style={{
           border: `2px dashed ${isActive ? "var(--color-accent)" : "var(--color-border)"}`,
           background: isActive
-            ? "linear-gradient(135deg, rgba(203,41,87,0.08) 0%, rgba(203,41,87,0.02) 100%)"
+            ? "rgba(143, 23, 51, 0.12)"
             : "var(--color-bg)",
           cursor: loading ? "not-allowed" : "pointer",
           opacity: loading ? 0.55 : 1,
           pointerEvents: loading ? "none" : "auto",
-          transition: "border-color 200ms, background 200ms, opacity 200ms, box-shadow 200ms",
           boxShadow: isActive
-            ? "0 0 0 4px rgba(203,41,87,0.1)"
+            ? "0 0 0 4px rgba(143, 23, 51, 0.15)"
             : undefined,
         }}
         aria-busy={loading}
       >
         <div
-          className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform duration-200 ${isActive ? "scale-105" : ""}`}
+          className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center transition-transform duration-200 ${isActive ? "scale-105" : ""}`}
           style={{
             background: isActive
-              ? "rgba(203,41,87,0.15)"
-              : "rgba(203,41,87,0.08)",
-            color: "var(--color-accent)",
-            border: `1px solid ${isActive ? "rgba(203,41,87,0.35)" : "rgba(203,41,87,0.15)"}`,
+              ? "rgba(143, 23, 51, 0.25)"
+              : "rgba(255, 255, 255, 0.05)",
+            color: isActive ? "#F5F1E8" : "var(--color-gold)",
+            border: `1px solid ${isActive ? "rgba(143, 23, 51, 0.5)" : "var(--color-border)"}`,
           }}
         >
           <UploadCloudIcon />
@@ -106,13 +105,13 @@ export const ResumeUploader = forwardRef<ResumeUploaderHandle, ResumeUploaderPro
 
         <div>
           <p
-            className="text-sm font-medium"
+            className="text-sm font-semibold"
             style={{ color: "var(--color-text)" }}
           >
-            {loading ? "Processing your resume…" : "Drop your resume here"}
+            {loading ? "Processing your resume…" : "Drop your PDF resume here"}
           </p>
           <p
-            className="text-xs mt-1.5"
+            className="text-xs mt-1"
             style={{ color: "var(--color-subtle)" }}
           >
             or click to browse from your device
@@ -120,7 +119,7 @@ export const ResumeUploader = forwardRef<ResumeUploaderHandle, ResumeUploaderPro
         </div>
 
         <Button variant="secondary" size="sm" loading={loading} type="button">
-          {loading ? "Uploading…" : "Choose PDF file"}
+          {loading ? "Uploading…" : "Select PDF Document"}
         </Button>
 
         <input

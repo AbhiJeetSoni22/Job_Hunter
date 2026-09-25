@@ -54,25 +54,26 @@ function FilterSelect({
 }) {
   return (
     <label
-      className="flex flex-col gap-1"
-      style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}
+      className="flex flex-col gap-1 w-full"
+      style={{ fontSize: "0.72rem", color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}
     >
-      {label}
+      <span>{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         style={{
-          background: "var(--color-surface)",
+          background: "var(--color-bg)",
           border: "1px solid var(--color-border)",
           borderRadius: "0.375rem",
           color: "var(--color-text)",
-          padding: "0.3rem 0.5rem",
-          fontSize: "0.8rem",
+          padding: "0.45rem 0.6rem",
+          fontSize: "0.8125rem",
           cursor: "pointer",
         }}
+        className="w-full focus:outline-none focus:border-[var(--color-gold)] transition-colors"
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} style={{ background: "#161616", color: "#F5F1E8" }}>
             {o.label}
           </option>
         ))}
@@ -91,8 +92,6 @@ export default function JobsPage() {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const { toasts, addToast, dismiss } = useToast();
-  // Resume presence — fetched once, independent of job filters. Reused to
-  // gate match-score visibility, consistent with the Dashboard's rule.
   const [hasResume, setHasResume] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -137,9 +136,6 @@ export default function JobsPage() {
     });
   }
 
-  // Keep the visible list in sync after an inline status change on a card,
-  // without a full refetch. If the new status no longer matches the active
-  // status filter, drop the job from view.
   function handleStatusChanged(jobId: string, newStatus: JobStatus) {
     setJobs((prev) => {
       if (filters.status && filters.status !== newStatus) {
@@ -165,34 +161,35 @@ export default function JobsPage() {
         title="Jobs"
         subtitle={
           loading
-            ? "Loading…"
-            : `${total} internship${total !== 1 ? "s" : ""} in database`
+            ? "Loading listings…"
+            : `${total} opportunity${total !== 1 ? "ies" : ""} collected`
         }
       />
 
       {/* ── Resume-required banner ──────────────────────────────────── */}
       {hasResume === false && (
         <div
-          className="mb-4 px-4 py-2 rounded-lg text-sm"
+          className="mb-5 px-4 py-3 rounded-lg text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2"
           style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-            color: "var(--color-subtle)",
+            background: "var(--color-gold-subtle)",
+            border: "1px solid var(--color-gold-border)",
+            color: "var(--color-text)",
           }}
         >
-          Upload a resume to view personalized AI match scores.{" "}
+          <span>Upload your resume to calculate personalized AI match scores for all jobs.</span>
           <Link
             href="/resume"
-            style={{ color: "var(--color-accent)", fontWeight: 600 }}
+            style={{ color: "var(--color-gold)", fontWeight: 600 }}
+            className="hover:underline flex-shrink-0"
           >
-            Upload Resume
+            Upload Resume →
           </Link>
         </div>
       )}
 
       {/* ── Filter bar ───────────────────────────────────────────────── */}
       <div
-        className="flex flex-wrap gap-4 mb-5 p-4 rounded-lg"
+        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6 p-4 rounded-lg card-elevated items-end"
         style={{
           background: "var(--color-surface)",
           border: "1px solid var(--color-border)",
@@ -250,21 +247,22 @@ export default function JobsPage() {
             { value: "asc", label: "Oldest first" },
           ]}
         />
-        <div className="flex items-end">
+        <div className="flex items-end col-span-2 sm:col-span-1">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => update(DEFAULT_FILTERS)}
             disabled={loading}
+            className="w-full h-[34px]"
           >
-            Reset
+            Reset Filters
           </Button>
         </div>
       </div>
 
       {/* ── Content ──────────────────────────────────────────────────── */}
       {loading ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2.5">
           {Array.from({ length: 6 }).map((_, i) => (
             <JobCardSkeleton key={i} />
           ))}
@@ -282,7 +280,7 @@ export default function JobsPage() {
 
           {/* ── Pagination ─────────────────────────────────────────── */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-3 mt-6">
+            <div className="flex items-center justify-center gap-3 mt-8">
               <Button
                 variant="secondary"
                 size="sm"
@@ -291,7 +289,7 @@ export default function JobsPage() {
               >
                 ← Prev
               </Button>
-              <span style={{ fontSize: "0.8rem", color: "var(--color-muted)" }}>
+              <span style={{ fontSize: "0.8125rem", color: "var(--color-muted)" }}>
                 Page {filters.page} of {totalPages}
               </span>
               <Button

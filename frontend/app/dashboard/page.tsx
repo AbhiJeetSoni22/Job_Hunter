@@ -17,7 +17,7 @@ import {
   runScraper,
   ApiClientError,
 } from "@/lib/api";
-import type { ScraperRun, DashboardStats } from "@/lib/types";
+import type { DashboardStats } from "@/lib/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -27,10 +27,7 @@ interface DashStats {
 }
 
 // Background auto-scoring poll: how often to check, and how long to wait
-// before giving up and just reporting whatever progress was made. Chosen
-// generously — Gemini calls can take 10-30s each with up to 3 retries
-// (see gemini_client._BACKOFF_SECONDS), and new jobs are scored one at a
-// time, so a couple of slow/retried jobs can legitimately take a while.
+// before giving up and just reporting whatever progress was made.
 const SCORING_POLL_INTERVAL_MS = 2_000;
 const SCORING_POLL_TIMEOUT_MS = 90_000;
 
@@ -79,12 +76,9 @@ export default function DashboardPage() {
     failed: number;
   } | null>(null);
 
-  // Polling refs — a ref (not state) so timer ids survive re-renders without
-  // re-triggering effects, and so cleanup always sees the latest ids.
+  // Polling refs — survive re-renders without re-triggering effects
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bumped every time a new poll session starts; stale async callbacks from
-  // a previous session compare against this and bail out instead of acting.
   const pollTokenRef = useRef(0);
 
   const stopPolling = useCallback(() => {
@@ -125,13 +119,10 @@ export default function DashboardPage() {
     loadStats();
   }, [loadStats]);
 
-  // Stop any in-flight poll on unmount — no orphan timers.
   useEffect(() => stopPolling, [stopPolling]);
 
   const startScoringPoll = useCallback(
     (runId: string, total: number) => {
-      // A repeated sync click could in principle race a previous poll —
-      // cancel it first so there's never more than one interval running.
       stopPolling();
       const token = ++pollTokenRef.current;
       setScoring({ total, scored: 0, failed: 0 });
@@ -149,32 +140,40 @@ export default function DashboardPage() {
         try {
           const s = await getScoringStatus(runId);
           if (pollTokenRef.current !== token) return;
-          setScoring({ total: s.total, scored: s.scored, failed: s.failed });
+
+          setScoring({
+            total: s.total,
+            scored: s.scored,
+            failed: s.failed,
+          });
 
           if (s.status === "completed") {
-            const message =
-              s.failed > 0
-                ? `Scoring complete — ${s.scored} scored, ${s.failed} failed.`
-                : `Scoring complete — ${s.scored} job${s.scored !== 1 ? "s" : ""} scored.`;
-            await finish(message, "success");
+            const noun = s.scored === 1 ? "job" : "jobs";
+            await finish(
+              `Scored ${s.scored} of ${s.total} ${noun} against your resume.`,
+              "success",
+            );
+          } else if (s.failed > 0 && s.pending === 0) {
+            await finish(
+              `Scoring stopped (${s.failed} errors, ${s.scored} scored).`,
+              "info",
+            );
           }
         } catch {
-          // Transient failure reaching the status endpoint — keep polling
-          // on the next tick rather than tearing down already-loaded
-          // dashboard state (edge case: scoring-status request fails).
+          // Transient poll read failure — retry next tick
         }
       };
 
       pollTimerRef.current = setInterval(check, SCORING_POLL_INTERVAL_MS);
+
       pollTimeoutRef.current = setTimeout(async () => {
         if (pollTokenRef.current !== token) return;
-        // Safety fallback only — normal completion comes from the backend
-        // reporting status "completed", never from this timing out.
         try {
           const s = await getScoringStatus(runId);
-          if (pollTokenRef.current !== token) return;
+          const scored = s.scored;
+          const totalJobs = s.total;
           await finish(
-            `Still scoring — ${s.scored + s.failed} of ${s.total} done so far.`,
+            `Scored ${scored} of ${totalJobs} jobs before poll timeout.`,
             "info",
           );
         } catch {
@@ -182,7 +181,7 @@ export default function DashboardPage() {
         }
       }, SCORING_POLL_TIMEOUT_MS);
 
-      check(); // don't wait a full interval for the first read
+      check();
     },
     [stopPolling, addToast, loadStats],
   );
@@ -212,28 +211,27 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
-        <PageHeader
-          title="Dashboard"
-          subtitle="Your internship search at a glance"
-        />
-        <Button
-          onClick={handleSync}
-          loading={syncing || !!scoring}
-          disabled={syncing || !!scoring}
-          size="md"
-          style={{ marginTop: "0.25rem", flexShrink: 0 }}
-        >
-          {syncing
-            ? "Syncing…"
-            : scoring
-              ? `Scoring ${scoring.scored + scoring.failed}/${scoring.total}…`
-              : "🔄 Sync Jobs"}
-        </Button>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle="Your internship search & AI matching cockpit"
+        action={
+          <Button
+            onClick={handleSync}
+            loading={syncing || !!scoring}
+            disabled={syncing || !!scoring}
+            size="md"
+          >
+            {syncing
+              ? "Syncing…"
+              : scoring
+                ? `Scoring ${scoring.scored + scoring.failed}/${scoring.total}…`
+                : "🔄 Sync Jobs"}
+          </Button>
+        }
+      />
 
       {/* ── Stat cards ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
         {loading ? (
           <>
             <StatCardSkeleton />
@@ -297,60 +295,68 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* ── Recommendation metrics (Phase 5) ────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {loading ? (
-          <>
-            <StatCardSkeleton />
-            <StatCardSkeleton />
-            <StatCardSkeleton />
-            <StatCardSkeleton />
-          </>
-        ) : (
-          <>
-            <StatCard
-              label="Previously Scored Jobs"
-              value={dashStats ? String(dashStats.scored_jobs) : "—"}
-              icon="🧮"
-            />
-            <StatCard
-              label="Average Match"
-              value={
-                !stats.hasResume
-                  ? "—"
-                  : dashStats?.average_match_score != null
-                    ? `${dashStats.average_match_score}%`
-                    : "—"
-              }
-              icon="📊"
-              href={!stats.hasResume ? "/resume" : undefined}
-              sub={!stats.hasResume ? "Upload Resume" : undefined}
-            />
-            <StatCard
-              label="Best Match Score"
-              value={
-                !stats.hasResume
-                  ? "—"
-                  : dashStats?.best_match_score != null
-                    ? `${dashStats.best_match_score}%`
-                    : "—"
-              }
-              icon="🏆"
-              valueColor="var(--color-green)"
-              href={!stats.hasResume ? "/resume" : undefined}
-              sub={!stats.hasResume ? "Upload Resume" : undefined}
-            />
-            <StatCard
-              label="Applications Submitted"
-              value={dashStats ? String(dashStats.applications_submitted) : "—"}
-              icon="📨"
-            />
-          </>
-        )}
+      {/* ── Recommendation metrics ──────────────────────────────────── */}
+      <div className="mb-6 sm:mb-8">
+        <p
+          className="text-xs uppercase tracking-wider font-semibold mb-3"
+          style={{ color: "var(--color-muted)" }}
+        >
+          Match & Application Metrics
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {loading ? (
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          ) : (
+            <>
+              <StatCard
+                label="Scored Jobs"
+                value={dashStats ? String(dashStats.scored_jobs) : "—"}
+                icon="🧮"
+              />
+              <StatCard
+                label="Average Match"
+                value={
+                  !stats.hasResume
+                    ? "—"
+                    : dashStats?.average_match_score != null
+                      ? `${dashStats.average_match_score}%`
+                      : "—"
+                }
+                icon="📊"
+                href={!stats.hasResume ? "/resume" : undefined}
+                sub={!stats.hasResume ? "Upload Resume" : undefined}
+              />
+              <StatCard
+                label="Best Match"
+                value={
+                  !stats.hasResume
+                    ? "—"
+                    : dashStats?.best_match_score != null
+                      ? `${dashStats.best_match_score}%`
+                      : "—"
+                }
+                icon="🏆"
+                valueColor="var(--color-green)"
+                href={!stats.hasResume ? "/resume" : undefined}
+                sub={!stats.hasResume ? "Upload Resume" : undefined}
+              />
+              <StatCard
+                label="Submitted"
+                value={dashStats ? String(dashStats.applications_submitted) : "—"}
+                icon="📨"
+              />
+            </>
+          )}
+        </div>
       </div>
 
-      {/* ── Top Matches + Match Quality (Phase 5) ───────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+      {/* ── Top Matches + Match Quality ─────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
         <div className="lg:col-span-2">
           <TopMatches
             matches={dashStats?.top_matches ?? []}
@@ -358,33 +364,41 @@ export default function DashboardPage() {
             hasResume={stats.hasResume ?? false}
           />
         </div>
-        <MatchQualityBreakdown
-          breakdown={dashStats?.quality_breakdown ?? null}
-          loading={loading}
-          hasResume={stats.hasResume ?? false}
-        />
+        <div>
+          <MatchQualityBreakdown
+            breakdown={dashStats?.quality_breakdown ?? null}
+            loading={loading}
+            hasResume={stats.hasResume ?? false}
+          />
+        </div>
       </div>
 
       {/* ── Quick actions ─────────────────────────────────────────── */}
       <div className="mb-8">
-        <h2
-          className="text-sm font-semibold uppercase tracking-wide mb-3"
+        <p
+          className="text-xs uppercase tracking-wider font-semibold mb-3"
           style={{ color: "var(--color-muted)" }}
         >
-          Quick actions
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          Quick Actions
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <QuickAction
             href="/jobs"
             icon="🔍"
             label="Browse jobs"
-            desc="View all fetched internships"
+            desc="Explore all aggregated internships"
           />
           <QuickAction
             href="/resume"
             icon="📎"
-            label="Upload resume"
-            desc="Enable AI match scoring"
+            label="Manage resume"
+            desc="Update profile for AI match scoring"
+          />
+          <QuickAction
+            href="/resume-review"
+            icon="📝"
+            label="Resume Gap Analyzer"
+            desc="Analyze resume against any job description"
           />
         </div>
       </div>
@@ -412,28 +426,30 @@ function StatCard({
   sub?: string;
 }) {
   const inner = (
-    <Card padding="md" hoverable={!!href} className="h-full">
-      <div className="flex items-start justify-between">
-        <div>
+    <Card padding="md" hoverable={!!href} className="h-full card-elevated">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
           <p
             style={{
               color: "var(--color-muted)",
-              fontSize: "0.72rem",
+              fontSize: "0.6875rem",
               textTransform: "uppercase",
               letterSpacing: "0.06em",
               fontWeight: 600,
             }}
+            className="truncate"
           >
             {label}
           </p>
           <p
             style={{
-              fontSize: "1.6rem",
-              fontWeight: 700,
+              fontSize: "1.5rem",
+              fontWeight: 800,
               color: valueColor ?? "var(--color-text)",
               lineHeight: 1.2,
-              marginTop: "0.3rem",
+              marginTop: "0.25rem",
             }}
+            className="truncate"
           >
             {value}
           </p>
@@ -444,19 +460,20 @@ function StatCard({
                 fontSize: "0.75rem",
                 marginTop: "0.2rem",
               }}
+              className="truncate"
             >
               {sub}
             </p>
           )}
         </div>
-        <span style={{ fontSize: "1.4rem", opacity: 0.7 }}>{icon}</span>
+        <span className="text-xl sm:text-2xl opacity-60 flex-shrink-0">{icon}</span>
       </div>
     </Card>
   );
 
   if (href)
     return (
-      <Link href={href} className="block hover:opacity-90 transition-opacity">
+      <Link href={href} className="block transition-transform hover:-translate-y-0.5">
         {inner}
       </Link>
     );
@@ -475,29 +492,31 @@ function QuickAction({
   desc: string;
 }) {
   return (
-    <Link href={href}>
+    <Link href={href} className="block transition-transform hover:-translate-y-0.5">
       <Card
         padding="md"
         hoverable
-        className="flex items-center gap-3 cursor-pointer"
+        className="flex items-center gap-3.5 cursor-pointer card-elevated h-full"
       >
-        <span style={{ fontSize: "1.5rem" }}>{icon}</span>
-        <div>
+        <span className="text-2xl flex-shrink-0 opacity-80">{icon}</span>
+        <div className="min-w-0">
           <p
             style={{
               fontWeight: 600,
               fontSize: "0.875rem",
               color: "var(--color-text)",
             }}
+            className="truncate"
           >
             {label}
           </p>
           <p
             style={{
-              fontSize: "0.775rem",
+              fontSize: "0.75rem",
               color: "var(--color-subtle)",
-              marginTop: "0.1rem",
+              marginTop: "0.15rem",
             }}
+            className="truncate"
           >
             {desc}
           </p>
