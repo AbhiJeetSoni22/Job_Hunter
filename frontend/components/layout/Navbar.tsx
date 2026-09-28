@@ -14,7 +14,18 @@ const NAV_LINKS = [
 
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
+
+  // Scroll detection for glassmorphism
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 20);
+    };
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   // Close mobile menu whenever route changes
   useEffect(() => {
@@ -36,10 +47,11 @@ export function Navbar() {
   return (
     <header
       style={{
-        background: "var(--color-surface)",
-        borderBottom: "1px solid var(--color-border)",
+        background: scrolled ? undefined : "var(--color-surface)",
+        borderBottom: scrolled ? undefined : "1px solid var(--color-border)",
+        transition: "background-color 200ms ease, border-color 200ms ease, backdrop-filter 200ms ease",
       }}
-      className="sticky top-0 z-40"
+      className={`sticky top-0 z-40 ${scrolled ? "nav-glass" : ""}`}
     >
       <nav className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
         {/* Brand Logo */}

@@ -1,6 +1,6 @@
 import { HTMLAttributes } from "react";
 
-type BadgeColor = "default" | "green" | "amber" | "red" | "sky" | "indigo";
+type BadgeColor = "default" | "green" | "amber" | "red" | "sky" | "indigo" | "gold";
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   color?: BadgeColor;
@@ -14,6 +14,7 @@ const colorMap: Record<BadgeColor, { bg: string; text: string; border: string }>
   red:     { bg: "rgba(239, 68, 68, 0.12)",   text: "var(--color-red)",    border: "rgba(239, 68, 68, 0.28)" },
   sky:     { bg: "rgba(56, 189, 248, 0.12)",  text: "var(--color-sky)",    border: "rgba(56, 189, 248, 0.28)" },
   indigo:  { bg: "var(--color-gold-subtle)",  text: "var(--color-gold)",   border: "var(--color-gold-border)" },
+  gold:    { bg: "var(--color-gold-subtle)",  text: "var(--color-gold)",   border: "var(--color-gold-border)" },
 };
 
 export function Badge({ color = "default", dot = false, children, className = "", style, ...rest }: BadgeProps) {

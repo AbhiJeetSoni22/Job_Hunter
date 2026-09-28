@@ -267,3 +267,79 @@ export function AnimatedCounter({
     </span>
   );
 }
+
+/**
+ * Reusable card container with subtle hover lift and accent glow.
+ */
+export function InteractiveCard({
+  children,
+  className = "",
+  style,
+  glow = "none",
+  ...rest
+}: HTMLAttributes<HTMLDivElement> & {
+  glow?: "none" | "wine" | "gold";
+}) {
+  const glowStyle =
+    glow === "wine"
+      ? { boxShadow: "0 0 30px -6px rgba(143, 23, 51, 0.22)" }
+      : glow === "gold"
+        ? { boxShadow: "0 0 30px -6px rgba(201, 166, 107, 0.18)" }
+        : {};
+
+  return (
+    <div
+      className={`rounded-xl border transition-all duration-200 hover:-translate-y-0.5 ${className}`}
+      style={{
+        background: "var(--color-surface)",
+        borderColor: "var(--color-border)",
+        ...glowStyle,
+        ...style,
+      }}
+      {...rest}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Animated line indicating workflow/pipeline progress.
+ */
+export function ProgressLine({
+  progress = 100,
+  orientation = "horizontal",
+  className = "",
+}: {
+  progress?: number;
+  orientation?: "horizontal" | "vertical";
+  className?: string;
+}) {
+  const [ref, isInView] = useInView<HTMLDivElement>({ threshold: 0.1, triggerOnce: true });
+
+  const clamped = Math.min(100, Math.max(0, progress));
+
+  return (
+    <div
+      ref={ref}
+      className={`overflow-hidden rounded-full ${
+        orientation === "horizontal" ? "h-1 w-full" : "w-1 h-full"
+      } ${className}`}
+      style={{ background: "rgba(255, 255, 255, 0.08)" }}
+      aria-hidden="true"
+    >
+      <div
+        className="h-full w-full rounded-full transition-all duration-700 ease-out"
+        style={{
+          background: "linear-gradient(90deg, var(--color-accent) 0%, var(--color-gold) 100%)",
+          transform:
+            orientation === "horizontal"
+              ? `scaleX(${isInView ? clamped / 100 : 0})`
+              : `scaleY(${isInView ? clamped / 100 : 0})`,
+          transformOrigin: orientation === "horizontal" ? "left" : "top",
+        }}
+      />
+    </div>
+  );
+}
+

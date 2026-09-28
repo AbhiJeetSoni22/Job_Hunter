@@ -252,6 +252,39 @@ body {
   animation: dotPulse 1.2s ease-in-out infinite;
 }
 
+/* ── Glassmorphism & Editorial Landing Accents ────────────────────────── */
+.nav-glass {
+  background: rgba(7, 7, 7, 0.82) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.editorial-glow-wine {
+  background: radial-gradient(circle at 50% 30%, rgba(143, 23, 51, 0.18) 0%, rgba(201, 166, 107, 0.05) 50%, transparent 75%);
+}
+
+.editorial-glow-gold {
+  background: radial-gradient(circle at 50% 50%, rgba(201, 166, 107, 0.14) 0%, transparent 70%);
+}
+
+.card-layer-shadow {
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.spotlight-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.spotlight-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(201, 166, 107, 0.35);
+  box-shadow: 0 14px 36px -6px rgba(0, 0, 0, 0.8), 0 0 20px -5px rgba(143, 23, 51, 0.2);
+}
+
 /* ── Respect prefers-reduced-motion ───────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
