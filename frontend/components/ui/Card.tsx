@@ -2,7 +2,7 @@ import { HTMLAttributes } from "react";
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   padding?: "none" | "sm" | "md" | "lg";
-  /** Adds a subtle lift + border-emphasis on hover. Opt-in — only for clickable cards. */
+  /** Adds a subtle lift + border-emphasis on hover. Optin — only for clickable cards. */
   hoverable?: boolean;
 }
 

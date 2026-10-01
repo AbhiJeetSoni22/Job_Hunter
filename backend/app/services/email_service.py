@@ -2,7 +2,7 @@
 Email service.
 
 Handles sending transactional emails via Gmail SMTP using STARTTLS.
-Uses standard Python smtplib and email.mime libraries.
+Uses standard Python smtplib and email.mime  .
 """
 
 import logging
