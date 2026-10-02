@@ -14,12 +14,13 @@ Uses FastAPI TestClient to test real HTTP request/response envelope behavior:
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
-import pytest
+from resend.exceptions import ResendError
+from sqlalchemy import select
 
 from app.core.security import create_access_token, hash_otp
 from app.models.email_otp import EmailOtp
-from app.models.user import User
 from app.services.user_service import UserService
 from tests.conftest import needs_db
 
@@ -57,6 +58,60 @@ def test_http_otp_request_cooldown(client, db):
     error = json_data["error"]
     assert error["code"] == "RATE_LIMIT_EXCEEDED"
     assert "Please wait" in error["message"]
+
+
+@needs_db
+def test_http_otp_request_email_delivery_failure(client, db, monkeypatch):
+    """POST /api/auth/otp/request when email delivery fails returns 503 EMAIL_DELIVERY_FAILED and rolls back DB."""
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "APP_ENV", "production")
+    monkeypatch.setattr(get_settings(), "RESEND_API_KEY", "re_test_key_123")
+
+    with patch("resend.Emails.send", side_effect=ResendError(code=500, error_type="application_error", message="Delivery error", suggested_action="Retry later")):
+        response = client.post(
+            "/api/auth/otp/request",
+            json={"email": "delivery_fail@example.com"},
+        )
+
+    assert response.status_code == 503
+    json_data = response.json()
+    assert json_data["data"] is None
+    error = json_data["error"]
+    assert error["code"] == "EMAIL_DELIVERY_FAILED"
+    assert "Failed to deliver" in error["message"]
+
+    # Verify transaction rollback: no OTP record should exist in the database
+    otp_record = db.execute(
+        select(EmailOtp).where(EmailOtp.email == "delivery_fail@example.com")
+    ).scalar_one_or_none()
+    assert otp_record is None
+
+
+@needs_db
+def test_http_otp_request_missing_config_in_production(client, db, monkeypatch):
+    """POST /api/auth/otp/request in production without RESEND_API_KEY returns 503 EMAIL_DELIVERY_FAILED."""
+    from app.config import get_settings
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setattr(get_settings(), "APP_ENV", "production")
+    monkeypatch.setattr(get_settings(), "RESEND_API_KEY", "")
+
+    response = client.post(
+        "/api/auth/otp/request",
+        json={"email": "unconfigured@example.com"},
+    )
+
+    assert response.status_code == 503
+    json_data = response.json()
+    assert json_data["data"] is None
+    error = json_data["error"]
+    assert error["code"] == "EMAIL_DELIVERY_FAILED"
+    assert "Email service is not configured" in error["message"]
+
+    # Verify no record was persisted
+    otp_record = db.execute(
+        select(EmailOtp).where(EmailOtp.email == "unconfigured@example.com")
+    ).scalar_one_or_none()
+    assert otp_record is None
 
 
 @needs_db
@@ -214,12 +269,14 @@ def test_http_get_me_expired_token(client, db):
 def test_http_get_me_invalid_token_type(client):
     """GET /api/auth/me with wrong token 'type' claim returns 401 INVALID_TOKEN."""
     import uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     import jwt
+
     from app.config import get_settings
 
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     wrong_type_token = jwt.encode(
         {"sub": str(uuid.uuid4()), "type": "refresh", "iat": now, "exp": now + timedelta(minutes=10)},
         settings.JWT_SECRET_KEY,
@@ -238,12 +295,14 @@ def test_http_get_me_invalid_token_type(client):
 
 def test_http_get_me_invalid_uuid_subject(client):
     """GET /api/auth/me with non-UUID 'sub' claim returns 401 INVALID_TOKEN."""
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     import jwt
+
     from app.config import get_settings
 
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     malformed_sub_token = jwt.encode(
         {"sub": "invalid-non-uuid-string", "type": "access", "iat": now, "exp": now + timedelta(minutes=10)},
         settings.JWT_SECRET_KEY,

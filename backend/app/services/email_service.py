@@ -1,15 +1,16 @@
 """
 Email service.
 
-Handles sending transactional emails via Gmail SMTP using STARTTLS.
-Uses standard Python smtplib and email.mime  .
+Handles sending transactional emails via Resend HTTP API.
+Uses the official Resend Python SDK.
 """
 
 import logging
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.utils import formatdate, make_msgid, parseaddr
+import os
+from typing import Any
+
+import resend
+from resend.exceptions import ResendError
 
 from app.config import get_settings
 
@@ -17,76 +18,68 @@ logger = logging.getLogger(__name__)
 
 
 class EmailDeliveryError(Exception):
-    """Raised when an email fails to deliver via SMTP."""
+    """Raised when an email fails to deliver via Resend."""
     pass
 
 
+def _mask_email(email: str) -> str:
+    """Mask email address for privacy in logs (e.g. u***r@example.com)."""
+    if not email or "@" not in email:
+        return "***"
+    local_part, domain = email.strip().split("@", 1)
+    if len(local_part) <= 1:
+        masked_local = f"{local_part}***"
+    else:
+        masked_local = f"{local_part[0]}***{local_part[-1]}"
+    return f"{masked_local}@{domain}"
+
+
 class EmailService:
-    """Service for dispatching transactional emails via Gmail SMTP."""
+    """Service for dispatching transactional emails via Resend HTTP API."""
 
     def __init__(
         self,
-        host: str | None = None,
-        port: int | None = None,
-        username: str | None = None,
-        password: str | None = None,
+        api_key: str | None = None,
         from_email: str | None = None,
     ) -> None:
         settings = get_settings()
-        self._host = host if host is not None else settings.SMTP_HOST
-        self._port = port if port is not None else settings.SMTP_PORT
-        self._username = username if username is not None else settings.SMTP_USERNAME
-        self._password = password if password is not None else settings.SMTP_PASSWORD
-        self._from_email = from_email if from_email is not None else settings.SMTP_FROM_EMAIL
+        self._api_key = api_key if api_key is not None else settings.RESEND_API_KEY
+        self._from_email = from_email if from_email is not None else settings.RESEND_FROM_EMAIL
 
     def send_otp_email(self, to_email: str, otp_code: str) -> bool:
         """
-        Send a 6-digit verification code to the recipient's email address via Gmail SMTP.
+        Send a 6-digit verification code to the recipient's email address via Resend HTTP API.
 
-        In production, requires valid SMTP credentials.
-        In development/test environments without credentials, logs the code safely
+        In production, requires a valid RESEND_API_KEY.
+        In development/test environments without an API key, logs the code safely
         so developers and local users can still complete the authentication flow.
 
         Raises:
-            EmailDeliveryError: if connection, TLS, authentication, or dispatch fails.
+            EmailDeliveryError: if API key is missing in production or Resend API dispatch fails.
         """
         settings = get_settings()
-        import os
         app_env = os.environ.get("APP_ENV") or settings.APP_ENV
 
-        is_configured = bool(
-            self._password
-            and self._password.strip()
-            and self._username
-            and self._username.strip()
-        )
-
-        logger.info(
-            "SMTP DEBUG: host=%s port=%s username=%s password_configured=%s",
-            self._host,
-            self._port,
-            self._username,
-            is_configured,
-        )
+        is_configured = bool(self._api_key and self._api_key.strip())
 
         if not is_configured:
             if app_env in {"production", "prod"}:
-                logger.error("SMTP credentials are not configured in production!")
+                logger.error("Resend API key is not configured in production!")
                 raise EmailDeliveryError("Email service is not configured. Please contact support.")
             logger.info(
-                "[DEV/TEST] SMTP credentials not set. Verification OTP for %s: %s",
+                "[DEV/TEST] Resend API key not set. Verification OTP for %s: %s",
                 to_email,
                 otp_code,
             )
             return True
 
+        masked_to = _mask_email(to_email)
         subject = f"{otp_code} is your Job Hunter verification code"
         from_header = (
             self._from_email.strip()
             if self._from_email and self._from_email.strip()
-            else (f"Job Hunter <{self._username.strip()}>" if self._username else "Job Hunter")
+            else "Job Hunter <onboarding@resend.dev>"
         )
-        sender_addr = parseaddr(from_header)[1] or self._username.strip()
 
         plain_text = (
             f"Your Job Hunter verification code is: {otp_code}\n\n"
@@ -132,44 +125,35 @@ class EmailService:
 </html>
 """
 
-        message = MIMEMultipart("alternative")
-        message["Subject"] = subject
-        message["From"] = from_header
-        message["To"] = to_email
-        message["Date"] = formatdate(localtime=True)
-        sender_domain = sender_addr.split("@")[-1] if "@" in sender_addr else "gmail.com"
-        message["Message-ID"] = make_msgid(domain=sender_domain)
-
-        message.attach(MIMEText(plain_text, "plain", "utf-8"))
-        message.attach(MIMEText(html_content, "html", "utf-8"))
+        params: resend.Emails.SendParams = {
+            "from": from_header,
+            "to": [to_email.strip()],
+            "subject": subject,
+            "text": plain_text,
+            "html": html_content,
+        }
 
         try:
-            logger.info("SMTP DEBUG: Connecting to %s:%s...", self._host, self._port)
-            with smtplib.SMTP(self._host, self._port, timeout=10.0) as server:
-                server.ehlo()
-                logger.info("SMTP DEBUG: Establishing STARTTLS...")
-                server.starttls()
-                server.ehlo()
-                logger.info("SMTP DEBUG: Authenticating as %s...", self._username)
-                server.login(self._username, self._password)
-                logger.info("SMTP DEBUG: Sending MIME message to %s...", to_email)
-                server.send_message(message, from_addr=sender_addr, to_addrs=[to_email])
-                logger.info("SMTP DEBUG: Message successfully accepted by SMTP server for %s", to_email)
-        except smtplib.SMTPAuthenticationError as exc:
-            logger.error("SMTP authentication failed for user %s: code=%s", self._username, exc.smtp_code)
-            raise EmailDeliveryError("Failed to authenticate with email delivery server.") from exc
-        except smtplib.SMTPRecipientsRefused as exc:
-            logger.error("SMTP recipient refused: %s", to_email)
-            raise EmailDeliveryError("Recipient email address was rejected by mail server.") from exc
-        except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, TimeoutError, OSError) as exc:
-            logger.error("SMTP connection failure to %s:%s: %s", self._host, self._port, exc.__class__.__name__)
-            raise EmailDeliveryError("Failed to connect to email delivery server. Please try again.") from exc
-        except smtplib.SMTPException as exc:
-            logger.error("SMTP delivery failure to %s: %s", to_email, exc.__class__.__name__)
-            raise EmailDeliveryError("Failed to dispatch verification email. Please try again.") from exc
+            logger.info("Dispatching OTP email to recipient=%s via Resend API", masked_to)
+            resend.api_key = self._api_key.strip()
+            response: Any = resend.Emails.send(params)
+            email_id = getattr(response, "id", None) or (response.get("id") if isinstance(response, dict) else None)
+            logger.info("Successfully dispatched OTP email to recipient=%s via Resend API (id=%s)", masked_to, email_id)
+            return True
+        except ResendError as exc:
+            error_code = getattr(exc, "code", None)
+            error_msg = getattr(exc, "message", str(exc))
+            logger.error(
+                "Resend email delivery failed recipient=%s status=%s: %s",
+                masked_to,
+                error_code,
+                error_msg,
+            )
+            raise EmailDeliveryError("Failed to deliver verification email. Please try again.") from exc
         except Exception as exc:
-            logger.error("Unexpected error during email delivery to %s: %s", to_email, exc.__class__.__name__)
+            logger.error(
+                "Unexpected error during Resend email delivery recipient=%s: %s",
+                masked_to,
+                exc.__class__.__name__,
+            )
             raise EmailDeliveryError("An unexpected error occurred while sending verification email.") from exc
-
-        logger.info("Successfully dispatched OTP email to %s via Gmail SMTP", to_email)
-        return True

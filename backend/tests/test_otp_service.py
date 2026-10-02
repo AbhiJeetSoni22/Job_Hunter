@@ -9,15 +9,16 @@ Covers:
   5. OTP verification: existing user lookup and inactive user handling.
   6. Attempt tracking and locking after max failed attempts.
   7. Expiration validation.
-  8. EmailService integration with Gmail SMTP (success, error, dev fallback, security).
+  8. EmailService integration with Resend HTTP API (success, error, dev fallback, security).
 """
 
-import smtplib
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from resend.exceptions import ResendError
+from sqlalchemy import select
 
 from app.core.security import generate_otp_code, hash_otp, verify_otp_hash
 from app.models.email_otp import EmailOtp
@@ -127,6 +128,21 @@ def test_request_otp_invalidates_prior_otps(db):
     assert otp1.consumed_at is not None
     assert otp2.consumed_at is None
     assert otp1.id != otp2.id
+
+
+@needs_db
+def test_request_otp_email_delivery_failure_rolls_back_db(db):
+    """When email delivery fails, request_otp rolls back the session and does not persist OTP."""
+    mock_email_service = MagicMock(spec=EmailService)
+    mock_email_service.send_otp_email.side_effect = EmailDeliveryError("Failed to deliver")
+
+    service = OtpService(db, email_service=mock_email_service)
+    with pytest.raises(EmailDeliveryError):
+        service.request_otp("fail_delivery@example.com")
+
+    # Verify no record was persisted
+    stmt = select(EmailOtp).where(EmailOtp.email == "fail_delivery@example.com")
+    assert db.execute(stmt).scalar_one_or_none() is None
 
 
 # ── OTP Service Verification Tests ───────────────────────────────────────────
@@ -316,15 +332,15 @@ def test_verify_otp_expired_code(db):
     assert "expired" in str(exc_info.value)
 
 
-# ── Email Service Integration Tests (Gmail SMTP) ─────────────────────────────
+# ── Email Service Integration Tests (Resend HTTP API) ─────────────────────────
 
 def test_email_service_dev_mode_missing_credentials(monkeypatch, caplog):
-    """EmailService in dev mode with missing SMTP password logs OTP and returns True."""
-    monkeypatch.setenv("SMTP_PASSWORD", "")
+    """EmailService in dev mode with missing Resend API key logs OTP and returns True."""
+    monkeypatch.setenv("RESEND_API_KEY", "")
     monkeypatch.setenv("APP_ENV", "development")
 
     with caplog.at_level("INFO"):
-        email_service = EmailService(username="sender@gmail.com", password="", from_email="Job Hunter <sender@gmail.com>")
+        email_service = EmailService(api_key="", from_email="Job Hunter <onboarding@resend.dev>")
         result = email_service.send_otp_email("dev_user@example.com", "123456")
 
     assert result is True
@@ -334,124 +350,122 @@ def test_email_service_dev_mode_missing_credentials(monkeypatch, caplog):
 
 def test_email_service_prod_mode_missing_credentials(monkeypatch):
     """EmailService in production mode with missing credentials raises EmailDeliveryError."""
-    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.setenv("RESEND_API_KEY", "")
     monkeypatch.setenv("APP_ENV", "production")
 
-    email_service = EmailService(username="sender@gmail.com", password="", from_email="Job Hunter <sender@gmail.com>")
+    email_service = EmailService(api_key="", from_email="Job Hunter <onboarding@resend.dev>")
     with pytest.raises(EmailDeliveryError) as exc_info:
         email_service.send_otp_email("prod_user@example.com", "123456")
 
     assert "Email service is not configured" in str(exc_info.value)
 
 
-def test_email_service_smtp_success(monkeypatch):
-    """EmailService establishes STARTTLS, logs in, and dispatches MIME message with OTP."""
+def test_email_service_resend_success(monkeypatch):
+    """EmailService dispatches email via Resend API with expected payload."""
     monkeypatch.setenv("APP_ENV", "production")
 
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_smtp_cls.return_value.__enter__.return_value = mock_server
+    with patch("resend.Emails.send") as mock_send:
+        mock_send.return_value = {"id": "resend_msg_12345"}
 
         email_service = EmailService(
-            host="smtp.gmail.com",
-            port=587,
-            username="sender@gmail.com",
-            password="fake-app-password",
-            from_email="Job Hunter <sender@gmail.com>",
+            api_key="re_valid_api_key_12345",
+            from_email="Job Hunter <noreply@example.com>",
         )
         success = email_service.send_otp_email("recipient@example.com", "654321")
 
         assert success is True
-        mock_smtp_cls.assert_called_once_with("smtp.gmail.com", 587, timeout=10.0)
-        assert mock_server.ehlo.called
-        assert mock_server.starttls.called
-        mock_server.login.assert_called_once_with("sender@gmail.com", "fake-app-password")
-        assert mock_server.send_message.called
-
-        # Verify MIME message content and recipients
-        call_args, call_kwargs = mock_server.send_message.call_args
-        msg = call_args[0]
-        assert call_kwargs["to_addrs"] == ["recipient@example.com"]
-        assert call_kwargs["from_addr"] == "sender@gmail.com"
-        assert msg["To"] == "recipient@example.com"
-        assert msg["From"] == "Job Hunter <sender@gmail.com>"
-        assert msg["Subject"] == "654321 is your Job Hunter verification code"
-
-        # Decode MIME payload parts (plain text & HTML)
-        payloads = [part.get_payload(decode=True).decode("utf-8") for part in msg.get_payload()]
-        assert any("654321" in p for p in payloads)
-        assert any("10 minutes" in p for p in payloads)
+        mock_send.assert_called_once()
+        call_params = mock_send.call_args[0][0]
+        assert call_params["from"] == "Job Hunter <noreply@example.com>"
+        assert call_params["to"] == ["recipient@example.com"]
+        assert call_params["subject"] == "654321 is your Job Hunter verification code"
+        assert "654321" in call_params["text"]
+        assert "10 minutes" in call_params["text"]
+        assert "654321" in call_params["html"]
 
 
-def test_email_service_smtp_auth_failure(monkeypatch):
-    """SMTP authentication failure is converted into EmailDeliveryError."""
+def test_email_service_resend_api_failure(monkeypatch):
+    """Resend API failure (e.g. 401 Invalid API Key) is converted into EmailDeliveryError."""
     monkeypatch.setenv("APP_ENV", "production")
 
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_server.login.side_effect = smtplib.SMTPAuthenticationError(535, b"Authentication failed")
-        mock_smtp_cls.return_value.__enter__.return_value = mock_server
+    with patch("resend.Emails.send") as mock_send:
+        mock_send.side_effect = ResendError(
+            code=401,
+            error_type="invalid_api_key",
+            message="API key is invalid",
+            suggested_action="Check your API key",
+        )
 
         email_service = EmailService(
-            username="sender@gmail.com",
-            password="wrong-password",
+            api_key="re_invalid_api_key",
+            from_email="Job Hunter <onboarding@resend.dev>",
         )
         with pytest.raises(EmailDeliveryError) as exc_info:
             email_service.send_otp_email("user@example.com", "111222")
 
-        assert "Failed to authenticate" in str(exc_info.value)
+        assert "Failed to deliver" in str(exc_info.value)
 
 
-def test_email_service_smtp_connection_failure(monkeypatch):
-    """SMTP connection failure is converted into EmailDeliveryError."""
+def test_email_service_resend_rate_limit_failure(monkeypatch):
+    """Resend rate limit failure (429) is converted into EmailDeliveryError."""
     monkeypatch.setenv("APP_ENV", "production")
 
-    with patch("smtplib.SMTP", side_effect=smtplib.SMTPConnectError(421, "Cannot connect to server")):
+    with patch("resend.Emails.send") as mock_send:
+        mock_send.side_effect = ResendError(
+            code=429,
+            error_type="rate_limit_exceeded",
+            message="Too many requests",
+            suggested_action="Please slow down your requests",
+        )
+
         email_service = EmailService(
-            username="sender@gmail.com",
-            password="some-password",
+            api_key="re_test_key",
+            from_email="Job Hunter <onboarding@resend.dev>",
+        )
+        with pytest.raises(EmailDeliveryError) as exc_info:
+            email_service.send_otp_email("user@example.com", "222333")
+
+        assert "Failed to deliver" in str(exc_info.value)
+
+
+def test_email_service_resend_unexpected_exception(monkeypatch):
+    """Unexpected network error is converted into EmailDeliveryError."""
+    monkeypatch.setenv("APP_ENV", "production")
+
+    with patch("resend.Emails.send", side_effect=ConnectionError("Connection aborted")):
+        email_service = EmailService(
+            api_key="re_test_key",
+            from_email="Job Hunter <onboarding@resend.dev>",
         )
         with pytest.raises(EmailDeliveryError) as exc_info:
             email_service.send_otp_email("user@example.com", "333444")
 
-        assert "Failed to connect" in str(exc_info.value)
+        assert "unexpected error occurred" in str(exc_info.value)
 
 
-def test_email_service_smtp_recipient_refused(monkeypatch):
-    """SMTP recipient refusal is converted into EmailDeliveryError."""
+def test_email_service_credentials_and_otp_never_logged(monkeypatch, caplog):
+    """Verify Resend API key and plain OTP code are never exposed in log output."""
     monkeypatch.setenv("APP_ENV", "production")
+    secret_key = "re_super_secret_resend_api_key_xyz987"
 
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_server.send_message.side_effect = smtplib.SMTPRecipientsRefused({"bad@example.com": (550, b"User unknown")})
-        mock_smtp_cls.return_value.__enter__.return_value = mock_server
-
-        email_service = EmailService(
-            username="sender@gmail.com",
-            password="valid-password",
+    with patch("resend.Emails.send") as mock_send:
+        mock_send.side_effect = ResendError(
+            code=401,
+            error_type="unauthorized",
+            message="Authentication failed",
+            suggested_action="Check API key",
         )
-        with pytest.raises(EmailDeliveryError) as exc_info:
-            email_service.send_otp_email("bad@example.com", "555666")
-
-        assert "rejected" in str(exc_info.value)
-
-
-def test_email_service_password_never_logged(monkeypatch, caplog):
-    """Verify SMTP password or secret credentials are never exposed in log output."""
-    monkeypatch.setenv("APP_ENV", "production")
-    secret_pass = "super-secret-google-app-password-xyz"
-
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_server.login.side_effect = smtplib.SMTPAuthenticationError(535, b"5.7.8 Bad credentials")
-        mock_smtp_cls.return_value.__enter__.return_value = mock_server
 
         email_service = EmailService(
-            username="sender@gmail.com",
-            password=secret_pass,
+            api_key=secret_key,
+            from_email="Job Hunter <onboarding@resend.dev>",
         )
 
         with caplog.at_level("DEBUG"), pytest.raises(EmailDeliveryError):
-            email_service.send_otp_email("user@example.com", "123456")
+            email_service.send_otp_email("sensitive_user@example.com", "987654")
 
-        assert secret_pass not in caplog.text
+        assert secret_key not in caplog.text
+        assert "987654" not in caplog.text
+        # Recipient email should be masked
+        assert "s***r@example.com" in caplog.text
+        assert "sensitive_user@example.com" not in caplog.text
