@@ -12,13 +12,20 @@ Uses FastAPI TestClient to test real HTTP request/response envelope behavior:
   - GET  /api/auth/me with invalid/expired token → 401 INVALID_TOKEN / TOKEN_EXPIRED
 """
 
+from __future__ import annotations
+
+import smtplib
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-from resend.exceptions import ResendError
+import jwt
+import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.core.security import create_access_token, hash_otp
 from app.models.email_otp import EmailOtp
 from app.services.user_service import UserService
@@ -26,7 +33,7 @@ from tests.conftest import needs_db
 
 
 @needs_db
-def test_http_otp_request_success(client, db):
+def test_http_otp_request_success(client: TestClient, db: Session) -> None:
     """POST /api/auth/otp/request returns 200 OK and ApiResponse[OtpResponse]."""
     response = client.post(
         "/api/auth/otp/request",
@@ -41,7 +48,7 @@ def test_http_otp_request_success(client, db):
 
 
 @needs_db
-def test_http_otp_request_cooldown(client, db):
+def test_http_otp_request_cooldown(client: TestClient, db: Session) -> None:
     """POST /api/auth/otp/request within cooldown returns 429 RATE_LIMIT_EXCEEDED."""
     client.post(
         "/api/auth/otp/request",
@@ -61,13 +68,16 @@ def test_http_otp_request_cooldown(client, db):
 
 
 @needs_db
-def test_http_otp_request_email_delivery_failure(client, db, monkeypatch):
+def test_http_otp_request_email_delivery_failure(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """POST /api/auth/otp/request when email delivery fails returns 503 EMAIL_DELIVERY_FAILED and rolls back DB."""
-    from app.config import get_settings
+    monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setattr(get_settings(), "APP_ENV", "production")
-    monkeypatch.setattr(get_settings(), "RESEND_API_KEY", "re_test_key_123")
+    monkeypatch.setattr(get_settings(), "SMTP_PASSWORD", "valid-app-password")
+    monkeypatch.setattr(get_settings(), "SMTP_USERNAME", "sender@gmail.com")
 
-    with patch("resend.Emails.send", side_effect=ResendError(code=500, error_type="application_error", message="Delivery error", suggested_action="Retry later")):
+    with patch("smtplib.SMTP", side_effect=smtplib.SMTPConnectError(421, "Cannot connect to server")):
         response = client.post(
             "/api/auth/otp/request",
             json={"email": "delivery_fail@example.com"},
@@ -78,7 +88,7 @@ def test_http_otp_request_email_delivery_failure(client, db, monkeypatch):
     assert json_data["data"] is None
     error = json_data["error"]
     assert error["code"] == "EMAIL_DELIVERY_FAILED"
-    assert "Failed to deliver" in error["message"]
+    assert "Failed to connect" in error["message"]
 
     # Verify transaction rollback: no OTP record should exist in the database
     otp_record = db.execute(
@@ -88,12 +98,13 @@ def test_http_otp_request_email_delivery_failure(client, db, monkeypatch):
 
 
 @needs_db
-def test_http_otp_request_missing_config_in_production(client, db, monkeypatch):
-    """POST /api/auth/otp/request in production without RESEND_API_KEY returns 503 EMAIL_DELIVERY_FAILED."""
-    from app.config import get_settings
+def test_http_otp_request_missing_config_in_production(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /api/auth/otp/request in production without SMTP credentials returns 503 EMAIL_DELIVERY_FAILED."""
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setattr(get_settings(), "APP_ENV", "production")
-    monkeypatch.setattr(get_settings(), "RESEND_API_KEY", "")
+    monkeypatch.setattr(get_settings(), "SMTP_PASSWORD", "")
 
     response = client.post(
         "/api/auth/otp/request",
@@ -115,7 +126,7 @@ def test_http_otp_request_missing_config_in_production(client, db, monkeypatch):
 
 
 @needs_db
-def test_http_otp_verify_success(client, db):
+def test_http_otp_verify_success(client: TestClient, db: Session) -> None:
     """POST /api/auth/otp/verify returns 200 OK and TokenResponse envelope."""
     email = "verify_router@example.com"
     otp_code = "123456"
@@ -147,7 +158,7 @@ def test_http_otp_verify_success(client, db):
 
 
 @needs_db
-def test_http_otp_verify_invalid_code(client, db):
+def test_http_otp_verify_invalid_code(client: TestClient, db: Session) -> None:
     """POST /api/auth/otp/verify with incorrect code returns 400 INVALID_OTP."""
     email = "wrong_otp_router@example.com"
     otp_record = EmailOtp(
@@ -176,7 +187,7 @@ def test_http_otp_verify_invalid_code(client, db):
 
 
 @needs_db
-def test_http_otp_verify_max_attempts_exceeded(client, db):
+def test_http_otp_verify_max_attempts_exceeded(client: TestClient, db: Session) -> None:
     """POST /api/auth/otp/verify when attempts are exhausted returns 429 TOO_MANY_ATTEMPTS."""
     email = "locked_otp_router@example.com"
     otp_record = EmailOtp(
@@ -204,7 +215,7 @@ def test_http_otp_verify_max_attempts_exceeded(client, db):
 
 
 @needs_db
-def test_http_get_me_valid_token(client, db):
+def test_http_get_me_valid_token(client: TestClient, db: Session) -> None:
     """GET /api/auth/me with valid Bearer token returns 200 OK and UserResponse envelope."""
     user = UserService(db).create_email_user(email="me_endpoint@example.com", name="Me User")
     db.commit()
@@ -224,7 +235,7 @@ def test_http_get_me_valid_token(client, db):
     assert data["name"] == "Me User"
 
 
-def test_http_get_me_without_token(client):
+def test_http_get_me_without_token(client: TestClient) -> None:
     """GET /api/auth/me without Authorization header returns 401 INVALID_TOKEN."""
     response = client.get("/api/auth/me")
     assert response.status_code == 401
@@ -233,7 +244,7 @@ def test_http_get_me_without_token(client):
     assert json_data["error"]["code"] == "INVALID_TOKEN"
 
 
-def test_http_get_me_invalid_token(client):
+def test_http_get_me_invalid_token(client: TestClient) -> None:
     """GET /api/auth/me with invalid signature returns 401 INVALID_TOKEN."""
     response = client.get(
         "/api/auth/me",
@@ -246,7 +257,7 @@ def test_http_get_me_invalid_token(client):
 
 
 @needs_db
-def test_http_get_me_expired_token(client, db):
+def test_http_get_me_expired_token(client: TestClient, db: Session) -> None:
     """GET /api/auth/me with expired token returns 401 TOKEN_EXPIRED."""
     user = UserService(db).create_email_user(email="expired_router@example.com")
     db.commit()
@@ -266,15 +277,8 @@ def test_http_get_me_expired_token(client, db):
     assert json_data["error"]["code"] == "TOKEN_EXPIRED"
 
 
-def test_http_get_me_invalid_token_type(client):
+def test_http_get_me_invalid_token_type(client: TestClient) -> None:
     """GET /api/auth/me with wrong token 'type' claim returns 401 INVALID_TOKEN."""
-    import uuid
-    from datetime import datetime
-
-    import jwt
-
-    from app.config import get_settings
-
     settings = get_settings()
     now = datetime.now(UTC)
     wrong_type_token = jwt.encode(
@@ -293,14 +297,8 @@ def test_http_get_me_invalid_token_type(client):
     assert json_data["error"]["code"] == "INVALID_TOKEN"
 
 
-def test_http_get_me_invalid_uuid_subject(client):
+def test_http_get_me_invalid_uuid_subject(client: TestClient) -> None:
     """GET /api/auth/me with non-UUID 'sub' claim returns 401 INVALID_TOKEN."""
-    from datetime import datetime
-
-    import jwt
-
-    from app.config import get_settings
-
     settings = get_settings()
     now = datetime.now(UTC)
     malformed_sub_token = jwt.encode(

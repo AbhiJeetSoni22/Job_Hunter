@@ -40,7 +40,6 @@ dependencies = [
 
     # Utilities
     "python-multipart==0.0.18",
-    "resend>=2.4.0",
 ]
 
 [project.optional-dependencies]

@@ -323,13 +323,15 @@ def scraper_service(db: Session, sample_user: User) -> ScraperService:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def mock_resend_default() -> Generator[MagicMock, None, None]:
+def mock_smtp_default() -> Generator[MagicMock, None, None]:
     """
-    Autouse fixture that prevents real outbound Resend API calls during tests.
+    Autouse fixture that prevents real outbound SMTP connections during tests.
     """
-    with patch("resend.Emails.send") as mock_send:
-        mock_send.return_value = {"id": "mock-resend-email-id-12345"}
-        yield mock_send
+    with patch("smtplib.SMTP") as mock_smtp_cls:
+        server = MagicMock()
+        mock_smtp_cls.return_value.__enter__.return_value = server
+        mock_smtp_cls.return_value = server
+        yield server
 
 
 @pytest.fixture()
