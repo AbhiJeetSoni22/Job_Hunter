@@ -14,7 +14,7 @@ Covers:
 
 from __future__ import annotations
 
-import smtplib
+import httpx
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -336,17 +336,17 @@ def test_verify_otp_expired_code(db: Session) -> None:
     assert "expired" in str(exc_info.value)
 
 
-# ── Email Service Integration Tests (Gmail SMTP) ─────────────────────────────
+# ── Email Service Integration Tests (Brevo API) ─────────────────────────────
 
 def test_email_service_dev_mode_missing_credentials(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """EmailService in dev mode with missing SMTP password logs OTP and returns True."""
-    monkeypatch.setenv("SMTP_PASSWORD", "")
+    """EmailService in dev mode with missing API key logs OTP and returns True."""
+    monkeypatch.setenv("BREVO_API_KEY", "")
     monkeypatch.setenv("APP_ENV", "development")
 
     with caplog.at_level("INFO"):
-        email_service = EmailService(username="sender@gmail.com", password="", from_email="Job Hunter <sender@gmail.com>")
+        email_service = EmailService(api_key="", from_email="sender@example.com")
         result = email_service.send_otp_email("dev_user@example.com", "123456")
 
     assert result is True
@@ -356,191 +356,159 @@ def test_email_service_dev_mode_missing_credentials(
 
 def test_email_service_prod_mode_missing_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     """EmailService in production mode with missing credentials raises EmailDeliveryError."""
-    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.setenv("BREVO_API_KEY", "")
     monkeypatch.setenv("APP_ENV", "production")
 
-    email_service = EmailService(username="sender@gmail.com", password="", from_email="Job Hunter <sender@gmail.com>")
+    email_service = EmailService(api_key="", from_email="sender@example.com")
     with pytest.raises(EmailDeliveryError) as exc_info:
         email_service.send_otp_email("prod_user@example.com", "123456")
 
     assert "Email service is not configured" in str(exc_info.value)
 
 
-def test_email_service_smtp_port_587_starttls_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """EmailService on port 587 establishes connection, STARTTLS, logs in, and dispatches message."""
+def test_email_service_brevo_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EmailService establishes HTTP connection, authenticates, and dispatches message via Brevo."""
     monkeypatch.setenv("APP_ENV", "production")
 
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_smtp_cls.return_value = mock_server
+    with patch("httpx.Client") as mock_httpx_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_client.post.return_value = mock_response
+        mock_httpx_cls.return_value = mock_client
 
         email_service = EmailService(
-            host="smtp.gmail.com",
-            port=587,
-            username="sender@gmail.com",
-            password="fake-app-password",
-            from_email="Job Hunter <sender@gmail.com>",
+            api_key="valid-brevo-key",
+            from_email="sender@example.com",
+            from_name="Job Hunter",
         )
         success = email_service.send_otp_email("recipient@example.com", "654321")
 
         assert success is True
-        mock_smtp_cls.assert_called_once_with("smtp.gmail.com", 587, timeout=10.0)
-        assert mock_server.ehlo.called
-        assert mock_server.starttls.called
-        mock_server.login.assert_called_once_with("sender@gmail.com", "fake-app-password")
-        assert mock_server.send_message.called
+        assert mock_client.post.called
 
-        # Verify MIME message content and recipients
+        # Verify request parameters
         call_args: Any
         call_kwargs: Any
-        call_args, call_kwargs = mock_server.send_message.call_args
-        msg = call_args[0]
-        assert call_kwargs["to_addrs"] == ["recipient@example.com"]
-        assert call_kwargs["from_addr"] == "sender@gmail.com"
-        assert msg["To"] == "recipient@example.com"
-        assert msg["From"] == "Job Hunter <sender@gmail.com>"
-        assert msg["Subject"] == "654321 is your Job Hunter verification code"
+        call_args, call_kwargs = mock_client.post.call_args
+        
+        assert call_args[0] == "https://api.brevo.com/v3/smtp/email"
+        assert call_kwargs["headers"]["api-key"] == "valid-brevo-key"
+        
+        payload = call_kwargs["json"]
+        assert payload["to"][0]["email"] == "recipient@example.com"
+        assert payload["sender"]["email"] == "sender@example.com"
+        assert payload["sender"]["name"] == "Job Hunter"
+        assert payload["subject"] == "654321 is your Job Hunter verification code"
+        assert "654321" in payload["textContent"]
+        assert "654321" in payload["htmlContent"]
+        assert "10 minutes" in payload["textContent"]
 
-        # Decode MIME payload parts (plain text & HTML)
-        payloads = [part.get_payload(decode=True).decode("utf-8") for part in msg.get_payload()]
-        assert any("654321" in p for p in payloads)
-        assert any("10 minutes" in p for p in payloads)
-        assert mock_server.quit.called
 
-
-def test_email_service_smtp_port_465_ssl_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """EmailService on port 465 uses SMTP_SSL directly without STARTTLS."""
+def test_email_service_brevo_auth_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Brevo 401 authentication failure is converted into EmailDeliveryError."""
     monkeypatch.setenv("APP_ENV", "production")
 
-    with patch("smtplib.SMTP_SSL") as mock_smtp_ssl_cls:
-        mock_server = MagicMock()
-        mock_smtp_ssl_cls.return_value = mock_server
-
-        email_service = EmailService(
-            host="smtp.gmail.com",
-            port=465,
-            username="sender@gmail.com",
-            password="fake-app-password",
-            from_email="Job Hunter <sender@gmail.com>",
+    with patch("httpx.Client") as mock_httpx_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.text = '{"message":"Key not found"}'
+        
+        mock_client.post.side_effect = httpx.HTTPStatusError(
+            "Unauthorized", request=MagicMock(), response=mock_response
         )
-        success = email_service.send_otp_email("recipient@example.com", "777888")
+        mock_httpx_cls.return_value = mock_client
 
-        assert success is True
-        mock_smtp_ssl_cls.assert_called_once_with("smtp.gmail.com", 465, timeout=10.0)
-        assert not mock_server.starttls.called
-        mock_server.login.assert_called_once_with("sender@gmail.com", "fake-app-password")
-        assert mock_server.send_message.called
-        assert mock_server.quit.called
-
-
-def test_email_service_smtp_port_587_starttls_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """EmailService on port 587 STARTTLS failure is converted into EmailDeliveryError."""
-    monkeypatch.setenv("APP_ENV", "production")
-
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        import ssl
-        mock_server.starttls.side_effect = ssl.SSLError("TLS Handshake failed")
-        mock_smtp_cls.return_value = mock_server
-
-        email_service = EmailService(
-            host="smtp.gmail.com",
-            port=587,
-            username="sender@gmail.com",
-            password="fake-app-password",
-        )
-        with pytest.raises(EmailDeliveryError) as exc_info:
-            email_service.send_otp_email("recipient@example.com", "123456")
-
-        assert "Failed to establish secure connection" in str(exc_info.value)
-
-
-
-def test_email_service_smtp_auth_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SMTP authentication failure is converted into EmailDeliveryError."""
-    monkeypatch.setenv("APP_ENV", "production")
-
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_server.login.side_effect = smtplib.SMTPAuthenticationError(535, b"5.7.8 Bad credentials")
-        mock_smtp_cls.return_value = mock_server
-
-        email_service = EmailService(
-            username="sender@gmail.com",
-            password="wrong-password",
-        )
+        email_service = EmailService(api_key="wrong-key")
         with pytest.raises(EmailDeliveryError) as exc_info:
             email_service.send_otp_email("user@example.com", "111222")
 
         assert "Failed to authenticate" in str(exc_info.value)
 
 
-def test_email_service_smtp_connection_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SMTP connection failure is converted into EmailDeliveryError."""
+def test_email_service_brevo_connection_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Brevo HTTP connection failure is converted into EmailDeliveryError."""
     monkeypatch.setenv("APP_ENV", "production")
 
-    with patch("smtplib.SMTP", side_effect=smtplib.SMTPConnectError(421, "Cannot connect to server")):
-        email_service = EmailService(
-            username="sender@gmail.com",
-            password="some-password",
-        )
+    with patch("httpx.Client") as mock_httpx_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.side_effect = httpx.ConnectError("Cannot connect to server")
+        mock_httpx_cls.return_value = mock_client
+
+        email_service = EmailService(api_key="some-key")
         with pytest.raises(EmailDeliveryError) as exc_info:
             email_service.send_otp_email("user@example.com", "333444")
 
         assert "Failed to connect" in str(exc_info.value)
 
 
-def test_email_service_smtp_timeout_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SMTP timeout is converted into EmailDeliveryError."""
+def test_email_service_brevo_timeout_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Brevo HTTP timeout is converted into EmailDeliveryError."""
     monkeypatch.setenv("APP_ENV", "production")
 
-    with patch("smtplib.SMTP", side_effect=TimeoutError("Connection timed out")):
-        email_service = EmailService(
-            username="sender@gmail.com",
-            password="some-password",
-        )
+    with patch("httpx.Client") as mock_httpx_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.side_effect = httpx.TimeoutException("Connection timed out")
+        mock_httpx_cls.return_value = mock_client
+
+        email_service = EmailService(api_key="some-key")
         with pytest.raises(EmailDeliveryError) as exc_info:
             email_service.send_otp_email("user@example.com", "333444")
 
         assert "Failed to connect" in str(exc_info.value)
 
 
-def test_email_service_smtp_recipient_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SMTP recipient refusal is converted into EmailDeliveryError."""
+def test_email_service_brevo_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Brevo HTTP 500 failure is converted into EmailDeliveryError."""
     monkeypatch.setenv("APP_ENV", "production")
 
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_server.send_message.side_effect = smtplib.SMTPRecipientsRefused({"bad@example.com": (550, b"User unknown")})
-        mock_smtp_cls.return_value = mock_server
-
-        email_service = EmailService(
-            username="sender@gmail.com",
-            password="valid-password",
+    with patch("httpx.Client") as mock_httpx_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+        
+        mock_client.post.side_effect = httpx.HTTPStatusError(
+            "Server Error", request=MagicMock(), response=mock_response
         )
+        mock_httpx_cls.return_value = mock_client
+
+        email_service = EmailService(api_key="valid-key")
         with pytest.raises(EmailDeliveryError) as exc_info:
             email_service.send_otp_email("bad@example.com", "555666")
 
-        assert "rejected" in str(exc_info.value)
+        assert "Failed to dispatch" in str(exc_info.value)
 
 
-def test_email_service_password_never_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """Verify SMTP password or secret credentials are never exposed in log output."""
+def test_email_service_api_key_never_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """Verify Brevo API key is never exposed in log output."""
     monkeypatch.setenv("APP_ENV", "production")
-    secret_pass = "super-secret-google-app-password-xyz"
+    secret_key = "super-secret-brevo-api-key-xyz"
 
-    with patch("smtplib.SMTP") as mock_smtp_cls:
-        mock_server = MagicMock()
-        mock_server.login.side_effect = smtplib.SMTPAuthenticationError(535, b"5.7.8 Bad credentials")
-        mock_smtp_cls.return_value = mock_server
-
-        email_service = EmailService(
-            username="sender@gmail.com",
-            password=secret_pass,
+    with patch("httpx.Client") as mock_httpx_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        
+        mock_client.post.side_effect = httpx.HTTPStatusError(
+            "Unauthorized", request=MagicMock(), response=mock_response
         )
+        mock_httpx_cls.return_value = mock_client
+
+        email_service = EmailService(api_key=secret_key)
 
         with caplog.at_level("DEBUG"), pytest.raises(EmailDeliveryError):
             email_service.send_otp_email("user@example.com", "123456")
 
-        assert secret_pass not in caplog.text
+        assert secret_key not in caplog.text
         assert "123456" not in caplog.text

@@ -14,11 +14,11 @@ Uses FastAPI TestClient to test real HTTP request/response envelope behavior:
 
 from __future__ import annotations
 
-import smtplib
-import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+import uuid
+from unittest.mock import patch, MagicMock
 
+import httpx
 import jwt
 import pytest
 from fastapi.testclient import TestClient
@@ -74,10 +74,14 @@ def test_http_otp_request_email_delivery_failure(
     """POST /api/auth/otp/request when email delivery fails returns 503 EMAIL_DELIVERY_FAILED and rolls back DB."""
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setattr(get_settings(), "APP_ENV", "production")
-    monkeypatch.setattr(get_settings(), "SMTP_PASSWORD", "valid-app-password")
-    monkeypatch.setattr(get_settings(), "SMTP_USERNAME", "sender@gmail.com")
+    monkeypatch.setattr(get_settings(), "BREVO_API_KEY", "valid-app-key")
 
-    with patch("smtplib.SMTP", side_effect=smtplib.SMTPConnectError(421, "Cannot connect to server")):
+    with patch("httpx.Client") as mock_httpx_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.side_effect = httpx.ConnectError("Cannot connect to server")
+        mock_httpx_cls.return_value = mock_client
+        
         response = client.post(
             "/api/auth/otp/request",
             json={"email": "delivery_fail@example.com"},
@@ -104,7 +108,7 @@ def test_http_otp_request_missing_config_in_production(
     """POST /api/auth/otp/request in production without SMTP credentials returns 503 EMAIL_DELIVERY_FAILED."""
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setattr(get_settings(), "APP_ENV", "production")
-    monkeypatch.setattr(get_settings(), "SMTP_PASSWORD", "")
+    monkeypatch.setattr(get_settings(), "BREVO_API_KEY", "")
 
     response = client.post(
         "/api/auth/otp/request",

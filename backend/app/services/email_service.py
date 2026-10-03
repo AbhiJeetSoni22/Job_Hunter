@@ -1,30 +1,24 @@
 """
 Email service.
 
-Handles sending transactional emails via Gmail SMTP.
-Supports STARTTLS (port 587) and direct SSL (port 465) using standard Python smtplib.
-Provides detailed diagnostic logging for cloud hosting environments (Render).
+Handles sending transactional emails via Brevo HTTP API.
+Provides detailed diagnostic logging for cloud hosting environments.
 """
 
 import logging
 import os
-import smtplib
-import socket
-import ssl
+import httpx
 from contextlib import suppress
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.utils import formatdate, make_msgid, parseaddr
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-SMTP_TIMEOUT_SECONDS = 10.0
+HTTP_TIMEOUT_SECONDS = 10.0
 
 
 class EmailDeliveryError(Exception):
-    """Raised when an email fails to deliver via SMTP."""
+    """Raised when an email fails to deliver via email provider."""
     pass
 
 
@@ -41,60 +35,50 @@ def _mask_email(email: str) -> str:
 
 
 class EmailService:
-    """Service for dispatching transactional emails via Gmail SMTP."""
+    """Service for dispatching transactional emails via Brevo HTTP API."""
 
     def __init__(
         self,
-        host: str | None = None,
-        port: int | None = None,
-        username: str | None = None,
-        password: str | None = None,
+        api_key: str | None = None,
         from_email: str | None = None,
+        from_name: str | None = None,
     ) -> None:
         settings = get_settings()
-        raw_host = host if host is not None else settings.SMTP_HOST
-        raw_port = port if port is not None else settings.SMTP_PORT
-        raw_username = username if username is not None else settings.SMTP_USERNAME
-        raw_password = password if password is not None else settings.SMTP_PASSWORD
-        raw_from_email = from_email if from_email is not None else settings.SMTP_FROM_EMAIL
+        raw_api_key = api_key if api_key is not None else getattr(settings, "BREVO_API_KEY", "")
+        raw_from_email = from_email if from_email is not None else getattr(settings, "EMAIL_FROM_ADDRESS", "")
+        raw_from_name = from_name if from_name is not None else getattr(settings, "EMAIL_FROM_NAME", "")
 
-        self._host = raw_host.strip() if raw_host else "smtp.gmail.com"
-        self._port = int(raw_port) if raw_port else 587
-        self._username = raw_username.strip() if raw_username else ""
-        # Strip whitespace/newlines and interstitial spaces common in Google App Passwords
-        self._password = raw_password.strip().replace(" ", "") if raw_password else ""
+        self._api_key = raw_api_key.strip() if raw_api_key else ""
         self._from_email = raw_from_email.strip() if raw_from_email else ""
+        self._from_name = raw_from_name.strip() if raw_from_name else "Job Hunter"
 
     def send_otp_email(self, to_email: str, otp_code: str) -> bool:
         """
-        Send a 6-digit verification code to the recipient's email address via Gmail SMTP.
+        Send a 6-digit verification code to the recipient's email address via Brevo API.
 
-        In production, requires valid SMTP credentials (SMTP_USERNAME and Google App Password).
+        In production, requires valid credentials (BREVO_API_KEY).
         In development/test environments without credentials, logs the code safely
         so developers and local users can still complete the authentication flow.
 
         Raises:
-            EmailDeliveryError: if connection, TLS, authentication, or dispatch fails.
+            EmailDeliveryError: if connection, authentication, or dispatch fails.
         """
         settings = get_settings()
         app_env = os.environ.get("APP_ENV") or settings.APP_ENV
 
-        is_configured = bool(self._password and self._username)
+        is_configured = bool(self._api_key)
 
         logger.info(
-            "SMTP DEBUG: host=%s port=%d username=%s password_configured=%s",
-            self._host,
-            self._port,
-            self._username,
+            "BREVO DEBUG: api_key_configured=%s",
             is_configured,
         )
 
         if not is_configured:
             if app_env in {"production", "prod"}:
-                logger.error("SMTP credentials (SMTP_USERNAME / SMTP_PASSWORD) are not configured in production!")
+                logger.error("Email credentials (BREVO_API_KEY) are not configured in production!")
                 raise EmailDeliveryError("Email service is not configured. Please contact support.")
             logger.info(
-                "[DEV/TEST] SMTP credentials not set. Verification OTP for %s: %s",
+                "[DEV/TEST] Email credentials not set. Verification OTP for %s: %s",
                 to_email,
                 otp_code,
             )
@@ -102,13 +86,7 @@ class EmailService:
 
         masked_to = _mask_email(to_email)
         subject = f"{otp_code} is your Job Hunter verification code"
-        from_header = (
-            self._from_email
-            if self._from_email
-            else (f"Job Hunter <{self._username}>" if self._username else "Job Hunter")
-        )
-        sender_addr = parseaddr(from_header)[1] or self._username
-
+        
         plain_text = (
             f"Your Job Hunter verification code is: {otp_code}\n\n"
             "This code expires in 10 minutes and can only be used once.\n\n"
@@ -152,100 +130,60 @@ class EmailService:
 </body>
 </html>
 """
+        
+        payload = {
+            "sender": {
+                "name": self._from_name,
+                "email": self._from_email
+            },
+            "to": [
+                {
+                    "email": to_email.strip()
+                }
+            ],
+            "subject": subject,
+            "htmlContent": html_content,
+            "textContent": plain_text
+        }
 
-        message = MIMEMultipart("alternative")
-        message["Subject"] = subject
-        message["From"] = from_header
-        message["To"] = to_email.strip()
-        message["Date"] = formatdate(localtime=True)
-        sender_domain = sender_addr.split("@")[-1] if "@" in sender_addr else "gmail.com"
-        message["Message-ID"] = make_msgid(domain=sender_domain)
+        headers = {
+            "api-key": self._api_key,
+            "accept": "application/json"
+        }
 
-        message.attach(MIMEText(plain_text, "plain", "utf-8"))
-        message.attach(MIMEText(html_content, "html", "utf-8"))
-
-        # Pre-flight DNS diagnostic resolution (helps isolate Render DNS vs TCP connection issues)
+        logger.info("BREVO DEBUG: Sending HTTP POST to api.brevo.com for %s...", masked_to)
         try:
-            addr_info = socket.getaddrinfo(self._host, self._port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-            resolved_ips = list(dict.fromkeys(r[4][0] for r in addr_info))
-            logger.info("SMTP DEBUG: DNS resolved %s to %s", self._host, resolved_ips)
-        except Exception as dns_exc:
-            logger.warning("SMTP DEBUG: DNS resolution pre-check for %s failed: %s", self._host, dns_exc)
+            with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as client:
+                response = client.post(
+                    "https://api.brevo.com/v3/smtp/email",
+                    json=payload,
+                    headers=headers
+                )
+                response.raise_for_status()
+                logger.info("BREVO DEBUG: Message successfully accepted by Brevo for %s (status=%s)", masked_to, response.status_code)
 
-        server: smtplib.SMTP | smtplib.SMTP_SSL | None = None
-        try:
-            if self._port == 465:
-                # Direct SSL connection (port 465)
-                logger.info("SMTP DEBUG: Connecting to %s:%d via SMTP_SSL (timeout=%.1fs)...", self._host, self._port, SMTP_TIMEOUT_SECONDS)
-                server = smtplib.SMTP_SSL(self._host, self._port, timeout=SMTP_TIMEOUT_SECONDS)
-                logger.info("SMTP DEBUG: TCP/SSL connection established to %s:%d", self._host, self._port)
-                server.ehlo()
-            else:
-                # Standard connection with STARTTLS (port 587)
-                logger.info("SMTP DEBUG: Connecting to %s:%d via SMTP (timeout=%.1fs)...", self._host, self._port, SMTP_TIMEOUT_SECONDS)
-                server = smtplib.SMTP(self._host, self._port, timeout=SMTP_TIMEOUT_SECONDS)
-                logger.info("SMTP DEBUG: TCP connection established to %s:%d", self._host, self._port)
-                server.ehlo()
-                logger.info("SMTP DEBUG: Establishing STARTTLS...")
-                server.starttls()
-                logger.info("SMTP DEBUG: STARTTLS handshake succeeded")
-                server.ehlo()
-
-            logger.info("SMTP DEBUG: Authenticating as %s...", self._username)
-            server.login(self._username, self._password)
-            logger.info("SMTP DEBUG: Authentication succeeded for user %s", self._username)
-
-            logger.info("SMTP DEBUG: Sending MIME message to %s...", masked_to)
-            server.send_message(message, from_addr=sender_addr, to_addrs=[to_email.strip()])
-            logger.info("SMTP DEBUG: Message successfully accepted by SMTP server for %s", masked_to)
-
-        except socket.gaierror as exc:
-            logger.error("SMTP DNS resolution failed for %s:%d: [Errno %s] %s", self._host, self._port, getattr(exc, "errno", None), exc)
+        except httpx.ConnectError as exc:
+            logger.error("BREVO connection failure: %s", exc)
             raise EmailDeliveryError("Failed to connect to email delivery server. Please try again.") from exc
-        except TimeoutError as exc:
-            logger.error(
-                "SMTP connection timed out to %s:%d after %.1fs: %s (Check if host environment blocks outbound SMTP port %d)",
-                self._host,
-                self._port,
-                SMTP_TIMEOUT_SECONDS,
-                exc,
-                self._port,
-            )
+        except httpx.TimeoutException as exc:
+            logger.error("BREVO connection timed out after %.1fs: %s", HTTP_TIMEOUT_SECONDS, exc)
             raise EmailDeliveryError("Failed to connect to email delivery server. Please try again.") from exc
-        except smtplib.SMTPAuthenticationError as exc:
+        except httpx.HTTPStatusError as exc:
             logger.error(
-                "SMTP authentication failed for user %s: smtp_code=%s smtp_error=%s (Ensure SMTP_PASSWORD is a Google App Password, not standard account password)",
-                self._username,
-                getattr(exc, "smtp_code", None),
-                getattr(exc, "smtp_error", None),
+                "BREVO HTTP error: status_code=%s response=%s",
+                exc.response.status_code,
+                exc.response.text
             )
-            raise EmailDeliveryError("Failed to authenticate with email delivery server.") from exc
-        except smtplib.SMTPRecipientsRefused as exc:
-            logger.error("SMTP recipient refused: %s", masked_to)
-            raise EmailDeliveryError("Recipient email address was rejected by mail server.") from exc
-        except ssl.SSLError as exc:
-            logger.error("SMTP TLS handshake failure with %s:%d: %s", self._host, self._port, exc)
-            raise EmailDeliveryError("Failed to establish secure connection to email delivery server.") from exc
-        except (ConnectionRefusedError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, OSError) as exc:
-            logger.error(
-                "SMTP connection failure to %s:%d: error_type=%s errno=%s details=%s",
-                self._host,
-                self._port,
-                type(exc).__name__,
-                getattr(exc, "errno", None),
-                exc,
-            )
-            raise EmailDeliveryError("Failed to connect to email delivery server. Please try again.") from exc
-        except smtplib.SMTPException as exc:
-            logger.error("SMTP delivery failure to %s: error_type=%s details=%s", masked_to, type(exc).__name__, exc)
+            if exc.response.status_code in {401, 403}:
+                raise EmailDeliveryError("Failed to authenticate with email delivery server.") from exc
+            
             raise EmailDeliveryError("Failed to dispatch verification email. Please try again.") from exc
+        except httpx.RequestError as exc:
+            logger.error("BREVO request error: %s", exc)
+            raise EmailDeliveryError("Failed to connect to email delivery server. Please try again.") from exc
         except Exception as exc:
             logger.error("Unexpected error during email delivery to %s: error_type=%s details=%s", masked_to, type(exc).__name__, exc)
             raise EmailDeliveryError("An unexpected error occurred while sending verification email.") from exc
-        finally:
-            if server is not None:
-                with suppress(Exception):
-                    server.quit()
 
-        logger.info("Successfully dispatched OTP email to %s via Gmail SMTP", masked_to)
+        logger.info("Successfully dispatched OTP email to %s via Brevo", masked_to)
         return True

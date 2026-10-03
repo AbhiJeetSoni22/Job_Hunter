@@ -35,12 +35,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days (10080 minutes)
 
-    # ── Gmail SMTP Email Service ───────────────────────────────────────────
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 465
-    SMTP_USERNAME: str = ""
-    SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = "Job Hunter <your-sender@gmail.com>"
+    # ── Brevo HTTP API Email Service ───────────────────────────────────────
+    BREVO_API_KEY: str = ""
+    EMAIL_FROM_ADDRESS: str = "your-sender@example.com"
+    EMAIL_FROM_NAME: str = "Job Hunter"
 
     # ── Google OAuth 2.0 / OpenID Connect ───────────────────────────────────
     GOOGLE_CLIENT_ID: str = ""
