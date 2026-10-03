@@ -433,6 +433,29 @@ def test_email_service_smtp_port_465_ssl_success(monkeypatch: pytest.MonkeyPatch
         assert mock_server.quit.called
 
 
+def test_email_service_smtp_port_587_starttls_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EmailService on port 587 STARTTLS failure is converted into EmailDeliveryError."""
+    monkeypatch.setenv("APP_ENV", "production")
+
+    with patch("smtplib.SMTP") as mock_smtp_cls:
+        mock_server = MagicMock()
+        import ssl
+        mock_server.starttls.side_effect = ssl.SSLError("TLS Handshake failed")
+        mock_smtp_cls.return_value = mock_server
+
+        email_service = EmailService(
+            host="smtp.gmail.com",
+            port=587,
+            username="sender@gmail.com",
+            password="fake-app-password",
+        )
+        with pytest.raises(EmailDeliveryError) as exc_info:
+            email_service.send_otp_email("recipient@example.com", "123456")
+
+        assert "Failed to establish secure connection" in str(exc_info.value)
+
+
+
 def test_email_service_smtp_auth_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """SMTP authentication failure is converted into EmailDeliveryError."""
     monkeypatch.setenv("APP_ENV", "production")

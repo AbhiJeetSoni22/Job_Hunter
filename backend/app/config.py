@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # ── Gmail SMTP Email Service ───────────────────────────────────────────
     SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
+    SMTP_PORT: int = 465
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = "Job Hunter <your-sender@gmail.com>"
