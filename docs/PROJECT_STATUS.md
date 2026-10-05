@@ -2,8 +2,8 @@
 
 **Project:** AI Internship Hunter / Job Hunter  
 **Current Milestone:** Phase 0 — Stabilization  
-**Current Batch:** Batch 1 — Scoring Pipeline Correctness (COMPLETED)  
-**Next Milestone:** Phase 0 → Batch 2 — Scraper Correctness & Safety  
+**Current Batch:** Batch 2 — Scraper Correctness & Safety (COMPLETED)  
+**Next Milestone:** Phase 0 → Batch 3 — Security / Configuration Hardening  
 **Current Implementation Status:** Synchronized with Codebase  
 
 ---
@@ -12,7 +12,9 @@
 
 AI Internship Hunter is an AI-powered job discovery and application tracking platform built with FastAPI, Next.js, PostgreSQL, and Google Gemini AI. The project automates job collection, matches job descriptions against candidate resume skills, tracks applications through a multi-stage pipeline, surfaces recommendation dashboard analytics, and provides AI tools for gap analysis and interview preparation.
 
-A controlled production-hardening roadmap is underway. **Phase 0 — Batch 1 (Scoring Pipeline Correctness)** has been completed, resolving critical scoring pipeline bugs, hardening AI error handling, providing force-rescore and bulk-scoring capabilities, implementing stuck run reconciliation, and ensuring strict multi-user score isolation.
+A controlled production-hardening roadmap is underway.
+- **Phase 0 — Batch 1 (Scoring Pipeline Correctness)** has been completed, resolving critical scoring pipeline bugs, hardening AI error handling, providing force-rescore and bulk-scoring capabilities, implementing stuck run reconciliation, and ensuring strict multi-user score isolation.
+- **Phase 0 — Batch 2 (Scraper Correctness & Safety)** has been completed, eliminating accidental mass expiry from failed or empty scrapes, introducing an explicit `ScraperResult` contract, fixing critical selector fallback bugs in the YC parser, and making database upserts and job lifecycle state transitions fully transactional.
 
 ---
 
@@ -27,7 +29,14 @@ A controlled production-hardening roadmap is underway. **Phase 0 — Batch 1 (Sc
   - Stuck scoring run recovery (`reconcile_stuck_runs` after 15m timeout and `POST /api/scraper/recover-stuck-runs`).
   - Preserved valid score on failed rescore attempt.
   - Schema migration: `b2c3d4e5f6a7_add_error_message_to_scoring_runs.py`.
-- [ ] **Batch 2 — Scraper Correctness & Safety**
+- [x] **Batch 2 — Scraper Correctness & Safety**
+  - Explicit `ScraperResult` contract distinguishing success, failures, warnings, and suspiciousness.
+  - Safe lifecycle guard (`age_missing: bool`) preventing empty or failed scrapes from aging/expiring active jobs.
+  - Source-aware trust evaluation (`is_scrape_trustworthy`) distinguishing valid 0-job results from suspicious scrapes.
+  - Fixed YC parser selector fallback indentation bugs in location, description, and date parsing.
+  - Added DOM anchor vs parsed job validation to detect YC parser breakage.
+  - Transactional rollback safety in `JobService.upsert_jobs` ensuring partial DB failures never corrupt state.
+  - Preserved multi-user data isolation across global scraping and user-scoped auto-scoring.
 - [ ] **Batch 3 — Security / Configuration Hardening**
 - [ ] **Batch 4 — Tests / CI / Documentation Alignment**
 
@@ -95,7 +104,46 @@ A controlled production-hardening roadmap is underway. **Phase 0 — Batch 1 (Sc
 
 ---
 
-## 4. Completed Capabilities (Historical)
+## 4. Phase 0 Batch 2: Scraper Correctness & Safety (Implementation Details)
+
+### What Was Broken:
+1. **Accidental Mass Expiry**: When scrapers returned `[]` (due to network failure, bot protection, Playwright timeouts, or parser selector breakage), `JobService.upsert_jobs` treated the result as a successful scrape of 0 jobs and aged all active jobs (`missing_sync_count += 1`). Two consecutive empty scrapes permanently marked all active listings expired (`expired_at = now()`).
+2. **Missing Scraper Result Contract**: Scrapers returned only `list[JobUpsertData]`, making it impossible for the ingestion coordinator to differentiate between a successful 0-job scrape, a partial scrape, an anti-bot lockout, or an uncaught parser failure.
+3. **Broken YC Scraper Selector Fallbacks**: In `YCJobsScraper`, `_extract_location`, `_extract_description`, and `_extract_posted_at` had prematurely indented `return None` and fallback expressions placed inside the selector loops, causing the loop to exit on the very first selector attempt and ignoring configured fallbacks.
+4. **Silent YC Parser Failures**: When Playwright timed out waiting for job elements or selector structures changed, `YCJobsScraper` caught `TimeoutError` and returned `[]`, masking scraper breakage as a successful 0-job scrape.
+5. **Partial Scraper DB Mutation Risk**: In `JobService.upsert_jobs`, job record insertions, updates, and lifecycle aging were not encapsulated in an explicit transaction rollback block, allowing partial failure to potentially commit inconsistent lifecycle state.
+
+### What Was Fixed:
+1. **Explicit `ScraperResult` Contract**: Created `ScraperResult` dataclass in `app/scrapers/base.py` containing `source`, `jobs`, `success`, `error`, `warnings`, `is_suspicious`, and `details`. Implemented sequence protocol emulation (`__iter__`, `__len__`, `__getitem__`) for seamless backward compatibility.
+2. **Safe Scrape Health Guard**: Added `is_scrape_trustworthy(source, result)` in `ScraperService` and `age_missing: bool = True` in `JobService.upsert_jobs`. Lifecycles are aged *only* when the scrape result is authenticated as trustworthy:
+   - Failed scrapes (`success=False`) never age or expire jobs.
+   - Suspicious empty scrapes (e.g. 0 jobs returned when database has active jobs) do not age jobs unless the source has explicitly validated that the empty state is legitimate.
+   - Genuine empty scrapes (e.g., RemoteOK returns >1 raw records but 0 keyword matches) are verified as trustworthy.
+3. **Fixed YC Scraper Parser & Fallbacks**:
+   - Corrected loop indentation in `_extract_location`, `_extract_description`, and `_extract_posted_at` so all fallback selectors are evaluated.
+   - Raised explicit `TimeoutError` when Playwright times out waiting for job cards instead of silently swallowing errors.
+   - Added parser integrity assertion: raises `RuntimeError` if job link anchors exist in the DOM but 0 valid jobs could be extracted.
+4. **Database Transaction Rollback & Commit Isolation**:
+   - `JobService.upsert_jobs` wrapped in `try ... except: self.db.rollback(); raise`.
+   - `new_job_ids` tracking deferred until after `self.db.commit()` succeeds.
+5. **Multi-User Data Isolation Preserved**:
+   - Scrapers ingest canonical global jobs (`jobs` table).
+   - Auto-scoring is isolated per-user (`UserJob` and `ScoringRun` tied strictly to `CurrentUser.id`).
+6. **No Alembic Migration Needed**: The existing `scrape_runs` table schema (`started_at`, `completed_at`, `jobs_found`, `jobs_new`, `error`) fully supported all required audit logging without modifying tables.
+
+### Files Modified / Created:
+- `backend/app/scrapers/base.py`: Added `ScraperResult` dataclass and updated `BaseScraper` contract.
+- `backend/app/scrapers/remoteok.py`: Returned `ScraperResult` and added suspicious-truncation detection.
+- `backend/app/scrapers/yc_jobs.py`: Fixed selector fallback indentation, removed silent timeout swallow, added anchor extraction validation, returned `ScraperResult`.
+- `backend/app/services/job_service.py`: Added `count_active_jobs`, added `age_missing` guard to `upsert_jobs`, implemented explicit rollback safety.
+- `backend/app/services/scraper_service.py`: Implemented `is_scrape_trustworthy`, guarded `age_missing` lifecycle execution, recorded suspicious flags in `ScrapeRun.error`.
+- `backend/tests/test_scraper_service.py`: Hardened run cleanup in tests for DB isolation.
+- `backend/tests/test_scraper_hardening.py`: Added 14 comprehensive tests covering all 18 requirements.
+- `docs/PROJECT_STATUS.md`: Updated roadmap status and documentation.
+
+---
+
+## 5. Completed Capabilities (Historical)
 
 ### ✅ Phase 0 — Core Infrastructure & Database
 - **Backend Architecture**: FastAPI application factory with standard exception handlers and CORS middleware (`app/main.py`, `app/config.py`).
@@ -135,7 +183,7 @@ A controlled production-hardening roadmap is underway. **Phase 0 — Batch 1 (Sc
 
 ---
 
-## 5. Known Limitations
+## 6. Known Limitations
 
 - **In-Process BackgroundTasks**: Scraping and bulk scoring still run via FastAPI in-process `BackgroundTasks` until Phase 1 PostgreSQL Task Queue is introduced. Server restart during an active job will interrupt execution (though now safely reconciled via timeout recovery).
 - **Database Dependency for Tests**: Backend integration tests require a live PostgreSQL database configured via `TEST_DATABASE_URL`.

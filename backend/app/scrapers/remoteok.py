@@ -36,7 +36,7 @@ from html.parser import HTMLParser
 
 import httpx
 
-from app.scrapers.base import BaseScraper
+from app.scrapers.base import BaseScraper, ScraperResult
 from app.schemas.job import JobUpsertData
 
 logger = logging.getLogger(__name__)
@@ -130,13 +130,12 @@ class RemoteOKScraper(BaseScraper):
 
     source = "remoteok"
 
-    def run(self) -> list[JobUpsertData]:
+    def run(self) -> ScraperResult:
         """
         Fetch and normalise internship-relevant jobs from RemoteOK API.
 
         Returns:
-            List of JobUpsertData for jobs matching internship keywords.
-            Empty list if the API returns no matching jobs.
+            ScraperResult containing JobUpsertData for jobs matching internship keywords.
 
         Raises:
             httpx.HTTPStatusError : non-2xx response from RemoteOK
@@ -151,13 +150,34 @@ class RemoteOKScraper(BaseScraper):
             len(raw_records),
         )
 
-        jobs = self._normalise_all(raw_records)
+        jobs, counts = self._normalise_all(raw_records)
         logger.info(
             "RemoteOKScraper: normalised %d internship-relevant jobs",
             len(jobs),
         )
 
-        return jobs
+        # Distinguish empty raw payload from 0 keyword matches.
+        # RemoteOK always returns legal notice + 50-500 listings.
+        # If raw_records has <= 1 item, the API returned empty/truncated data.
+        is_suspicious = len(raw_records) <= 1
+        warnings: list[str] = []
+        if is_suspicious:
+            warnings.append(
+                f"RemoteOK API returned only {len(raw_records)} records (expected dozens or hundreds)."
+            )
+
+        return ScraperResult(
+            source=self.source,
+            jobs=jobs,
+            success=True,
+            warnings=warnings,
+            is_suspicious=is_suspicious,
+            details={
+                "total_raw": len(raw_records),
+                "matching": len(jobs),
+                **counts,
+            },
+        )
 
     # ── Private: HTTP fetch ────────────────────────────────────────────────
 
@@ -202,7 +222,9 @@ class RemoteOKScraper(BaseScraper):
 
     # ── Private: normalisation ─────────────────────────────────────────────
 
-    def _normalise_all(self, records: list[dict]) -> list[JobUpsertData]:  # type: ignore[type-arg]
+    def _normalise_all(
+        self, records: list[dict]  # type: ignore[type-arg]
+    ) -> tuple[list[JobUpsertData], dict[str, int]]:
         """
         Filter, validate, and normalise all raw API records.
 
@@ -212,7 +234,8 @@ class RemoteOKScraper(BaseScraper):
         - Skips records with descriptions too short to be useful.
         - Logs a warning for every skipped record with reason.
 
-        Returns only successfully normalised JobUpsertData instances.
+        Returns:
+            Tuple of (normalised JobUpsertData list, counts dictionary).
         """
         results: list[JobUpsertData] = []
         skipped_legal = 0
@@ -247,6 +270,13 @@ class RemoteOKScraper(BaseScraper):
 
             results.append(job)
 
+        counts = {
+            "skipped_legal": skipped_legal,
+            "skipped_missing": skipped_missing,
+            "skipped_keyword": skipped_keyword,
+            "skipped_malformed": skipped_malformed,
+        }
+
         logger.info(
             "RemoteOKScraper: filter summary — "
             "kept=%d skipped_keyword=%d skipped_missing=%d skipped_malformed=%d",
@@ -256,7 +286,7 @@ class RemoteOKScraper(BaseScraper):
             skipped_malformed,
         )
 
-        return results
+        return results, counts
 
     def _normalise_one(
         self,

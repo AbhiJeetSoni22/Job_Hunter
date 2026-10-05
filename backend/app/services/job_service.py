@@ -282,6 +282,13 @@ class JobService:
 
         return list(self.db.scalars(query).all())
 
+    def count_active_jobs(self, source: str | None = None) -> int:
+        """Return the number of active (non-expired) jobs, optionally filtered by source."""
+        stmt = select(func.count(Job.id)).where(Job.expired_at.is_(None))
+        if source is not None:
+            stmt = stmt.where(Job.source == source)
+        return self.db.scalar(stmt) or 0
+
     # ── Upsert (called by scraper_service) ────────────────────────────────
 
     def upsert_jobs(
@@ -289,60 +296,72 @@ class JobService:
         jobs: list[JobUpsertData],
         new_job_ids: list[str] | None = None,
         source: str | None = None,
+        age_missing: bool = True,
     ) -> int:
         """
         Insert new global jobs; mark existing jobs (by URL) as seen; skip nothing.
+        If age_missing is True, ages active jobs of this source not present in the batch.
+        Transaction-safe: rolls back session on failure.
         """
         now = datetime.now(UTC)
         batch_source = source or (jobs[0].source if jobs else None)
 
-        urls = [data.url for data in jobs]
-        existing_by_url: dict[str, Job] = {}
-        if urls:
-            existing_rows = self.db.scalars(
-                select(Job).where(Job.url.in_(urls))
-            ).all()
-            existing_by_url = {job.url: job for job in existing_rows}
+        try:
+            urls = [data.url for data in jobs]
+            existing_by_url: dict[str, Job] = {}
+            if urls:
+                existing_rows = self.db.scalars(
+                    select(Job).where(Job.url.in_(urls))
+                ).all()
+                existing_by_url = {job.url: job for job in existing_rows}
 
-        seen_urls: set[str] = set()
-        new_count = 0
+            seen_urls: set[str] = set()
+            new_count = 0
+            committed_new_ids: list[str] = []
 
-        for data in jobs:
-            seen_urls.add(data.url)
-            existing = existing_by_url.get(data.url)
+            for data in jobs:
+                seen_urls.add(data.url)
+                existing = existing_by_url.get(data.url)
 
-            if existing is not None:
-                self._mark_seen(existing, now)
-                logger.debug("upsert seen existing url=%s", data.url)
-                continue
+                if existing is not None:
+                    self._mark_seen(existing, now)
+                    logger.debug("upsert seen existing url=%s", data.url)
+                    continue
 
-            job = Job(
-                id=uuid.uuid4(),
-                title=data.title,
-                company=data.company,
-                company_url=data.company_url,
-                description=data.description,
-                url=data.url,
-                source=data.source,
-                location=data.location,
-                posted_at=data.posted_at,
-                last_seen_at=now,
-                missing_sync_count=0,
-                created_at=now,
-                updated_at=now,
-            )
-            self.db.add(job)
-            new_count += 1
+                job = Job(
+                    id=uuid.uuid4(),
+                    title=data.title,
+                    company=data.company,
+                    company_url=data.company_url,
+                    description=data.description,
+                    url=data.url,
+                    source=data.source,
+                    location=data.location,
+                    posted_at=data.posted_at,
+                    last_seen_at=now,
+                    missing_sync_count=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.db.add(job)
+                new_count += 1
+                committed_new_ids.append(str(job.id))
+                logger.debug("upsert new job url=%s", data.url)
+
+            if batch_source is not None and age_missing:
+                self._age_missing_jobs(batch_source, seen_urls, now)
+
+            self.db.commit()
+
             if new_job_ids is not None:
-                new_job_ids.append(str(job.id))
-            logger.debug("upsert new job url=%s", data.url)
+                new_job_ids.extend(committed_new_ids)
 
-        if batch_source is not None:
-            self._age_missing_jobs(batch_source, seen_urls, now)
-
-        self.db.commit()
-        logger.info("upsert complete new=%d", new_count)
-        return new_count
+            logger.info("upsert complete new=%d age_missing=%s", new_count, age_missing)
+            return new_count
+        except Exception:
+            self.db.rollback()
+            logger.error("upsert_jobs failed, rolling back transaction", exc_info=True)
+            raise
 
     # ── Cleanup (called by app/cleanup.py) ─────────────────────────────────
 

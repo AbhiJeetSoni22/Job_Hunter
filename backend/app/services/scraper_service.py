@@ -258,7 +258,46 @@ class ScraperService:
 
         return results
 
-            # ── Private helpers ────────────────────────────────────────────────────
+    # ── Private helpers ────────────────────────────────────────────────────
+
+    def is_scrape_trustworthy(
+        self, source: str, result: "ScraperResult"
+    ) -> tuple[bool, str | None]:
+        """
+        Evaluate whether a scrape result is trustworthy to trigger destructive
+        lifecycle operations (aging and expiring missing jobs).
+
+        Returns:
+            (is_trustworthy: bool, reason_or_warning: str | None)
+        """
+        if not result.success or result.error:
+            return False, result.error or f"Scraper '{source}' reported failure."
+
+        if result.is_suspicious:
+            warning = "; ".join(result.warnings) if result.warnings else f"Scraper '{source}' marked result as suspicious."
+            return False, warning
+
+        if len(result.jobs) == 0:
+            active_count = self._job_service.count_active_jobs(source)
+            if active_count > 0:
+                # Source-specific heuristic:
+                # If RemoteOK API returned plenty of raw jobs (>1) but 0 matched the strict internship keyword filter,
+                # the scrape itself was healthy and trustworthy (genuine 0 matches).
+                total_raw = result.details.get("total_raw", 0)
+                if source == "remoteok" and total_raw > 1:
+                    logger.info(
+                        "RemoteOK returned %d raw listings but 0 keyword matches; deemed trustworthy.",
+                        total_raw,
+                    )
+                    return True, None
+
+                return (
+                    False,
+                    f"Suspicious empty scrape: source '{source}' returned 0 jobs while "
+                    f"{active_count} active jobs exist in database. Lifecycle aging bypassed to prevent mass expiry.",
+                )
+
+        return True, None
 
     def _run_one(self, scraper: "BaseScraper") -> tuple[ScrapeRunResponse, list[str]]:
         """
@@ -266,6 +305,7 @@ class ScraperService:
 
         Catches all exceptions — a scraper crash is recorded in the
         ScrapeRun.error field and does not propagate upward.
+        Transactions are rolled back on error to prevent inconsistent state.
 
         Returns the ScrapeRunResponse plus the list of newly inserted
         job ids (Phase 5 — Feature 4: auto-score new jobs).
@@ -280,14 +320,39 @@ class ScraperService:
         logger.info("Starting scraper: %s", source)
 
         try:
-            raw_jobs: list[JobUpsertData] = scraper.run()
+            raw_output = scraper.run()
+            if isinstance(raw_output, ScraperResult):
+                scraper_result = raw_output
+            elif isinstance(raw_output, list):
+                scraper_result = ScraperResult(source=source, jobs=raw_output, success=True)
+            else:
+                raise ValueError(f"Scraper returned unexpected type: {type(raw_output).__name__}")
+
+            if not scraper_result.success:
+                raise RuntimeError(scraper_result.error or f"Scraper {source} failed")
+
+            raw_jobs = scraper_result.jobs
             jobs_found = len(raw_jobs)
+
+            # Health guard check: is this scrape trustworthy for aging missing jobs?
+            is_trustworthy, guard_warning = self.is_scrape_trustworthy(source, scraper_result)
+            if not is_trustworthy:
+                logger.warning(
+                    "Scrape for %s deemed untrustworthy for lifecycle aging: %s",
+                    source,
+                    guard_warning,
+                )
+                error = guard_warning
+
             jobs_new = self._job_service.upsert_jobs(
-                raw_jobs, new_job_ids=new_job_ids, source=source
+                raw_jobs,
+                new_job_ids=new_job_ids,
+                source=source,
+                age_missing=is_trustworthy,
             )
             logger.info(
-                "Scraper %s complete: found=%d new=%d",
-                source, jobs_found, jobs_new,
+                "Scraper %s complete: found=%d new=%d trustworthy=%s",
+                source, jobs_found, jobs_new, is_trustworthy,
             )
         except Exception as exc:
             error = str(exc)
@@ -296,13 +361,13 @@ class ScraperService:
         completed_at = datetime.now(tz=UTC)
 
         run = self._persist_run(
-                source=source,
-                jobs_found=jobs_found,
-                jobs_new=jobs_new,
-                error=error,
-                started_at=started_at,
-                completed_at=completed_at,
-            )
+            source=source,
+            jobs_found=jobs_found,
+            jobs_new=jobs_new,
+            error=error,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
 
         return ScrapeRunResponse.model_validate(run), new_job_ids
 
@@ -440,4 +505,4 @@ class ScraperService:
     # Actual implementations live in app/scrapers/
     # ---------------------------------------------------------------------------
 
-from app.scrapers.base import BaseScraper  # noqa: E402 — import after class def
+from app.scrapers.base import BaseScraper, ScraperResult  # noqa: E402 — import after class def

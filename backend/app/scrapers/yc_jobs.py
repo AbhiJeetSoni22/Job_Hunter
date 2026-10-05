@@ -15,19 +15,27 @@ duplicate processing.
 using Playwright locators only.
 """
 
+import asyncio
 import logging
 import platform
-import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import (
+    ElementHandle,
+    Locator,
+    Page,
+    sync_playwright,
+)
+from playwright.sync_api import (
+    TimeoutError as PlaywrightTimeoutError,
+)
 
-from app.scrapers.base import BaseScraper
 from app.schemas.job import JobUpsertData
+from app.scrapers.base import BaseScraper, ScraperResult
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +56,7 @@ JOB_HREF_RE = re.compile(r"^/jobs/\d+$")
 class YCJobsScraper(BaseScraper):
     source = "yc_jobs"
 
-    def run(self) -> list[JobUpsertData]:
+    def run(self) -> ScraperResult:
         logger.info("YCJobsScraper: starting — url=%s", JOBS_URL)
 
         with sync_playwright() as pw:
@@ -79,11 +87,6 @@ class YCJobsScraper(BaseScraper):
                 )
 
                 # domcontentloaded instead of networkidle.
-                # networkidle waits for zero network activity for 500 ms — on a
-                # JS-heavy SPA like workatastartup.com this blocks for 20-25 s
-                # while background XHRs keep firing.  domcontentloaded fires as
-                # soon as the HTML is parsed; wait_for_selector below guarantees
-                # the job list is actually rendered before we proceed.
                 logger.info("YCJobsScraper: navigating to %s", JOBS_URL)
                 page.goto(JOBS_URL, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT_MS)
 
@@ -91,18 +94,25 @@ class YCJobsScraper(BaseScraper):
                 try:
                     page.wait_for_selector("a[href^='/jobs/']", timeout=CARD_WAIT_MS)
                     logger.info("YCJobsScraper: job links detected in DOM")
-                except PlaywrightTimeoutError:
+                except PlaywrightTimeoutError as exc:
                     logger.warning(
                         "YCJobsScraper: no job links after %dms — title='%s' url='%s'",
                         CARD_WAIT_MS, page.title(), page.url,
                     )
-                    return []
+                    raise TimeoutError(
+                        f"YCJobsScraper: timed out waiting for job links on {JOBS_URL}: {exc}"
+                    ) from exc
 
                 self._scroll_to_bottom(page)
 
                 jobs = self._extract_jobs(page)
                 logger.info("YCJobsScraper: extracted %d valid jobs", len(jobs))
-                return jobs
+                return ScraperResult(
+                    source=self.source,
+                    jobs=jobs,
+                    success=True,
+                    details={"count": len(jobs)},
+                )
 
             finally:
                 browser.close()
@@ -110,7 +120,7 @@ class YCJobsScraper(BaseScraper):
 
                 # ── Core extraction ────────────────────────────────────────────────────
 
-    def _extract_jobs(self, page) -> list[JobUpsertData]:
+    def _extract_jobs(self, page: Page) -> list[JobUpsertData]:
         """
         Pure-locator extraction.  No JS evaluate calls.
 
@@ -168,21 +178,24 @@ class YCJobsScraper(BaseScraper):
 
             results.append(job)
 
-            logger.info(
-                    "YCJobsScraper: kept=%d missing=%d short=%d error=%d",
-                    len(results), skipped_missing, skipped_short, skipped_error,
-                )
         logger.info(
-                    "SUMMARY -> kept=%d missing=%d short=%d error=%d totalAnchors=%d",
-                    len(results),
-                    skipped_missing,
-                    skipped_short,
-                    skipped_error,
-                    len(job_anchors),
-                )
+            "YCJobsScraper: kept=%d missing=%d short=%d error=%d totalAnchors=%d",
+            len(results),
+            skipped_missing,
+            skipped_short,
+            skipped_error,
+            len(job_anchors),
+        )
+
+        if len(job_anchors) > 0 and len(results) == 0:
+            raise RuntimeError(
+                f"YCJobsScraper parser failure: detected {len(job_anchors)} job anchors but "
+                "failed to parse any valid jobs. Page structure may have changed."
+            )
+
         return results
 
-    def _extract_from_anchor(self, anchor, job_url: str) -> "JobUpsertData | None":
+    def _extract_from_anchor(self, anchor: Locator, job_url: str) -> JobUpsertData | None:
         """
         Given a job-link anchor locator, find its card container and extract fields.
         Card container = nearest ancestor that also holds a /companies/ link.
@@ -195,6 +208,8 @@ class YCJobsScraper(BaseScraper):
 
         # Walk up ancestor chain to find card container
         card = self._find_card_ancestor(anchor)
+        if card is None:
+            return None
 
         # Company link inside card
         # NOTE: `card` is a Playwright ElementHandle (see _find_card_ancestor),
@@ -220,20 +235,20 @@ class YCJobsScraper(BaseScraper):
 
         try:
             return JobUpsertData(
-        title=title[:500],
-        company=company_name[:500],
-        company_url=company_url,
-        description=description,
-        url=job_url,
-        source=self.source,
-        location=location,
-        posted_at=posted_at,
-    )
+                title=title[:500],
+                company=company_name[:500],
+                company_url=company_url,
+                description=description,
+                url=job_url,
+                source=self.source,
+                location=location,
+                posted_at=posted_at,
+            )
         except Exception as exc:
             logger.warning("YCJobsScraper: JobUpsertData failed url=%s: %s", job_url, exc)
             return None
 
-    def _find_card_ancestor(self, anchor):
+    def _find_card_ancestor(self, anchor: Locator) -> ElementHandle | None:
         """
         Find the nearest ancestor of `anchor` that contains a /companies/ link.
 
@@ -267,7 +282,7 @@ class YCJobsScraper(BaseScraper):
 
         # ── Field extractors ───────────────────────────────────────────────────
 
-    def _extract_location(self, card) -> "str | None":
+    def _extract_location(self, card: ElementHandle) -> str | None:
         """Try common location selector patterns inside the card."""
         selectors = [
             "[class*='location']",
@@ -285,9 +300,9 @@ class YCJobsScraper(BaseScraper):
                     return re.sub(r"\s+", " ", text)[:200]
             except Exception:
                 continue
-            return None
+        return None
 
-    def _extract_description(self, card) -> str:
+    def _extract_description(self, card: ElementHandle) -> str:
         """Try description selectors; fall back to full card text."""
         selectors = [
             "[class*='description']",
@@ -306,14 +321,14 @@ class YCJobsScraper(BaseScraper):
             except Exception:
                 continue
 
-            # Full card text fallback
-            try:
-                full = (card.inner_text() or "").strip()
-                return re.sub(r"\s+", " ", full)
-            except Exception:
-                return ""
+        # Full card text fallback
+        try:
+            full = (card.inner_text() or "").strip()
+            return re.sub(r"\s+", " ", full)
+        except Exception:
+            return ""
 
-    def _extract_posted_at(self, card) -> "datetime | None":
+    def _extract_posted_at(self, card: ElementHandle) -> datetime | None:
         """Try <time> and date-attribute elements inside the card."""
         # Try <time datetime="...">
         try:
@@ -343,26 +358,26 @@ class YCJobsScraper(BaseScraper):
             except Exception:
                 continue
 
-            return None
+        return None
 
-    def _parse_datetime(self, value: str) -> "datetime | None":
+    def _parse_datetime(self, value: str) -> datetime | None:
         if not value:
             return None
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
         except ValueError:
             pass
         try:
             ts = float(value)
             if ts > 1_000_000_000:
-                return datetime.fromtimestamp(ts, tz=timezone.utc)
+                return datetime.fromtimestamp(ts, tz=UTC)
         except (ValueError, OSError, OverflowError):
             pass
         return None
 
         # ── Scrolling ──────────────────────────────────────────────────────────
 
-    def _scroll_to_bottom(self, page) -> None:
+    def _scroll_to_bottom(self, page: Page) -> None:
         try:
             page.keyboard.press("End")
             page.wait_for_timeout(LAZY_LOAD_WAIT_MS)  # 500 ms — was 3000 ms

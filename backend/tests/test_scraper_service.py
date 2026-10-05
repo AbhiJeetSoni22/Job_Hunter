@@ -16,9 +16,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from tests.conftest import needs_db, FakeScraper
+from tests.conftest import FakeScraper, needs_db
 
 pytestmark = needs_db
 
@@ -99,8 +97,9 @@ class TestRunAll:
         assert result.total_new == 2
 
     def test_run_all_persists_scrape_run_rows(self, scraper_service, db):
-        from app.models.scrape_run import ScrapeRun
         from sqlalchemy import select
+
+        from app.models.scrape_run import ScrapeRun
 
         remoteok, yc = _empty_scrapers()
         _run_with_fakes(scraper_service, remoteok, yc)
@@ -184,13 +183,15 @@ class TestScrapeRunResponseShape:
 
 class TestGetStatus:
 
-    def test_returns_empty_list_when_no_runs(self, scraper_service):
+    def test_returns_empty_list_when_no_runs(self, scraper_service, db):
+        from app.models.scrape_run import ScrapeRun
+        db.query(ScrapeRun).delete()
+        db.commit()
         result = scraper_service.get_status()
         assert isinstance(result, list)
         assert result == []
 
     def test_returns_latest_run_per_source(self, scraper_service):
-        from app.schemas.job import ScrapeRunResponse
 
         remoteok, yc = _empty_scrapers()
         _run_with_fakes(scraper_service, remoteok, yc)
@@ -278,9 +279,10 @@ class TestAutoScoreNewJobs:
         assert failed == 0
 
     def test_existing_jobs_are_never_rescored(self, scraper_service, sample_resume, db):
-        from app.schemas.job import JobUpsertData
-        from app.models.job import Job
         from sqlalchemy import select
+
+        from app.models.job import Job
+        from app.schemas.job import JobUpsertData
 
         url = "https://scraper-autoscore.example.com/3"
         remoteok = FakeScraper("remoteok")
@@ -325,8 +327,8 @@ class TestAutoScoreNewJobs:
         assert user_job.match_score == 80
     
     def test_gemini_failure_on_one_job_does_not_abort_others(self, scraper_service, sample_resume):
-        from app.schemas.job import JobUpsertData
         from app.ai.gemini_client import AIError
+        from app.schemas.job import JobUpsertData
 
         remoteok = FakeScraper("remoteok")
         remoteok.set_jobs([
@@ -413,8 +415,8 @@ class TestScoringRunTerminalState:
     def test_partial_gemini_failure_still_completes(
         self, scraper_service, sample_resume
     ):
-        from app.schemas.job import JobUpsertData
         from app.ai.gemini_client import AIError
+        from app.schemas.job import JobUpsertData
 
         remoteok = FakeScraper("remoteok")
         remoteok.set_jobs([
@@ -455,8 +457,8 @@ class TestScoringRunTerminalState:
     def test_complete_gemini_failure_still_completes(
         self, scraper_service, sample_resume
     ):
-        from app.schemas.job import JobUpsertData
         from app.ai.gemini_client import AIError
+        from app.schemas.job import JobUpsertData
 
         remoteok = FakeScraper("remoteok")
         remoteok.set_jobs([
