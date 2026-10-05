@@ -105,6 +105,9 @@ class ScraperService:
         scores each job.
         """
         uid = self._resolve_user_id(user_id)
+        # Reconcile any stuck runs for this user before starting a new run
+        self.reconcile_stuck_runs(timeout_minutes=15, user_id=uid)
+
         run = ScoringRun(id=uuid.uuid4(), user_id=uid, status="running", total_jobs=total_jobs)
         self._db.add(run)
         self._db.commit()
@@ -117,13 +120,84 @@ class ScraperService:
         run = self._db.get(ScoringRun, run_id)
         if run is None or (uid is not None and run.user_id != uid):
             return None
+
+        # Auto-reconcile run if it has been stuck in 'running' beyond timeout
+        if run.status == "running":
+            from datetime import timedelta
+            if run.created_at <= datetime.now(UTC) - timedelta(minutes=15):
+                run.status = "failed"
+                run.completed_at = datetime.now(UTC)
+                run.failed_jobs = max(0, run.total_jobs - run.scored_jobs)
+                run.error_message = "Scoring run timed out after 15 minutes without completion."
+                self._db.commit()
+                self._db.refresh(run)
+
         return run
+
+    def get_active_scoring_run(self, user_id: uuid.UUID | str) -> ScoringRun | None:
+        """
+        Return any currently active ('running') ScoringRun for user.
+        Reconciles any timed-out stuck runs first.
+        """
+        from sqlalchemy import select
+        uid = self._resolve_user_id(user_id)
+        self.reconcile_stuck_runs(timeout_minutes=15, user_id=uid)
+        return self._db.scalar(
+            select(ScoringRun)
+            .where(ScoringRun.user_id == uid, ScoringRun.status == "running")
+            .order_by(ScoringRun.created_at.desc())
+        )
+
+    def reconcile_stuck_runs(
+        self,
+        timeout_minutes: int = 15,
+        user_id: uuid.UUID | None = None,
+    ) -> list[ScoringRun]:
+        """
+        Minimal recovery mechanism for runs that have been 'running' beyond timeout.
+        Idempotently marks them as 'failed' and records the completion timestamp and error.
+        """
+        from datetime import timedelta
+        from sqlalchemy import select
+
+        cutoff = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
+        query = select(ScoringRun).where(
+            ScoringRun.status == "running",
+            ScoringRun.created_at <= cutoff,
+        )
+        uid = user_id or self._user_id
+        if uid is not None:
+            query = query.where(ScoringRun.user_id == self._resolve_user_id(uid))
+
+        stuck_runs = list(self._db.scalars(query).all())
+        now = datetime.now(UTC)
+        for run in stuck_runs:
+            run.status = "failed"
+            run.completed_at = now
+            run.failed_jobs = max(0, run.total_jobs - run.scored_jobs)
+            run.error_message = (
+                f"Scoring run timed out after {timeout_minutes} minutes without completion."
+            )
+            logger.warning(
+                "reconciled stuck scoring_run id=%s user_id=%s created_at=%s",
+                run.id,
+                run.user_id,
+                run.created_at,
+            )
+
+        if stuck_runs:
+            self._db.commit()
+            for run in stuck_runs:
+                self._db.refresh(run)
+
+        return stuck_runs
 
     def run_auto_score(
         self,
         job_ids: list[str],
         scoring_run_id: uuid.UUID | None = None,
         user_id: uuid.UUID | None = None,
+        force: bool = False,
     ) -> None:
         """
         Background-task entrypoint (Phase 5 — Feature 4).
@@ -134,16 +208,34 @@ class ScraperService:
 
         When scoring_run_id is given, the corresponding ScoringRun row is
         updated as each job is scored and is flipped to status
-        "completed" once every job has either been scored or permanently
-        failed — this is the terminal-state signal the frontend polls
-        GET /api/scraper/scoring-status for.
+        'completed' or 'failed' once finished.
         """
         uid = user_id or self._user_id
-        scored, failed = self._auto_score_new_jobs(
-            job_ids, scoring_run_id=scoring_run_id, user_id=uid
-        )
-        if scoring_run_id is not None:
-            self._finalize_scoring_run(scoring_run_id, scored=scored, failed=failed)
+        scored = 0
+        failed = 0
+        try:
+            scored, failed = self._auto_score_new_jobs(
+                job_ids, scoring_run_id=scoring_run_id, user_id=uid, force=force
+            )
+            if scoring_run_id is not None:
+                self._finalize_scoring_run(
+                    scoring_run_id, scored=scored, failed=failed, status="completed"
+                )
+        except Exception as exc:
+            logger.error(
+                "run_auto_score failed unexpectedly scoring_run_id=%s: %s",
+                scoring_run_id,
+                exc,
+                exc_info=True,
+            )
+            if scoring_run_id is not None:
+                self._finalize_scoring_run(
+                    scoring_run_id,
+                    scored=scored,
+                    failed=len(job_ids) - scored,
+                    status="failed",
+                    error_message=str(exc)[:500],
+                )
         if scored or failed:
             logger.info(
                 "background auto-score finished scored=%d failed=%d", scored, failed
@@ -219,9 +311,10 @@ class ScraperService:
         job_ids: list[str],
         scoring_run_id: uuid.UUID | None = None,
         user_id: uuid.UUID | str | None = None,
+        force: bool = False,
     ) -> tuple[int, int]:
         """
-        Score every newly inserted job against the user's active resume.
+        Score every scheduled job against the user's active resume.
         """
         if not job_ids:
             return 0, 0
@@ -237,17 +330,28 @@ class ScraperService:
         failed = 0
         for index, job_id in enumerate(job_ids):
             try:
-                match_service.score_job(job_id, self._db, user_id=resolved_user_id)
+                match_service.score_job(
+                    job_id,
+                    self._db,
+                    user_id=resolved_user_id,
+                    force=force,
+                )
                 scored += 1
             except NoResumeError:
                 logger.info("auto-score stopped — no active resume")
                 failed += len(job_ids) - index
                 break
             except JobNotFoundError:
+                logger.warning("auto-score job not found job_id=%s", job_id)
                 failed += 1
             except AIError as exc:
                 logger.warning(
                     "auto-score failed job_id=%s error=%s", job_id, exc
+                )
+                failed += 1
+            except Exception as exc:
+                logger.warning(
+                    "auto-score unexpected error job_id=%s error=%s", job_id, exc, exc_info=True
                 )
                 failed += 1
 
@@ -273,16 +377,24 @@ class ScraperService:
         self._db.commit()
 
     def _finalize_scoring_run(
-        self, run_id: uuid.UUID, *, scored: int, failed: int
+        self,
+        run_id: uuid.UUID,
+        *,
+        scored: int,
+        failed: int,
+        status: str = "completed",
+        error_message: str | None = None,
     ) -> None:
-        """Flip a ScoringRun to its terminal 'completed' state."""
+        """Flip a ScoringRun to its terminal state ('completed' or 'failed')."""
         run = self._db.get(ScoringRun, run_id)
         if run is None:
             return
-        run.status = "completed"
+        run.status = status
         run.scored_jobs = scored
         run.failed_jobs = failed
         run.completed_at = datetime.now(UTC)
+        if error_message is not None:
+            run.error_message = error_message
         self._db.commit()
 
     def _persist_run(

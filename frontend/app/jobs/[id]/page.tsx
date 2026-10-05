@@ -117,11 +117,11 @@ export default function JobDetailPage({ params }: Props) {
 
   // ── Score ────────────────────────────────────────────────────────────────────
 
-  async function handleScore() {
+  async function handleScore(force = false) {
     if (scoring) return;
     setScoring(true);
     try {
-      const result = await scoreJob(id);
+      const result = await scoreJob(id, { force });
       setScoreResult(result);
       const updated = await getJob(id);
       setJob(updated);
@@ -334,7 +334,7 @@ export default function JobDetailPage({ params }: Props) {
                 size="sm"
                 loading={scoring}
                 disabled={scoring}
-                onClick={handleScore}
+                onClick={() => handleScore(true)}
               >
                 {scoring ? "Scoring…" : "↻ Re-score with Latest Profile"}
               </Button>
@@ -355,7 +355,7 @@ export default function JobDetailPage({ params }: Props) {
               size="sm"
               loading={scoring}
               disabled={scoring}
-              onClick={handleScore}
+              onClick={() => handleScore(false)}
             >
               {scoring ? "Scoring…" : "⭐ Score Job Now"}
             </Button>

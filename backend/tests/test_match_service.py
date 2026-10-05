@@ -258,3 +258,75 @@ class TestRecommendationLabel:
         from app.services.match_service import recommendation_label
 
         assert recommendation_label(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Force rescore & failure handling
+# ---------------------------------------------------------------------------
+
+class TestForceRescore:
+
+    def test_force_rescore_bypasses_cache_hit(self, db, scored_job, sample_resume):
+        from app.services.match_service import score_job
+        from app.models.user_job import UserJob
+
+        # Make cache a hit initially
+        sample_resume.uploaded_at = scored_job.resume_uploaded_at
+        db.add(sample_resume)
+        db.commit()
+
+        new_result = {"match_score": 92, "missing_skills": ["Rust"], "match_summary": "Updated match."}
+        with _patch_gemini(new_result) as MockGemini:
+            result = score_job(str(scored_job.id), db, force=True)
+            MockGemini.return_value.match_job.assert_called_once()
+
+        assert result["match_score"] == 92
+        assert result["cached"] is False
+        assert result["needs_rescore"] is False
+
+        # Verify DB updated
+        uj = db.query(UserJob).filter_by(job_id=scored_job.id, user_id=sample_resume.user_id).one()
+        assert uj.match_score == 92
+
+    def test_force_rescore_refreshes_stale_cache(self, db, scored_job, sample_resume):
+        from app.services.match_service import score_job
+        from app.models.user_job import UserJob
+
+        # Stale score: sample_resume.uploaded_at != scored_job.resume_uploaded_at
+        assert sample_resume.uploaded_at != scored_job.resume_uploaded_at
+
+        new_result = {"match_score": 88, "missing_skills": [], "match_summary": "Fresh score."}
+        with _patch_gemini(new_result) as MockGemini:
+            result = score_job(str(scored_job.id), db, force=True)
+            MockGemini.return_value.match_job.assert_called_once()
+
+        assert result["match_score"] == 88
+        assert result["cached"] is False
+        assert result["needs_rescore"] is False
+
+        uj = db.query(UserJob).filter_by(job_id=scored_job.id, user_id=sample_resume.user_id).one()
+        assert uj.match_score == 88
+        assert uj.resume_uploaded_at == sample_resume.uploaded_at
+
+    def test_failed_force_rescore_preserves_previous_valid_score(self, db, scored_job, sample_resume):
+        from app.services.match_service import score_job
+        from app.models.user_job import UserJob
+        from app.ai.gemini_client import AIError
+
+        initial_score = scored_job.match_score
+        assert initial_score is not None
+
+        with _patch_gemini(raises=AIError("Gemini down")):
+            with pytest.raises(AIError):
+                score_job(str(scored_job.id), db, force=True)
+
+        uj = db.query(UserJob).filter_by(job_id=scored_job.id, user_id=sample_resume.user_id).one()
+        assert uj.match_score == initial_score
+
+    def test_malformed_gemini_response_wrapped_in_ai_error(self, db, sample_job, sample_resume):
+        from app.services.match_service import score_job
+        from app.ai.gemini_client import AIError
+
+        with _patch_gemini(raises=ValueError("Response missing 'match_score'")):
+            with pytest.raises(AIError, match="Malformed AI response"):
+                score_job(str(sample_job.id), db)

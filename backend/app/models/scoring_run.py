@@ -40,7 +40,7 @@ Design decisions:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,6 +49,7 @@ from app.database import Base
 SCORING_RUN_STATUS_VALUES: tuple[str, ...] = (
     "running",
     "completed",
+    "failed",
 )
 
 
@@ -131,7 +132,13 @@ class ScoringRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
-        doc="Set once status becomes 'completed'. NULL while running.",
+        doc="Set once status becomes 'completed' or 'failed'. NULL while running.",
+    )
+
+    error_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Safe error message if the scoring batch failed or was aborted.",
     )
 
     # ── Relationships ────────────────────────────────────────────────────────

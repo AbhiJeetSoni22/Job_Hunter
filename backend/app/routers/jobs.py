@@ -9,10 +9,11 @@ Multi-user architecture:
   - delete_job removes ONLY the user's UserJob relationship, leaving the global Job intact.
 """
 
+import logging
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.dependencies import CurrentUser, DbSession, get_active_resume
@@ -20,6 +21,7 @@ from app.models.resume import Resume
 from app.schemas.job import (
     ApiError,
     ApiResponse,
+    BulkScoreResponse,
     JobResponse,
     JobUpdateRequest,
     JobUpdateResponse,
@@ -29,7 +31,10 @@ from app.schemas.job import (
 from app.services import match_service
 from app.services.job_service import JobService
 from app.services.match_service import JobNotFoundError, NoResumeError
+from app.services.scraper_service import ScraperService
 from app.ai.gemini_client import AIError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -113,6 +118,93 @@ def list_jobs(
 
 
 # ---------------------------------------------------------------------------
+# POST /api/jobs/bulk-score
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/bulk-score",
+    response_model=ApiResponse[BulkScoreResponse],
+    summary="Bulk score unscored or stale jobs",
+    description=(
+        "Identify and score jobs that are currently unscored or have stale scores "
+        "for the authenticated user. Schedules background scoring and returns a "
+        "ScoringRun ID that can be polled via GET /api/scraper/scoring-status."
+    ),
+)
+def bulk_score_jobs(
+    user: CurrentUser,
+    db: DbSession,
+    background_tasks: BackgroundTasks,
+    include_stale: bool = Query(
+        default=True,
+        description="Include jobs with stale scores (scored against an older resume version)",
+    ),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of jobs to score in this batch",
+    ),
+    _resume: Resume = Depends(get_active_resume),
+) -> ApiResponse[BulkScoreResponse]:
+    scraper_service = ScraperService(db, user_id=user.id)
+
+    # Check for active concurrent scoring run for this user
+    active_run = scraper_service.get_active_scoring_run(user.id)
+    if active_run is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SCORING_IN_PROGRESS",
+                "message": "A scoring run is already in progress for your account.",
+                "scoring_run_id": str(active_run.id),
+            },
+        )
+
+    job_service = JobService(db, user_id=user.id)
+    eligible_job_ids = job_service.find_unscored_and_stale_job_ids(
+        user_id=user.id,
+        include_stale=include_stale,
+        limit=limit,
+    )
+
+    if not eligible_job_ids:
+        return ApiResponse(
+            data=BulkScoreResponse(
+                scoring_run_id=None,
+                total_eligible=0,
+                status="completed",
+                message="All jobs are already scored and up-to-date.",
+            )
+        )
+
+    job_id_strs = [str(jid) for jid in eligible_job_ids]
+    scoring_run = scraper_service.start_scoring_run(
+        total_jobs=len(job_id_strs),
+        user_id=user.id,
+    )
+
+    from app.routers.scraper import _auto_score_in_background
+
+    background_tasks.add_task(
+        _auto_score_in_background,
+        job_id_strs,
+        scoring_run.id,
+        user.id,
+        True,  # force=True so stale jobs are refreshed
+    )
+
+    return ApiResponse(
+        data=BulkScoreResponse(
+            scoring_run_id=scoring_run.id,
+            total_eligible=len(job_id_strs),
+            status="running",
+            message=f"Started scoring {len(job_id_strs)} jobs.",
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /api/jobs/{id}
 # ---------------------------------------------------------------------------
 
@@ -153,10 +245,19 @@ def score_job(
     job_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
+    force: bool = Query(
+        default=False,
+        description="Force recalculation and bypass cache",
+    ),
     _resume: Resume = Depends(get_active_resume),  # 422 NO_RESUME if absent
 ) -> ApiResponse[ScoreResponse]:
     try:
-        result = match_service.score_job(str(job_id), db, user_id=user.id)
+        result = match_service.score_job(
+            str(job_id),
+            db,
+            user_id=user.id,
+            force=force,
+        )
     except JobNotFoundError:
         raise _not_found(job_id)
     except NoResumeError:
@@ -167,10 +268,17 @@ def score_job(
                 "message": "Upload a resume before scoring jobs",
             },
         )
-    except AIError as exc:
+    except (AIError, ValueError) as exc:
+        logger.error("AI scoring failed for job %s: %s", job_id, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"code": "AI_ERROR", "message": str(exc)},
+            detail={"code": "AI_ERROR", "message": "Failed to calculate job match score with AI."},
+        )
+    except Exception as exc:
+        logger.error("Unexpected error scoring job %s: %s", job_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "SCORING_FAILED", "message": "An unexpected error occurred while scoring."},
         )
 
     return ApiResponse(data=ScoreResponse(**result), error=None)

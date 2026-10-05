@@ -40,6 +40,7 @@ def _auto_score_in_background(
     job_ids: list[str],
     scoring_run_id: uuid.UUID | None,
     user_id: uuid.UUID,
+    force: bool = False,
 ) -> None:
     """
     Runs after the HTTP response has already been sent.
@@ -53,6 +54,7 @@ def _auto_score_in_background(
             job_ids,
             scoring_run_id=scoring_run_id,
             user_id=user_id,
+            force=force,
         )
     finally:
         db.close()
@@ -136,5 +138,28 @@ def scoring_status(
         scored=run.scored_jobs,
         failed=run.failed_jobs,
         pending=run.pending_jobs,
+        error_message=run.error_message,
     )
     return ApiResponse(data=result)
+
+
+# ── POST /api/scraper/recover-stuck-runs ────────────────────────────────────
+
+@router.post(
+    "/recover-stuck-runs",
+    response_model=ApiResponse[dict],
+    summary="Recover stuck scoring runs",
+    description="Reconcile any scoring runs that have been running beyond the timeout window for the user.",
+)
+def recover_stuck_runs(
+    user: CurrentUser,
+    db: DbSession,
+) -> ApiResponse[dict]:
+    service = ScraperService(db, user_id=user.id)
+    reconciled = service.reconcile_stuck_runs(timeout_minutes=15, user_id=user.id)
+    return ApiResponse(
+        data={
+            "reconciled_count": len(reconciled),
+            "reconciled_ids": [str(r.id) for r in reconciled],
+        }
+    )

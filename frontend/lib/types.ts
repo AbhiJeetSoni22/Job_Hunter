@@ -173,11 +173,19 @@ export interface ScraperRunResult {
 }
 
 export interface ScoringStatus {
-  status: "running" | "completed";
+  status: "running" | "completed" | "failed";
   total: number;
   scored: number;
   failed: number;
   pending: number;
+  error_message?: string | null;
+}
+
+export interface BulkScoreResponse {
+  scoring_run_id: string | null;
+  total_eligible: number;
+  status: "running" | "completed" | "failed";
+  message: string;
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────
@@ -341,11 +349,12 @@ export interface ScraperRunResult {
 }
 
 export interface ScoringStatus {
-  status: "running" | "completed";
+  status: "running" | "completed" | "failed";
   total: number;
   scored: number;
   failed: number;
   pending: number;
+  error_message?: string | null;
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────

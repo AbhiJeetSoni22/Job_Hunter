@@ -326,7 +326,7 @@ class ScoringStatusResponse(BaseModel):
     not by inferring completion from match_score alone.
     """
 
-    status: str = Field(..., description="One of: running, completed")
+    status: str = Field(..., description="One of: running, completed, failed")
     total: int = Field(..., description="Number of job ids in this batch")
     scored: int = Field(..., description="Jobs successfully scored so far")
     failed: int = Field(
@@ -338,6 +338,31 @@ class ScoringStatusResponse(BaseModel):
         ),
     )
     pending: int = Field(..., description="total - scored - failed")
+    error_message: str | None = Field(
+        default=None,
+        description="Error details if the scoring run failed or timed out.",
+    )
+
+
+class BulkScoreResponse(BaseModel):
+    """Result of POST /api/jobs/bulk-score."""
+
+    scoring_run_id: uuid.UUID | None = Field(
+        default=None,
+        description="ID of the ScoringRun batch if jobs were scheduled for scoring, or null if 0 eligible jobs.",
+    )
+    total_eligible: int = Field(
+        ...,
+        description="Number of unscored or stale jobs identified for scoring.",
+    )
+    status: str = Field(
+        ...,
+        description="Initial status: 'running' if jobs scheduled, or 'completed' if 0 eligible jobs.",
+    )
+    message: str = Field(
+        ...,
+        description="Human-readable summary of the action taken.",
+    )
 
 
 

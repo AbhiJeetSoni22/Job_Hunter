@@ -9,7 +9,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { JobCardSkeleton } from "@/components/ui/Skeleton";
 import { ToastContainer, useToast } from "@/components/ui/Toast";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { getJobs, getResume, ApiClientError } from "@/lib/api";
+import { getJobs, getResume, bulkScoreJobs, getScoringStatus, ApiClientError } from "@/lib/api";
 import type {
   JobListItem,
   JobListParams,
@@ -137,6 +137,49 @@ export default function JobsPage() {
     });
   }
 
+  const [bulkScoring, setBulkScoring] = useState(false);
+
+  async function handleBulkScore() {
+    if (bulkScoring) return;
+    setBulkScoring(true);
+    try {
+      const res = await bulkScoreJobs({ include_stale: true, limit: 50 });
+      if (!res.scoring_run_id || res.total_eligible === 0) {
+        addToast(res.message, "info");
+        setBulkScoring(false);
+        return;
+      }
+
+      addToast(`Scoring ${res.total_eligible} jobs in background…`, "info");
+
+      // Poll scoring progress until terminal
+      const runId = res.scoring_run_id;
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await getScoringStatus(runId);
+          if (status.status === "completed" || status.status === "failed") {
+            clearInterval(pollInterval);
+            setBulkScoring(false);
+            if (status.status === "completed") {
+              addToast(`Scored ${status.scored} of ${status.total} jobs against your resume.`, "success");
+            } else {
+              addToast(status.error_message || "Scoring run failed.", "error");
+            }
+            load(filters);
+          }
+        } catch {
+          // ignore transient poll error
+        }
+      }, 2000);
+    } catch (err) {
+      setBulkScoring(false);
+      addToast(
+        err instanceof ApiClientError ? err.message : "Failed to trigger bulk scoring.",
+        "error",
+      );
+    }
+  }
+
   function handleStatusChanged(jobId: string, newStatus: JobStatus) {
     setJobs((prev) => {
       if (filters.status && filters.status !== newStatus) {
@@ -165,6 +208,20 @@ export default function JobsPage() {
           loading
             ? "Loading listings…"
             : `${total} opportunity${total !== 1 ? "ies" : ""} collected`
+        }
+        action={
+          hasResume ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={bulkScoring}
+              disabled={bulkScoring}
+              onClick={handleBulkScore}
+              title="Score all unscored and stale jobs against your active resume"
+            >
+              {bulkScoring ? "Scoring…" : "⭐ AI Bulk Score"}
+            </Button>
+          ) : undefined
         }
       />
 

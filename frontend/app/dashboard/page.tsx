@@ -168,7 +168,12 @@ export default function DashboardPage() {
             failed: s.failed,
           });
 
-          if (s.status === "completed") {
+          if (s.status === "failed") {
+            await finish(
+              s.error_message || `Scoring batch failed (${s.failed} errors).`,
+              "info",
+            );
+          } else if (s.status === "completed") {
             const noun = s.scored === 1 ? "job" : "jobs";
             await finish(
               `Scored ${s.scored} of ${s.total} ${noun} against your resume.`,

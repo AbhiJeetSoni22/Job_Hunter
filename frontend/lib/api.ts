@@ -26,6 +26,7 @@ import type {
   PaginatedJobList,
   Resume,
   ResumeUploadResponse,
+  BulkScoreResponse,
   ScoreResponse,
   ScoringStatus,
   ScraperRun,
@@ -213,8 +214,39 @@ export async function updateJob(
   });
 }
 
-export async function scoreJob(id: string): Promise<ScoreResponse> {
-  return apiFetch<ScoreResponse>(`/api/jobs/${id}/score`, { method: "POST" });
+export async function scoreJob(
+  id: string,
+  options?: { force?: boolean },
+): Promise<ScoreResponse> {
+  const query = options?.force ? "?force=true" : "";
+  return apiFetch<ScoreResponse>(`/api/jobs/${id}/score${query}`, { method: "POST" });
+}
+
+export async function bulkScoreJobs(options?: {
+  include_stale?: boolean;
+  limit?: number;
+}): Promise<BulkScoreResponse> {
+  const qs = new URLSearchParams();
+  if (options?.include_stale !== undefined) {
+    qs.set("include_stale", String(options.include_stale));
+  }
+  if (options?.limit !== undefined) {
+    qs.set("limit", String(options.limit));
+  }
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return apiFetch<BulkScoreResponse>(`/api/jobs/bulk-score${query}`, { method: "POST" });
+}
+
+export async function recoverStuckRuns(): Promise<{
+  reconciled_count: number;
+  reconciled_ids: string[];
+}> {
+  return apiFetch<{
+    reconciled_count: number;
+    reconciled_ids: string[];
+  }>("/api/scraper/recover-stuck-runs", {
+    method: "POST",
+  });
 }
 
 export async function deleteJob(id: string): Promise<void> {

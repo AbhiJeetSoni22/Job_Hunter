@@ -23,6 +23,7 @@ from sqlalchemy import and_, asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.job import Job
+from app.models.resume import Resume
 from app.models.user_job import UserJob
 from app.schemas.job import (
     JobListItem,
@@ -222,6 +223,64 @@ class JobService:
         if user_job is not None:
             self.db.delete(user_job)
             self.db.commit()
+
+    # ── Unscored / Stale Jobs Query ──────────────────────────────────────────
+
+    def find_unscored_and_stale_job_ids(
+        self,
+        user_id: uuid.UUID | None = None,
+        include_stale: bool = True,
+        limit: int | None = 50,
+    ) -> list[uuid.UUID]:
+        """
+        Find global jobs that are not scored or have stale scores for user.
+        Strictly excludes expired jobs. Scoped to the specified user.
+        """
+        uid = self._resolve_user_id(user_id)
+
+        active_resume = (
+            self.db.query(Resume)
+            .filter(Resume.user_id == uid)
+            .order_by(Resume.uploaded_at.desc())
+            .first()
+        )
+        if active_resume is None:
+            return []
+
+        resume_uploaded_at = active_resume.uploaded_at
+
+        query = (
+            select(Job.id)
+            .outerjoin(
+                UserJob,
+                and_(UserJob.job_id == Job.id, UserJob.user_id == uid),
+            )
+            .where(Job.expired_at.is_(None))
+        )
+
+        unscored_cond = or_(
+            UserJob.id.is_(None),
+            UserJob.match_score.is_(None),
+        )
+
+        if include_stale:
+            stale_cond = and_(
+                UserJob.match_score.isnot(None),
+                or_(
+                    UserJob.resume_uploaded_at.is_(None),
+                    UserJob.resume_uploaded_at != resume_uploaded_at,
+                ),
+            )
+            query = query.where(or_(unscored_cond, stale_cond))
+        else:
+            query = query.where(unscored_cond)
+
+        query = query.order_by(desc(Job.created_at))
+
+        if limit is not None:
+            query = query.limit(limit)
+
+        return list(self.db.scalars(query).all())
 
     # ── Upsert (called by scraper_service) ────────────────────────────────
 

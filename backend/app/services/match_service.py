@@ -60,10 +60,16 @@ class NoResumeError(Exception):
 # Public API
 # ---------------------------------------------------------------------------
 
-def score_job(job_id: str, db: Session, user_id: uuid.UUID | str | None = None) -> dict:
+def score_job(
+    job_id: str,
+    db: Session,
+    user_id: uuid.UUID | str | None = None,
+    force: bool = False,
+) -> dict:
     """
     Score a job against the user's active resume.
 
+    force=True  → bypass cache, call Gemini, persist to UserJob, return result, cached=False
     Cache hit   → return stored result from UserJob, cached=True,  needs_rescore=False
     Stale score → return stored result from UserJob, cached=True,  needs_rescore=True
     Cache miss  → call Gemini, persist to UserJob, return result, cached=False
@@ -71,25 +77,28 @@ def score_job(job_id: str, db: Session, user_id: uuid.UUID | str | None = None) 
     Raises:
         JobNotFoundError  — job_id not found
         NoResumeError     — no resume in DB for user
-        AIError           — Gemini call failed after retries
+        AIError           — Gemini call failed after retries or response malformed
     """
     job = _get_job(job_id, db)
     resume = _get_active_resume(db, user_id)
     uid = user_id or resume.user_id
     user_job = _get_or_create_user_job(job, uid, db)
 
-    cache_state = _check_cache(user_job, resume)
+    if not force:
+        cache_state = _check_cache(user_job, resume)
 
-    if cache_state == "hit":
-        logger.info("score_job cache=hit job_id=%s user_id=%s", job_id, uid)
-        return _build_response(user_job, cached=True, needs_rescore=False)
+        if cache_state == "hit":
+            logger.info("score_job cache=hit job_id=%s user_id=%s", job_id, uid)
+            return _build_response(user_job, cached=True, needs_rescore=False)
 
-    if cache_state == "stale":
-        logger.info("score_job cache=stale job_id=%s user_id=%s", job_id, uid)
-        return _build_response(user_job, cached=True, needs_rescore=True)
+        if cache_state == "stale":
+            logger.info("score_job cache=stale job_id=%s user_id=%s", job_id, uid)
+            return _build_response(user_job, cached=True, needs_rescore=True)
+    else:
+        logger.info("score_job force=True bypassing cache job_id=%s user_id=%s", job_id, uid)
 
-    # cache miss — call Gemini
-    logger.info("score_job cache=miss job_id=%s user_id=%s — calling Gemini", job_id, uid)
+    # cache miss or forced rescore — call Gemini
+    logger.info("score_job calling Gemini job_id=%s user_id=%s", job_id, uid)
     result = _call_gemini(job, resume)
     _persist_score(user_job, resume, result, db)
 
@@ -165,7 +174,16 @@ def _call_gemini(job: Job, resume: Resume) -> dict:
     description: str = job.description or ""
 
     client = GeminiClient()
-    return client.match_job(description, skills)
+    try:
+        return client.match_job(description, skills)
+    except AIError:
+        raise
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.error("GeminiClient returned malformed match response: %s", exc)
+        raise AIError(f"Malformed AI response: {exc}", cause=exc) from exc
+    except Exception as exc:
+        logger.error("Unexpected error during Gemini job matching: %s", exc, exc_info=True)
+        raise AIError(f"AI scoring failed: {exc}", cause=exc) from exc
 
 
 def _persist_score(
