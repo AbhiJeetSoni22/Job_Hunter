@@ -157,13 +157,14 @@ export default function ResumePage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* Left column — upload */}
           <div className="space-y-0">
-            <ResumeUploadCard
-              uploaderRef={uploaderRef}
-              onFileSelected={handleFileSelected}
-              loading={uploadStatus === "uploading"}
-              variant={resume ? "replace" : "primary"}
-            />
-            {uploadStatus !== "idle" && (
+            {uploadStatus === "idle" ? (
+              <ResumeUploadCard
+                uploaderRef={uploaderRef}
+                onFileSelected={handleFileSelected}
+                loading={false}
+                variant={resume ? "replace" : "primary"}
+              />
+            ) : (
               <ResumeUploadProgress
                 status={uploadStatus}
                 filename={uploadFilename ?? undefined}

@@ -274,7 +274,7 @@ export function ResumeUploadProgress({
   return (
     <Card
       padding="none"
-      className="card-elevated overflow-hidden fade-up mt-4"
+      className="card-elevated overflow-hidden fade-up"
       role="status"
       aria-live="polite"
       aria-label="Resume upload progress"
