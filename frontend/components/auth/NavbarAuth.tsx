@@ -40,6 +40,7 @@ export function NavbarAuth({ onAction, isMobile = false }: NavbarAuthProps) {
           onClick={() => {
             logout();
             onAction?.();
+            window.location.href = "/";
           }}
           className="px-2.5 py-1 rounded text-xs transition-colors hover:brightness-110 btn-fx cursor-pointer text-center"
           style={{
