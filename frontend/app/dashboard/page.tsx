@@ -10,6 +10,7 @@ import { TopMatches } from "@/components/dashboard/TopMatches";
 import { MatchQualityBreakdown } from "@/components/dashboard/MatchQualityBreakdown";
 import { StatCardSkeleton } from "@/components/ui/Skeleton";
 import { useAuth } from "@/components/auth/AuthContext";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import {
   getResume,
   getScraperStatus,
@@ -269,8 +270,9 @@ export default function DashboardPage() {
   const greeting = `${getTimeOfDayGreeting()}, ${greetingName}`;
 
   return (
-    <div className="flex flex-col gap-6 sm:gap-8 pb-12">
-      {/* ── 1. Contextual Header ───────────────────────────────────── */}
+    <ProtectedRoute>
+      <div className="flex flex-col gap-6 sm:gap-8 pb-12">
+        {/* ── 1. Contextual Header ───────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1 sm:pt-2">
         <div>
           <h1
@@ -643,7 +645,8 @@ export default function DashboardPage() {
       </div>
 
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
-    </div>
+      </div>
+    </ProtectedRoute>
   );
 }
 

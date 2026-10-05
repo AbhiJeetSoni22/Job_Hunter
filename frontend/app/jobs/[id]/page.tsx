@@ -30,6 +30,7 @@ import type {
   InterviewPrepResponse,
 } from "@/lib/types";
 import { InterviewPrepPanel } from "@/components/interview-prep/InterviewPrepPanel";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -204,27 +205,32 @@ export default function JobDetailPage({ params }: Props) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-3">
-        <LoadingSpinner />
-        <p className="text-xs uppercase tracking-wider font-semibold" style={{ color: "var(--color-muted)" }}>
-          Loading opportunity details…
-        </p>
-      </div>
+      <ProtectedRoute>
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
+          <LoadingSpinner />
+          <p className="text-xs uppercase tracking-wider font-semibold" style={{ color: "var(--color-muted)" }}>
+            Loading opportunity details…
+          </p>
+        </div>
+      </ProtectedRoute>
     );
   }
 
   if (loadError)
     return (
-      <div>
-        <PageHeader title="Job detail" backHref="/jobs" backLabel="Back to Jobs" />
-        <ErrorState message={loadError} />
-      </div>
+      <ProtectedRoute>
+        <div>
+          <PageHeader title="Job detail" backHref="/jobs" backLabel="Back to Jobs" />
+          <ErrorState message={loadError} />
+        </div>
+      </ProtectedRoute>
     );
   if (!job) return null;
 
   return (
-    <div className="max-w-4xl mx-auto pb-8">
-      <PageHeader
+    <ProtectedRoute>
+      <div className="max-w-4xl mx-auto pb-8">
+        <PageHeader
         title={job.title}
         subtitle={job.company + (job.location ? ` · ${job.location}` : "")}
         backHref="/jobs"
@@ -565,6 +571,7 @@ export default function JobDetailPage({ params }: Props) {
       </div>
 
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
-    </div>
+      </div>
+    </ProtectedRoute>
   );
 }

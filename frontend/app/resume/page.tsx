@@ -19,6 +19,7 @@ import {
 import type { Resume } from "@/lib/types";
 import type { ResumeUploaderHandle } from "@/components/resume/ResumeUploader";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 type UploadProgressStatus = "idle" | "uploading" | "success" | "error";
 
@@ -136,8 +137,9 @@ export default function ResumePage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <ResumePageHeader
+    <ProtectedRoute>
+      <div className="max-w-5xl mx-auto">
+        <ResumePageHeader
         resume={resume}
         backHref="/dashboard"
         backLabel="Back to Dashboard"
@@ -201,6 +203,7 @@ export default function ResumePage() {
         onConfirm={handleDelete}
       />
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
-    </div>
+      </div>
+    </ProtectedRoute>
   );
 }

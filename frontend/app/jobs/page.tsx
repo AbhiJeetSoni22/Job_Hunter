@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { JobCardSkeleton } from "@/components/ui/Skeleton";
 import { ToastContainer, useToast } from "@/components/ui/Toast";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { getJobs, getResume, ApiClientError } from "@/lib/api";
 import type {
   JobListItem,
@@ -156,8 +157,9 @@ export default function JobsPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div>
-      <PageHeader
+    <ProtectedRoute>
+      <div>
+        <PageHeader
         title="Jobs"
         subtitle={
           loading
@@ -306,6 +308,7 @@ export default function JobsPage() {
       )}
 
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
-    </div>
+      </div>
+    </ProtectedRoute>
   );
 }

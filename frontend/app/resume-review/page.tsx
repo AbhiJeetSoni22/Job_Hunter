@@ -13,6 +13,7 @@ import { MatchScoreCard } from "@/components/resume-review/MatchScoreCard";
 import { SkillTagSection } from "@/components/resume-review/SkillTagSection";
 import { BulletListSection } from "@/components/resume-review/BulletListSection";
 import { analyzeResume, getResume, ApiClientError } from "@/lib/api";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import type { ResumeAnalysisResponse } from "@/lib/types";
 
 export default function ResumeReviewPage() {
@@ -89,8 +90,9 @@ export default function ResumeReviewPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <PageHeader
+    <ProtectedRoute>
+      <div className="max-w-3xl mx-auto">
+        <PageHeader
         title="Resume Gap Analyzer"
         subtitle="Analyze your uploaded resume against a job description and receive personalized recommendations."
         backHref="/dashboard"
@@ -171,6 +173,7 @@ export default function ResumeReviewPage() {
           )}
         </>
       )}
-    </div>
+      </div>
+    </ProtectedRoute>
   );
 }
