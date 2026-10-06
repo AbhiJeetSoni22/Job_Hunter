@@ -10,13 +10,13 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.security import generate_otp_code, hash_otp, verify_otp_hash
 from app.models.email_otp import EmailOtp
 from app.models.user import User
-from app.services.email_service import EmailDeliveryError, EmailService
+from app.services.email_service import EmailDeliveryError, EmailService, mask_email
 from app.services.user_service import InactiveUserError, UserService
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,7 @@ class OtpService:
         Enforces:
           - Email normalization to lowercase.
           - 60-second cooldown rate limit per email.
+          - Atomic concurrency protection against race conditions on requests.
           - Invalidation of previous unconsumed active OTPs for the same email.
           - Cryptographic salted hashing (plaintext never persisted).
           - 10-minute expiry window.
@@ -74,34 +75,46 @@ class OtpService:
             EmailDeliveryError: if email dispatch fails.
         """
         normalized_email = email.strip().lower()
+        masked_addr = mask_email(normalized_email)
         now = datetime.now(UTC)
 
-        # 1. Rate Limit Cooldown Check
+        # 0. Serialize concurrent OTP requests for the same email address via PostgreSQL advisory lock
+        try:
+            if self._db.bind and getattr(self._db.bind.dialect, "name", "") == "postgresql":
+                self._db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                    {"lock_key": f"otp_req:{normalized_email}"},
+                )
+        except Exception as lock_exc:
+            logger.debug("Advisory lock skipped or unavailable: %s", lock_exc)
+
+        # 1. Rate Limit Cooldown Check with row lock
         recent_otp_stmt = (
             select(EmailOtp)
             .where(EmailOtp.email == normalized_email)
             .order_by(EmailOtp.created_at.desc())
             .limit(1)
+            .with_for_update()
         )
         recent_otp = self._db.execute(recent_otp_stmt).scalar_one_or_none()
         if recent_otp is not None:
-            # Ensure naive datetimes are treated as UTC if needed
             created_at = recent_otp.created_at if recent_otp.created_at.tzinfo else recent_otp.created_at.replace(tzinfo=UTC)
             elapsed_seconds = (now - created_at).total_seconds()
             if elapsed_seconds < OTP_COOLDOWN_SECONDS:
                 remaining_wait = int(OTP_COOLDOWN_SECONDS - elapsed_seconds)
-                logger.info("OTP rate limited for %s (%s seconds remaining)", normalized_email, remaining_wait)
+                logger.info("OTP rate limited for %s (%s seconds remaining)", masked_addr, remaining_wait)
                 raise OtpRateLimitError(
                     f"Please wait {remaining_wait} second(s) before requesting another code."
                 )
 
-        # 2. Invalidate older unconsumed OTPs for this email
+        # 2. Invalidate older unconsumed OTPs for this email atomically
         old_otps_stmt = (
             select(EmailOtp)
             .where(
                 EmailOtp.email == normalized_email,
                 EmailOtp.consumed_at.is_(None),
             )
+            .with_for_update()
         )
         for old_otp in self._db.execute(old_otps_stmt).scalars():
             old_otp.consumed_at = now
@@ -133,7 +146,7 @@ class OtpService:
 
         self._db.commit()
         self._db.refresh(otp_record)
-        logger.info("Successfully generated and dispatched OTP for %s", normalized_email)
+        logger.info("Successfully generated and dispatched OTP for %s", masked_addr)
         return otp_record
 
     def verify_otp(self, email: str, plain_otp: str) -> User:
@@ -141,9 +154,10 @@ class OtpService:
         Verify the submitted 6-digit OTP code against the active record.
 
         Enforces:
-          - Active, unconsumed record check.
+          - Active, unconsumed record check with row-level locking (SELECT FOR UPDATE).
+          - Atomic defense against concurrent verification race conditions (double consumption).
           - Expiration validation.
-          - Attempt tracking and locking after max attempts.
+          - Atomic attempt tracking and locking after max attempts.
           - Constant-time hash comparison.
           - Provisioning or linking user account upon success.
 
@@ -153,9 +167,10 @@ class OtpService:
             InactiveUserError: if resolved user account is inactive.
         """
         normalized_email = email.strip().lower()
+        masked_addr = mask_email(normalized_email)
         now = datetime.now(UTC)
 
-        # 1. Fetch latest active unconsumed OTP
+        # 1. Fetch latest active unconsumed OTP with row-level lock (prevents race condition)
         stmt = (
             select(EmailOtp)
             .where(
@@ -164,34 +179,35 @@ class OtpService:
             )
             .order_by(EmailOtp.created_at.desc())
             .limit(1)
+            .with_for_update()
         )
         otp_record = self._db.execute(stmt).scalar_one_or_none()
 
-        if otp_record is None:
-            logger.info("OTP verification failed: no active OTP record for %s", normalized_email)
+        if otp_record is None or otp_record.consumed_at is not None:
+            logger.info("OTP verification failed: no active OTP record for %s", masked_addr)
             raise InvalidOtpError("Verification code not found or expired. Please request a new code.")
 
         expires_at = otp_record.expires_at if otp_record.expires_at.tzinfo else otp_record.expires_at.replace(tzinfo=UTC)
         if now > expires_at:
-            logger.info("OTP verification failed: code expired for %s", normalized_email)
+            logger.info("OTP verification failed: code expired for %s", masked_addr)
             raise InvalidOtpError("Verification code has expired. Please request a new code.")
 
         if otp_record.attempts >= otp_record.max_attempts:
-            logger.warning("OTP verification locked: max attempts exceeded for %s", normalized_email)
+            logger.warning("OTP verification locked: max attempts exceeded for %s", masked_addr)
             raise OtpTooManyAttemptsError("Too many failed attempts. Please request a new verification code.")
 
-        # 2. Verify Hash
+        # 2. Verify Hash in constant time
         is_valid = verify_otp_hash(plain_otp, otp_record.hashed_otp)
         if not is_valid:
             otp_record.attempts += 1
             self._db.commit()
             remaining = max(0, otp_record.max_attempts - otp_record.attempts)
-            logger.info("OTP verification failed for %s: %s attempts remaining", normalized_email, remaining)
+            logger.info("OTP verification failed for %s: %s attempts remaining", masked_addr, remaining)
             if remaining == 0:
                 raise OtpTooManyAttemptsError("Too many failed attempts. Please request a new verification code.")
             raise InvalidOtpError(f"Invalid verification code. {remaining} attempt(s) remaining.")
 
-        # 3. Mark Consumed
+        # 3. Mark Consumed atomically
         otp_record.consumed_at = now
 
         # 4. Resolve or Provision User
@@ -208,5 +224,5 @@ class OtpService:
 
         self._db.commit()
         self._db.refresh(user)
-        logger.info("Successfully verified OTP and authenticated user id=%s for email=%s", user.id, normalized_email)
+        logger.info("Successfully verified OTP and authenticated user id=%s for email=%s", user.id, masked_addr)
         return user

@@ -22,7 +22,7 @@ class EmailDeliveryError(Exception):
     pass
 
 
-def _mask_email(email: str) -> str:
+def mask_email(email: str) -> str:
     """Mask email address for privacy in logs (e.g. u***r@example.com)."""
     if not email or "@" not in email:
         return "***"
@@ -32,6 +32,9 @@ def _mask_email(email: str) -> str:
     else:
         masked_local = f"{local_part[0]}***{local_part[-1]}"
     return f"{masked_local}@{domain}"
+
+
+_mask_email = mask_email
 
 
 class EmailService:

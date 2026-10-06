@@ -59,7 +59,37 @@ if not any(isinstance(h, logging.StreamHandler) for h in app_logger.handlers):
     sh.setLevel(log_level)
     sh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
     app_logger.addHandler(sh)
-    app_logger.propagate = False
+    app_logger.propagate = True
+
+# ---------------------------------------------------------------------------
+# HTTP Security Headers Middleware
+# ---------------------------------------------------------------------------
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """
+    Apply standard HTTP security hardening headers to all responses.
+    Allows Swagger UI and external OAuth resources while preventing clickjacking,
+    MIME confusion, and unauthorized iframe embedding.
+    """
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-XSS-Protection"] = "0"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+
+    # Safe CSP compatible with Swagger UI CDN assets and OAuth redirects
+    csp_directives = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "img-src 'self' data: https:",
+        "connect-src 'self' https:",
+        "frame-ancestors 'none'",
+    ]
+    response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+    return response
 
 app.add_middleware(
     CORSMiddleware,
