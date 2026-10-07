@@ -13,8 +13,10 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import AIError
+from app.models.resume import Resume
 from app.services.resume_analysis_service import (
     MAX_JOB_DESCRIPTION_LENGTH,
     ResumeAnalysisService,
@@ -48,7 +50,7 @@ def _patch_gemini(result: dict[str, Any] | None = None, *, raises: Exception | N
 
 class TestValidAnalysis:
 
-    def test_returns_structured_response(self, db, sample_resume):
+    def test_returns_structured_response(self, db: Session, sample_resume: Resume) -> None:
         with _patch_gemini():
             result = ResumeAnalysisService(db).analyze(
                 "We need a React and Node.js engineer with AWS experience."
@@ -67,7 +69,7 @@ class TestValidAnalysis:
                 "Add CI/CD exposure",
             ]
 
-    def test_calls_gemini_with_resume_text_and_jd(self, db, sample_resume):
+    def test_calls_gemini_with_resume_text_and_jd(self, db: Session, sample_resume: Resume) -> None:
         with _patch_gemini() as mock_ctor:
             ResumeAnalysisService(db).analyze("Looking for a Python developer.")
             mock_instance = mock_ctor.return_value
@@ -79,11 +81,11 @@ class TestValidAnalysis:
 
 class TestNoResume:
 
-    def test_no_active_resume_raises_lookup_error(self, db):
+    def test_no_active_resume_raises_lookup_error(self, db: Session) -> None:
         with _patch_gemini(), pytest.raises(LookupError, match="No resume uploaded"):
             ResumeAnalysisService(db).analyze("Some job description.")
 
-    def test_gemini_not_called_when_no_resume(self, db):
+    def test_gemini_not_called_when_no_resume(self, db: Session) -> None:
         with _patch_gemini() as mock_ctor, pytest.raises(LookupError):
             ResumeAnalysisService(db).analyze("Some job description.")
             mock_ctor.return_value.analyze_resume_gap.assert_not_called()
@@ -91,15 +93,15 @@ class TestNoResume:
 
 class TestEmptyJobDescription:
 
-    def test_empty_string_raises_value_error(self, db, sample_resume):
+    def test_empty_string_raises_value_error(self, db: Session, sample_resume: Resume) -> None:
         with pytest.raises(ValueError, match="must not be empty"):
             ResumeAnalysisService(db).analyze("")
 
-    def test_whitespace_only_raises_value_error(self, db, sample_resume):
+    def test_whitespace_only_raises_value_error(self, db: Session, sample_resume: Resume) -> None:
         with pytest.raises(ValueError, match="must not be empty"):
             ResumeAnalysisService(db).analyze("   \n\t  ")
 
-    def test_gemini_not_called_for_empty_jd(self, db, sample_resume):
+    def test_gemini_not_called_for_empty_jd(self, db: Session, sample_resume: Resume) -> None:
         with _patch_gemini() as mock_ctor, pytest.raises(ValueError):
             ResumeAnalysisService(db).analyze("")
             mock_ctor.return_value.analyze_resume_gap.assert_not_called()
@@ -107,7 +109,7 @@ class TestEmptyJobDescription:
 
 class TestLongJobDescription:
 
-    def test_long_jd_is_truncated_not_rejected(self, db, sample_resume):
+    def test_long_jd_is_truncated_not_rejected(self, db: Session, sample_resume: Resume) -> None:
         long_jd = "Senior Engineer role. " * 2000
         assert len(long_jd) > MAX_JOB_DESCRIPTION_LENGTH
 
@@ -119,7 +121,7 @@ class TestLongJobDescription:
             sent_jd = call_args.args[1]
             assert len(sent_jd) == MAX_JOB_DESCRIPTION_LENGTH
 
-    def test_jd_within_limit_is_unchanged(self, db, sample_resume):
+    def test_jd_within_limit_is_unchanged(self, db: Session, sample_resume: Resume) -> None:
         normal_jd = "We need a backend engineer with Python experience."
         with _patch_gemini() as mock_ctor:
             ResumeAnalysisService(db).analyze(normal_jd)
@@ -129,10 +131,10 @@ class TestLongJobDescription:
 
 class TestGeminiFailure:
 
-    def test_ai_error_propagates(self, db, sample_resume):
+    def test_ai_error_propagates(self, db: Session, sample_resume: Resume) -> None:
         with _patch_gemini(raises=AIError("Gemini failed after 3 attempts")), pytest.raises(AIError, match="Gemini failed"):
             ResumeAnalysisService(db).analyze("Some job description.")
 
-    def test_value_error_from_gemini_propagates(self, db, sample_resume):
+    def test_value_error_from_gemini_propagates(self, db: Session, sample_resume: Resume) -> None:
         with _patch_gemini(raises=ValueError("Could not parse JSON from Gemini response")), pytest.raises(ValueError, match="Could not parse JSON"):
             ResumeAnalysisService(db).analyze("Some job description.")
