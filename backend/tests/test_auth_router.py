@@ -14,9 +14,9 @@ Uses FastAPI TestClient to test real HTTP request/response envelope behavior:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import uuid
-from unittest.mock import patch, MagicMock
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import httpx
 import jwt

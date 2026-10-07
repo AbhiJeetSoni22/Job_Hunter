@@ -7,8 +7,8 @@ Provides detailed diagnostic logging for cloud hosting environments.
 
 import logging
 import os
+
 import httpx
-from contextlib import suppress
 
 from app.config import get_settings
 

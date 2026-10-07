@@ -13,7 +13,7 @@ Multi-user architecture:
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.dependencies import CurrentUser, DbSession
 from app.schemas.job import ApiResponse

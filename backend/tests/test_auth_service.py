@@ -9,7 +9,7 @@ Covers all 24 required authentication test cases:
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import jwt
@@ -17,8 +17,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.config import get_settings
-from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
-from app.models.user import User
+from app.core.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 from app.schemas.auth import UserLoginRequest, UserRegisterRequest, UserResponse
 from app.services.user_service import (
     DuplicateEmailError,
@@ -27,7 +31,6 @@ from app.services.user_service import (
     UserService,
 )
 from tests.conftest import needs_db
-
 
 # ── 1-7: Registration Tests ──────────────────────────────────────────────────
 
@@ -248,8 +251,9 @@ def test_14_expired_invalid_token_decoding():
 @needs_db
 def test_15_valid_token_returns_current_user(db):
     """15. get_current_user dependency resolves user for valid token."""
-    from app.dependencies import get_current_user
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.dependencies import get_current_user
 
     service = UserService(db)
     user = service.register_user(UserRegisterRequest(
@@ -268,8 +272,9 @@ def test_15_valid_token_returns_current_user(db):
 
 def test_16_missing_authorization_header(db_engine):
     """16. Missing authorization credentials raises 401 INVALID_TOKEN."""
-    from app.dependencies import get_current_user
     from fastapi import HTTPException
+
+    from app.dependencies import get_current_user
 
     mock_db = MagicMock()
     with pytest.raises(HTTPException) as exc_info:
@@ -281,9 +286,10 @@ def test_16_missing_authorization_header(db_engine):
 
 def test_17_malformed_bearer_token(db_engine):
     """17. Malformed Bearer token raises 401 INVALID_TOKEN."""
-    from app.dependencies import get_current_user
     from fastapi import HTTPException
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.dependencies import get_current_user
 
     mock_db = MagicMock()
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="")
@@ -297,9 +303,10 @@ def test_17_malformed_bearer_token(db_engine):
 
 def test_18_invalid_jwt_token(db_engine):
     """18. Invalid JWT signature raises 401 INVALID_TOKEN."""
-    from app.dependencies import get_current_user
     from fastapi import HTTPException
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.dependencies import get_current_user
 
     mock_db = MagicMock()
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="invalid.jwt.token")
@@ -313,9 +320,10 @@ def test_18_invalid_jwt_token(db_engine):
 
 def test_19_expired_jwt_token(db_engine):
     """19. Expired JWT raises 401 TOKEN_EXPIRED."""
-    from app.dependencies import get_current_user
     from fastapi import HTTPException
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.dependencies import get_current_user
 
     expired_token = create_access_token(
         data={"sub": str(uuid.uuid4())},
@@ -334,9 +342,10 @@ def test_19_expired_jwt_token(db_engine):
 @needs_db
 def test_20_deleted_nonexistent_user(db):
     """20. Valid JWT for deleted/nonexistent user ID raises 401 USER_NOT_FOUND."""
-    from app.dependencies import get_current_user
     from fastapi import HTTPException
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.dependencies import get_current_user
 
     fake_id = str(uuid.uuid4())
     token = create_access_token(data={"sub": fake_id, "email": "deleted@example.com"})
@@ -352,9 +361,10 @@ def test_20_deleted_nonexistent_user(db):
 @needs_db
 def test_21_inactive_user_token(db):
     """21. Valid JWT for inactive user raises 401 INACTIVE_USER."""
-    from app.dependencies import get_current_user
     from fastapi import HTTPException
     from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.dependencies import get_current_user
 
     service = UserService(db)
     user = service.register_user(UserRegisterRequest(
@@ -401,7 +411,7 @@ def test_24_cannot_authenticate_using_plaintext_as_stored_hash():
 def test_25_jwt_token_type_validation():
     """25. Token with missing or incorrect 'type' claim raises InvalidTokenError."""
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Missing type claim
     token1 = jwt.encode(
@@ -425,7 +435,7 @@ def test_25_jwt_token_type_validation():
 def test_26_jwt_malformed_subject_uuid_validation():
     """26. Token with malformed non-UUID 'sub' claim raises InvalidTokenError."""
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     token = jwt.encode(
         {"sub": "not-a-valid-uuid", "type": "access", "iat": now, "exp": now + timedelta(minutes=10)},

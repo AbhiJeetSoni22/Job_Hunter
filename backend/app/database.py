@@ -8,11 +8,12 @@ Three exports used throughout the application:
   - Base          : Declarative base all ORM models inherit from
 """
 
+import time
 from collections.abc import Generator
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
-import time
+
 from app.config import get_settings
 
 settings = get_settings()

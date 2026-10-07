@@ -31,13 +31,14 @@ Rate limiting:
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
+from typing import Any, cast
 
 import httpx
 
-from app.scrapers.base import BaseScraper, ScraperResult
 from app.schemas.job import JobUpsertData
+from app.scrapers.base import BaseScraper, ScraperResult
 
 logger = logging.getLogger(__name__)
 
@@ -218,12 +219,12 @@ class RemoteOKScraper(BaseScraper):
                 "expected a JSON array"
             )
 
-        return data  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], data)
 
     # ── Private: normalisation ─────────────────────────────────────────────
 
     def _normalise_all(
-        self, records: list[dict]  # type: ignore[type-arg]
+        self, records: list[dict[str, Any]]
     ) -> tuple[list[JobUpsertData], dict[str, int]]:
         """
         Filter, validate, and normalise all raw API records.
@@ -386,7 +387,7 @@ class RemoteOKScraper(BaseScraper):
         epoch_raw = record.get("epoch")
         if epoch_raw:
             try:
-                return datetime.fromtimestamp(int(epoch_raw), tz=timezone.utc)
+                return datetime.fromtimestamp(int(epoch_raw), tz=UTC)
             except (ValueError, OSError, OverflowError) as exc:
                 logger.debug(
                     "RemoteOKScraper: could not parse epoch '%s' for %s: %s",
@@ -398,7 +399,7 @@ class RemoteOKScraper(BaseScraper):
         if date_raw:
             try:
                 # API returns ISO 8601 with timezone offset e.g. "2020-06-27T04:41:52-07:00"
-                return datetime.fromisoformat(str(date_raw)).astimezone(timezone.utc)
+                return datetime.fromisoformat(str(date_raw)).astimezone(UTC)
             except ValueError as exc:
                 logger.debug(
                     "RemoteOKScraper: could not parse date '%s' for %s: %s",

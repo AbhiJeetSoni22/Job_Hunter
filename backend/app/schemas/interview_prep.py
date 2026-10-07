@@ -14,7 +14,7 @@ path param and the resume from the currently active upload, the same
 way POST /api/jobs/{job_id}/score works.
 """
 
-from pydantic import BaseModel, ConfigDict, Field  # type: ignore[import-not-found]
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InterviewPrepResponse(BaseModel):

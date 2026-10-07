@@ -24,11 +24,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from tests.conftest import needs_db
 
 pytestmark = needs_db

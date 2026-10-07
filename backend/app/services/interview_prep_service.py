@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from sqlalchemy.orm import Session  # type: ignore[import-not-found]
+from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import GeminiClient
 from app.models.job import Job

@@ -10,6 +10,7 @@ dependencies built on top of app.database.get_db().
 """
 
 from typing import Annotated
+
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -56,18 +57,18 @@ def get_current_user(
 
     try:
         payload = decode_access_token(token)
-    except jwt.ExpiredSignatureError:
+    except jwt.ExpiredSignatureError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "TOKEN_EXPIRED", "message": "Authentication token has expired"},
             headers={"WWW-Authenticate": "Bearer"},
-        )
-    except jwt.InvalidTokenError:
+        ) from exc
+    except jwt.InvalidTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "INVALID_TOKEN", "message": "Invalid authentication token"},
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from exc
 
     user_id = payload.get("sub")
     if not user_id:

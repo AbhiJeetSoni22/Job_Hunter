@@ -14,19 +14,31 @@ All tests require a live PostgreSQL database (JSONB + UUID).
 Skip gracefully when TEST_DATABASE_URL is absent.
 """
 
-from __future__ import annotations
-
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
+from sqlalchemy.orm import Session
 
 from tests.conftest import needs_db
+
+if TYPE_CHECKING:
+    from app.models.job import Job
 
 pytestmark = needs_db
 
 
-def _make_job(db, *, user_id=None, score=None, status="saved", title="Job", company="Co", source="remoteok"):
+def _make_job(
+    db: Session,
+    *,
+    user_id: uuid.UUID | None = None,
+    score: int | None = None,
+    status: str = "saved",
+    title: str = "Job",
+    company: str = "Co",
+    source: str = "remoteok",
+) -> Job:
     from app.models.job import Job  # noqa: PLC0415
     from app.models.user import User  # noqa: PLC0415
     from app.models.user_job import UserJob  # noqa: PLC0415

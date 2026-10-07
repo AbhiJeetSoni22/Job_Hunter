@@ -14,12 +14,12 @@ Covers:
 
 from __future__ import annotations
 
-import httpx
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session

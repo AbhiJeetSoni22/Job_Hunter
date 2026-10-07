@@ -28,8 +28,8 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.ai.gemini_client import AIError
 from app.dependencies import CurrentUser, DbSession
-from app.schemas.job import ApiResponse
 from app.schemas.interview_prep import InterviewPrepResponse
+from app.schemas.job import ApiResponse
 from app.services.interview_prep_service import InterviewPrepService, JobNotFoundError
 
 router = APIRouter(prefix="/jobs", tags=["interview-prep"])

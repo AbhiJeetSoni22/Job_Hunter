@@ -29,7 +29,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------------------------------------------------------------------------
 # Resume — standard response
 # Returned by GET /api/resume/latest and GET /api/resume/{resume_id}.

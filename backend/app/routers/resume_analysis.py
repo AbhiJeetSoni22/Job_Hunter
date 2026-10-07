@@ -20,7 +20,7 @@ Handles HTTP concerns for:
         method) in the existing resume or jobs routers.
         """
 
-from fastapi import APIRouter, status, HTTPException
+from fastapi import APIRouter, HTTPException, status
 
 from app.ai.gemini_client import AIError
 from app.dependencies import CurrentUser, DbSession

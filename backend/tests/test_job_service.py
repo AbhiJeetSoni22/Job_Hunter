@@ -17,7 +17,7 @@ Skip gracefully when TEST_DATABASE_URL is absent.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -74,7 +74,7 @@ class TestListJobs:
             job_service.list_jobs(order="sideways")
 
     def test_needs_rescore_false_when_no_score(self, job_service, sample_job):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = job_service.list_jobs(current_resume_uploaded_at=now)
         unscored = [j for j in result.jobs if j.id == sample_job.id]
         assert len(unscored) == 1
@@ -91,7 +91,7 @@ class TestListJobs:
         assert match[0].needs_rescore is False
 
     def test_needs_rescore_true_when_resume_changed(self, job_service, scored_job):
-        newer_ts = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        newer_ts = datetime(2099, 1, 1, tzinfo=UTC)
         result = job_service.list_jobs(current_resume_uploaded_at=newer_ts)
         match = [j for j in result.jobs if j.id == scored_job.id]
         assert len(match) == 1
@@ -118,7 +118,7 @@ class TestGetJob:
             job_service.get_job(uuid.uuid4())
 
     def test_needs_rescore_propagated(self, job_service, scored_job):
-        newer_ts = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        newer_ts = datetime(2099, 1, 1, tzinfo=UTC)
         result = job_service.get_job(
             scored_job.id,
             current_resume_uploaded_at=newer_ts,
@@ -289,9 +289,10 @@ class TestUpsertJobs:
         assert count == 0
 
     def test_upserted_job_has_saved_status(self, job_service, db):
+        from sqlalchemy import select  # noqa: PLC0415
+
         from app.models.job import Job  # noqa: PLC0415
         from app.schemas.job import JobUpsertData  # noqa: PLC0415
-        from sqlalchemy import select  # noqa: PLC0415
 
         url = "https://upsert-status.example.com/job/1"
         job_service.upsert_jobs([

@@ -30,6 +30,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import UploadFile
 from sqlalchemy import select
@@ -390,9 +391,9 @@ class ResumeService:
 
         for page_num in range(page_count):
             try:
-                page = doc[page_num]
+                page: Any = doc[page_num]
                 # "text" mode preserves paragraph structure better than "blocks"
-                page_text = page.get_text("text")
+                page_text = str(page.get_text("text"))
                 if page_text.strip():
                     page_texts.append(page_text)
             except Exception as exc:

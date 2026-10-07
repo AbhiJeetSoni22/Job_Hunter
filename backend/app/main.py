@@ -7,8 +7,9 @@ All error responses conform to ApiResponse envelope per api_spec.md.
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -66,13 +67,15 @@ if not any(isinstance(h, logging.StreamHandler) for h in app_logger.handlers):
 # ---------------------------------------------------------------------------
 
 @app.middleware("http")
-async def add_security_headers(request: Request, call_next):
+async def add_security_headers(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """
     Apply standard HTTP security hardening headers to all responses.
     Allows Swagger UI and external OAuth resources while preventing clickjacking,
     MIME confusion, and unauthorized iframe embedding.
     """
-    response = await call_next(request)
+    response: Response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -116,8 +119,8 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     detail = exc.detail
 
     if isinstance(detail, dict) and "code" in detail and "message" in detail:
-        code = detail["code"]
-        message = detail["message"]
+        code = str(detail.get("code", "ERROR"))
+        message = str(detail.get("message", ""))
     else:
         # FastAPI built-in errors (e.g. validation, path not found)
         code = _status_to_code(exc.status_code)

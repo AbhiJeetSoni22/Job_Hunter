@@ -7,7 +7,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-
 # ── Inbound Requests ─────────────────────────────────────────────────────────
 
 class OtpRequest(BaseModel):

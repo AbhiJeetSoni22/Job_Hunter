@@ -12,7 +12,6 @@ Multi-user architecture:
 
 from __future__ import annotations
 
-import time
 import uuid
 
 from sqlalchemy import and_, case, func, select
@@ -46,7 +45,6 @@ class DashboardService:
     def get_stats(self, user_id: uuid.UUID | None = None) -> DashboardStats:
         """Compute every dashboard metric for the user with two total queries."""
         uid = self._resolve_user_id(user_id)
-        start = time.perf_counter()
         aggregates = self.db.execute(
             select(
                 func.count(Job.id).label("total_jobs"),

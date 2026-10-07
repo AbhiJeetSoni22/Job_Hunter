@@ -9,6 +9,7 @@ Mirrors the mocking pattern used in tests/test_match_service.py:
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,7 +34,7 @@ GEMINI_GAP_RESULT = {
 }
 
 
-def _patch_gemini(result: dict | None = None, *, raises: Exception | None = None):
+def _patch_gemini(result: dict[str, Any] | None = None, *, raises: Exception | None = None) -> Any:
     mock_instance = MagicMock()
     if raises:
         mock_instance.analyze_resume_gap.side_effect = raises
@@ -79,15 +80,13 @@ class TestValidAnalysis:
 class TestNoResume:
 
     def test_no_active_resume_raises_lookup_error(self, db):
-        with _patch_gemini():
-            with pytest.raises(LookupError, match="No resume uploaded"):
-                ResumeAnalysisService(db).analyze("Some job description.")
+        with _patch_gemini(), pytest.raises(LookupError, match="No resume uploaded"):
+            ResumeAnalysisService(db).analyze("Some job description.")
 
     def test_gemini_not_called_when_no_resume(self, db):
-        with _patch_gemini() as mock_ctor:
-            with pytest.raises(LookupError):
-                ResumeAnalysisService(db).analyze("Some job description.")
-                mock_ctor.return_value.analyze_resume_gap.assert_not_called()
+        with _patch_gemini() as mock_ctor, pytest.raises(LookupError):
+            ResumeAnalysisService(db).analyze("Some job description.")
+            mock_ctor.return_value.analyze_resume_gap.assert_not_called()
 
 
 class TestEmptyJobDescription:
@@ -101,10 +100,9 @@ class TestEmptyJobDescription:
             ResumeAnalysisService(db).analyze("   \n\t  ")
 
     def test_gemini_not_called_for_empty_jd(self, db, sample_resume):
-        with _patch_gemini() as mock_ctor:
-            with pytest.raises(ValueError):
-                ResumeAnalysisService(db).analyze("")
-                mock_ctor.return_value.analyze_resume_gap.assert_not_called()
+        with _patch_gemini() as mock_ctor, pytest.raises(ValueError):
+            ResumeAnalysisService(db).analyze("")
+            mock_ctor.return_value.analyze_resume_gap.assert_not_called()
 
 
 class TestLongJobDescription:
@@ -132,11 +130,9 @@ class TestLongJobDescription:
 class TestGeminiFailure:
 
     def test_ai_error_propagates(self, db, sample_resume):
-        with _patch_gemini(raises=AIError("Gemini failed after 3 attempts")):
-            with pytest.raises(AIError, match="Gemini failed"):
-                ResumeAnalysisService(db).analyze("Some job description.")
+        with _patch_gemini(raises=AIError("Gemini failed after 3 attempts")), pytest.raises(AIError, match="Gemini failed"):
+            ResumeAnalysisService(db).analyze("Some job description.")
 
     def test_value_error_from_gemini_propagates(self, db, sample_resume):
-        with _patch_gemini(raises=ValueError("Could not parse JSON from Gemini response")):
-            with pytest.raises(ValueError, match="Could not parse JSON"):
-                ResumeAnalysisService(db).analyze("Some job description.")
+        with _patch_gemini(raises=ValueError("Could not parse JSON from Gemini response")), pytest.raises(ValueError, match="Could not parse JSON"):
+            ResumeAnalysisService(db).analyze("Some job description.")

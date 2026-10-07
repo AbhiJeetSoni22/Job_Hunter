@@ -17,10 +17,9 @@ Design decisions:
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import DateTime, Index, Integer, String, Text, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base

@@ -16,8 +16,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-
-from typing import Any, cast
+from typing import cast
 
 from sqlalchemy import and_, asc, desc, func, or_, select
 from sqlalchemy.orm import Session
@@ -160,12 +159,11 @@ class JobService:
         if job is None:
             raise LookupError(f"Job {job_id} not found")
 
-        if body.status is not None:
-            if body.status not in VALID_STATUSES:
-                raise ValueError(
-                    f"Invalid status '{body.status}'. "
-                    f"Must be one of: {', '.join(sorted(VALID_STATUSES))}"
-                )
+        if body.status is not None and body.status not in VALID_STATUSES:
+            raise ValueError(
+                f"Invalid status '{body.status}'. "
+                f"Must be one of: {', '.join(sorted(VALID_STATUSES))}"
+            )
 
         user_job = self.db.scalar(
             select(UserJob).where(

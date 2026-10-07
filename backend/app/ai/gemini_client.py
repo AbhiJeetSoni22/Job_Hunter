@@ -40,7 +40,6 @@ from app.ai.prompts import (
     RESUME_GAP_ANALYSIS_PROMPT,
     SKILL_EXTRACTION_PROMPT,
 )
-
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -334,7 +333,7 @@ class GeminiClient:
         if "match_score" not in data:
             raise ValueError("Response missing 'match_score'")
         raw_score = data["match_score"]
-        if not isinstance(raw_score, (int, float)):
+        if not isinstance(raw_score, int | float):
             raise ValueError(f"'match_score' must be a number, got {type(raw_score).__name__}")
         match_score = max(0, min(100, int(raw_score)))
 
@@ -447,7 +446,7 @@ class GeminiClient:
                     "GeminiClient.%s: attempt %d succeeded, response=%d chars",
                     operation, attempt, len(text),
                 )
-                return text
+                return str(text)
 
             except Exception as exc:
                 last_exc = exc
@@ -509,14 +508,10 @@ class GeminiClient:
             return True
 
         # Network-level transient errors
-        if "timeout" in exc_str or "connection" in exc_str:
-            return True
-
-        return False
+        return "timeout" in exc_str or "connection" in exc_str
 
     # ── Private: response parsing ──────────────────────────────────────────
 
-    @staticmethod
     @staticmethod
     def _extract_json_str(raw: str) -> str:
         """
@@ -610,7 +605,7 @@ class GeminiClient:
                 f"Could not parse JSON from Gemini response: {exc}. "
                 f"Candidate snippet (first 200 chars): {snippet!r}"
             ) from exc
-        if not isinstance(parsed, (dict, list)):
+        if not isinstance(parsed, dict | list):
             raise ValueError(
                 f"Expected a JSON object or array, got {type(parsed).__name__}"
             )
@@ -698,7 +693,7 @@ class GeminiClient:
         if "match_score" not in data:
             raise ValueError("Response missing 'match_score'")
         raw_score = data["match_score"]
-        if not isinstance(raw_score, (int, float)):
+        if not isinstance(raw_score, int | float):
             raise ValueError(
                 f"'match_score' must be a number, got {type(raw_score).__name__}"
             )

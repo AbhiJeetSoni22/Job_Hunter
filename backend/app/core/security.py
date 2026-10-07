@@ -10,7 +10,7 @@ import hashlib
 import logging
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
@@ -45,7 +45,7 @@ def hash_otp(otp_code: str) -> str:
     settings = get_settings()
     salt = secrets.token_hex(16)
     secret_key = settings.JWT_SECRET_KEY
-    digest = hashlib.sha256(f"{salt}:{otp_code}:{secret_key}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{salt}:{otp_code}:{secret_key}".encode()).hexdigest()
     return f"{salt}${digest}"
 
 
@@ -59,7 +59,7 @@ def verify_otp_hash(plain_otp: str, stored_hash: str) -> bool:
         salt, expected_digest = stored_hash.split("$", 1)
         settings = get_settings()
         secret_key = settings.JWT_SECRET_KEY
-        computed_digest = hashlib.sha256(f"{salt}:{plain_otp}:{secret_key}".encode("utf-8")).hexdigest()
+        computed_digest = hashlib.sha256(f"{salt}:{plain_otp}:{secret_key}".encode()).hexdigest()
         return secrets.compare_digest(computed_digest, expected_digest)
     except Exception as exc:
         logger.warning("Error verifying OTP hash: %s", exc)
@@ -115,7 +115,7 @@ def create_access_token(
       - exp: expiration timestamp
     """
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     if expires_delta is not None:
         expire = now + expires_delta
@@ -164,7 +164,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
     try:
         uuid.UUID(str(sub))
-    except (ValueError, TypeError, AttributeError):
-        raise jwt.InvalidTokenError("Invalid subject UUID format")
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise jwt.InvalidTokenError("Invalid subject UUID format") from exc
 
     return payload

@@ -13,8 +13,9 @@ Multi-user architecture:
 """
 
 import uuid
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 
 from app.database import SessionLocal
 from app.dependencies import CurrentUser, DbSession
@@ -147,14 +148,14 @@ def scoring_status(
 
 @router.post(
     "/recover-stuck-runs",
-    response_model=ApiResponse[dict],
+    response_model=ApiResponse[dict[str, Any]],
     summary="Recover stuck scoring runs",
     description="Reconcile any scoring runs that have been running beyond the timeout window for the user.",
 )
 def recover_stuck_runs(
     user: CurrentUser,
     db: DbSession,
-) -> ApiResponse[dict]:
+) -> ApiResponse[dict[str, Any]]:
     service = ScraperService(db, user_id=user.id)
     reconciled = service.reconcile_stuck_runs(timeout_minutes=15, user_id=user.id)
     return ApiResponse(

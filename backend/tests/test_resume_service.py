@@ -20,12 +20,11 @@ import pytest
 
 from tests.conftest import needs_db
 
-
 # ---------------------------------------------------------------------------
 # fitz mock factory
 # ---------------------------------------------------------------------------
 
-def _make_fitz_mock(page_text: str = None, page_count: int = 2):
+def _make_fitz_mock(page_text: str | None = None, page_count: int = 2):
     """
     Build a sys.modules-injectable fitz mock.
     Returns (mock_fitz_module, context_manager).
@@ -50,7 +49,7 @@ def _make_fitz_mock(page_text: str = None, page_count: int = 2):
 class fitz_patched:
     """Context manager: inject mock fitz into sys.modules for the duration."""
 
-    def __init__(self, page_text: str = None, page_count: int = 2):
+    def __init__(self, page_text: str | None = None, page_count: int = 2):
         self.mock = _make_fitz_mock(page_text, page_count)
 
     def __enter__(self):
@@ -240,10 +239,9 @@ class TestUploadResume:
 
     @pytest.mark.asyncio
     async def test_upload_happy_path(self, resume_service):
-        with fitz_patched():
-            with patch("app.services.resume_service.GeminiClient") as MockGemini:
-                MockGemini.return_value.extract_skills.return_value = ["Python"]
-                result = await resume_service.upload_resume(self._file())
+        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.extract_skills.return_value = ["Python"]
+            result = await resume_service.upload_resume(self._file())
 
         from app.schemas.resume import ResumeUploadResponse
         assert isinstance(result, ResumeUploadResponse)
@@ -253,10 +251,9 @@ class TestUploadResume:
 
     @pytest.mark.asyncio
     async def test_upload_replaces_existing_resume(self, resume_service, sample_resume):
-        with fitz_patched():
-            with patch("app.services.resume_service.GeminiClient") as MockGemini:
-                MockGemini.return_value.extract_skills.return_value = []
-                await resume_service.upload_resume(self._file(filename="new_resume.pdf"))
+        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.extract_skills.return_value = []
+            await resume_service.upload_resume(self._file(filename="new_resume.pdf"))
 
         result = resume_service.get_latest()
         assert result.filename == "new_resume.pdf"
@@ -276,17 +273,15 @@ class TestUploadResume:
     @pytest.mark.asyncio
     async def test_upload_skills_empty_when_gemini_fails(self, resume_service):
         from app.ai.gemini_client import AIError
-        with fitz_patched():
-            with patch("app.services.resume_service.GeminiClient") as MockGemini:
-                MockGemini.return_value.extract_skills.side_effect = AIError("quota")
-                result = await resume_service.upload_resume(self._file())
+        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.extract_skills.side_effect = AIError("quota")
+            result = await resume_service.upload_resume(self._file())
         assert result.skills == []
 
     @pytest.mark.asyncio
     async def test_upload_stores_skills_from_gemini(self, resume_service):
-        with fitz_patched():
-            with patch("app.services.resume_service.GeminiClient") as MockGemini:
-                MockGemini.return_value.extract_skills.return_value = ["Python", "FastAPI", "Docker"]
-                result = await resume_service.upload_resume(self._file())
+        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.extract_skills.return_value = ["Python", "FastAPI", "Docker"]
+            result = await resume_service.upload_resume(self._file())
         assert "Python" in result.skills
         assert "FastAPI" in result.skills

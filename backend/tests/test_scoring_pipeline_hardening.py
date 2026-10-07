@@ -24,10 +24,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,7 +38,6 @@ from app.models.scoring_run import ScoringRun
 from app.models.user import User
 from app.models.user_job import UserJob
 from app.services.job_service import JobService
-from app.services.match_service import score_job
 from app.services.scraper_service import ScraperService
 from tests.conftest import needs_db
 
@@ -311,7 +309,7 @@ class TestBulkScoring:
     def test_concurrent_bulk_scoring_protection(self, client, auth_headers_alpha, sample_jobs, resume_alpha, db):
         # Create an actively running scoring run
         service = ScraperService(db, user_id=resume_alpha.user_id)
-        active_run = service.start_scoring_run(total_jobs=3, user_id=resume_alpha.user_id)
+        service.start_scoring_run(total_jobs=3, user_id=resume_alpha.user_id)
 
         res = client.post("/api/jobs/bulk-score", headers=auth_headers_alpha)
         assert res.status_code == 409

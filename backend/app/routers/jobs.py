@@ -16,10 +16,10 @@ from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.ai.gemini_client import AIError
 from app.dependencies import CurrentUser, DbSession, get_active_resume
 from app.models.resume import Resume
 from app.schemas.job import (
-    ApiError,
     ApiResponse,
     BulkScoreResponse,
     JobResponse,
@@ -32,7 +32,6 @@ from app.services import match_service
 from app.services.job_service import JobService
 from app.services.match_service import JobNotFoundError, NoResumeError
 from app.services.scraper_service import ScraperService
-from app.ai.gemini_client import AIError
 
 logger = logging.getLogger(__name__)
 
@@ -226,8 +225,8 @@ def get_job(
             user_id=user.id,
             current_resume_uploaded_at=current_resume_uploaded_at,
         )
-    except LookupError:
-        raise _not_found(job_id)
+    except LookupError as exc:
+        raise _not_found(job_id) from exc
 
     return ApiResponse(data=job)
 
@@ -258,28 +257,28 @@ def score_job(
             user_id=user.id,
             force=force,
         )
-    except JobNotFoundError:
-        raise _not_found(job_id)
-    except NoResumeError:
+    except JobNotFoundError as exc:
+        raise _not_found(job_id) from exc
+    except NoResumeError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "NO_RESUME",
                 "message": "Upload a resume before scoring jobs",
             },
-        )
+        ) from exc
     except (AIError, ValueError) as exc:
         logger.error("AI scoring failed for job %s: %s", job_id, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"code": "AI_ERROR", "message": "Failed to calculate job match score with AI."},
-        )
+        ) from exc
     except Exception as exc:
         logger.error("Unexpected error scoring job %s: %s", job_id, exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "SCORING_FAILED", "message": "An unexpected error occurred while scoring."},
-        )
+        ) from exc
 
     return ApiResponse(data=ScoreResponse(**result), error=None)
 
@@ -301,8 +300,8 @@ def update_job(
 ) -> ApiResponse[JobUpdateResponse]:
     try:
         result = JobService(db).update_job(job_id, user_id=user.id, body=body)
-    except LookupError:
-        raise _not_found(job_id)
+    except LookupError as exc:
+        raise _not_found(job_id) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -328,5 +327,5 @@ def delete_job(
 ) -> None:
     try:
         JobService(db).delete_job(job_id, user_id=user.id)
-    except LookupError:
-        raise _not_found(job_id)
+    except LookupError as exc:
+        raise _not_found(job_id) from exc

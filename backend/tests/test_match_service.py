@@ -12,7 +12,8 @@ with "invalid input syntax for type uuid".
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,7 +31,7 @@ GEMINI_MATCH_RESULT = {
 }
 
 
-def _patch_gemini(match_result: dict = None, *, raises=None):
+def _patch_gemini(match_result: dict[str, Any] | None = None, *, raises: Exception | None = None) -> Any:
     result = match_result or GEMINI_MATCH_RESULT
     mock_instance = MagicMock()
     if raises:
@@ -49,7 +50,7 @@ class TestScoreJobErrors:
    
 
     def test_job_not_found_raises(self, db):
-        from app.services.match_service import score_job, JobNotFoundError
+        from app.services.match_service import JobNotFoundError, score_job
 
         # Must be valid UUID format — PG rejects non-UUID strings
         missing_id = str(uuid.uuid4())
@@ -57,7 +58,7 @@ class TestScoreJobErrors:
             score_job(missing_id, db)
 
     def test_no_resume_raises(self, db, sample_job):
-        from app.services.match_service import score_job, NoResumeError
+        from app.services.match_service import NoResumeError, score_job
 
         with pytest.raises(NoResumeError, match="No active resume"):
             score_job(str(sample_job.id), db)
@@ -102,8 +103,8 @@ class TestCacheMiss:
         assert isinstance(result["matched_at"], datetime)
 
     def test_cache_miss_persists_score_to_db(self, db, sample_job, sample_resume):
-        from app.services.match_service import score_job
         from app.models.user_job import UserJob
+        from app.services.match_service import score_job
 
         with _patch_gemini():
             score_job(str(sample_job.id), db)
@@ -114,12 +115,11 @@ class TestCacheMiss:
         assert user_job.resume_uploaded_at == sample_resume.uploaded_at
 
     def test_ai_error_propagates(self, db, sample_job, sample_resume):
-        from app.services.match_service import score_job
         from app.ai.gemini_client import AIError
+        from app.services.match_service import score_job
 
-        with _patch_gemini(raises=AIError("quota exceeded")):
-            with pytest.raises(AIError):
-                score_job(str(sample_job.id), db)
+        with _patch_gemini(raises=AIError("quota exceeded")), pytest.raises(AIError):
+            score_job(str(sample_job.id), db)
 
 
 # ---------------------------------------------------------------------------
@@ -267,8 +267,8 @@ class TestRecommendationLabel:
 class TestForceRescore:
 
     def test_force_rescore_bypasses_cache_hit(self, db, scored_job, sample_resume):
-        from app.services.match_service import score_job
         from app.models.user_job import UserJob
+        from app.services.match_service import score_job
 
         # Make cache a hit initially
         sample_resume.uploaded_at = scored_job.resume_uploaded_at
@@ -289,8 +289,8 @@ class TestForceRescore:
         assert uj.match_score == 92
 
     def test_force_rescore_refreshes_stale_cache(self, db, scored_job, sample_resume):
-        from app.services.match_service import score_job
         from app.models.user_job import UserJob
+        from app.services.match_service import score_job
 
         # Stale score: sample_resume.uploaded_at != scored_job.resume_uploaded_at
         assert sample_resume.uploaded_at != scored_job.resume_uploaded_at
@@ -309,24 +309,22 @@ class TestForceRescore:
         assert uj.resume_uploaded_at == sample_resume.uploaded_at
 
     def test_failed_force_rescore_preserves_previous_valid_score(self, db, scored_job, sample_resume):
-        from app.services.match_service import score_job
-        from app.models.user_job import UserJob
         from app.ai.gemini_client import AIError
+        from app.models.user_job import UserJob
+        from app.services.match_service import score_job
 
         initial_score = scored_job.match_score
         assert initial_score is not None
 
-        with _patch_gemini(raises=AIError("Gemini down")):
-            with pytest.raises(AIError):
-                score_job(str(scored_job.id), db, force=True)
+        with _patch_gemini(raises=AIError("Gemini down")), pytest.raises(AIError):
+            score_job(str(scored_job.id), db, force=True)
 
         uj = db.query(UserJob).filter_by(job_id=scored_job.id, user_id=sample_resume.user_id).one()
         assert uj.match_score == initial_score
 
     def test_malformed_gemini_response_wrapped_in_ai_error(self, db, sample_job, sample_resume):
-        from app.services.match_service import score_job
         from app.ai.gemini_client import AIError
+        from app.services.match_service import score_job
 
-        with _patch_gemini(raises=ValueError("Response missing 'match_score'")):
-            with pytest.raises(AIError, match="Malformed AI response"):
-                score_job(str(sample_job.id), db)
+        with _patch_gemini(raises=ValueError("Response missing 'match_score'")), pytest.raises(AIError, match="Malformed AI response"):
+            score_job(str(sample_job.id), db)

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.ai.gemini_client import AIError
 from app.models.scoring_run import ScoringRun
 from app.models.scrape_run import SCRAPER_SOURCE_VALUES, ScrapeRun
-from app.schemas.job import JobUpsertData, ScraperRunSummary, ScrapeRunResponse
+from app.schemas.job import ScraperRunSummary, ScrapeRunResponse
 from app.services import match_service
 from app.services.job_service import JobService
 from app.services.match_service import JobNotFoundError, NoResumeError
@@ -85,10 +85,10 @@ class ScraperService:
             all_new_job_ids.extend(new_ids)
 
         summary = ScraperRunSummary(
-        runs=run_results,
-        total_new=total_new,
-        total_scored=0,  # scoring happens after response — see run_auto_score()
-        new_job_ids=all_new_job_ids,
+            runs=run_results,
+            total_new=total_new,
+            total_scored=0,  # scoring happens after response — see run_auto_score()
+            new_job_ids=[uuid.UUID(str(jid)) for jid in all_new_job_ids],
         )
         return summary, all_new_job_ids
 
@@ -158,6 +158,7 @@ class ScraperService:
         Idempotently marks them as 'failed' and records the completion timestamp and error.
         """
         from datetime import timedelta
+
         from sqlalchemy import select
 
         cutoff = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
@@ -505,4 +506,7 @@ class ScraperService:
     # Actual implementations live in app/scrapers/
     # ---------------------------------------------------------------------------
 
-from app.scrapers.base import BaseScraper, ScraperResult  # noqa: E402 — import after class def
+from app.scrapers.base import (  # noqa: E402 — import after class def
+    BaseScraper,
+    ScraperResult,
+)

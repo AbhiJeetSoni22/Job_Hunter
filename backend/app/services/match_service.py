@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.gemini_client import GeminiClient, AIError
+from app.ai.gemini_client import AIError, GeminiClient, MatchResult
 from app.models.job import Job
 from app.models.resume import Resume
 from app.models.user_job import UserJob
@@ -65,7 +66,7 @@ def score_job(
     db: Session,
     user_id: uuid.UUID | str | None = None,
     force: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """
     Score a job against the user's active resume.
 
@@ -134,7 +135,7 @@ def _get_or_create_user_job(job: Job, user_id: uuid.UUID | str, db: Session) -> 
         )
     )
     if user_job is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         user_job = UserJob(
             id=uuid.uuid4(),
             user_id=user_id,
@@ -165,7 +166,7 @@ def _check_cache(user_job: UserJob, resume: Resume) -> str:
     return "stale"
 
 
-def _call_gemini(job: Job, resume: Resume) -> dict:
+def _call_gemini(job: Job, resume: Resume) -> MatchResult:
     """
     Call GeminiClient.match_job(). Propagates AIError on failure.
     Returns raw MatchResult dict from client.
@@ -189,16 +190,16 @@ def _call_gemini(job: Job, resume: Resume) -> dict:
 def _persist_score(
     user_job: UserJob,
     resume: Resume,
-    result: dict,
+    result: MatchResult | dict[str, Any],
     db: Session,
 ) -> None:
     """Write score fields to user_job row and commit."""
     user_job.match_score = result["match_score"]
     user_job.missing_skills = result.get("missing_skills", [])
     user_job.match_summary = result.get("match_summary", "")
-    user_job.matched_at = datetime.now(timezone.utc)
+    user_job.matched_at = datetime.now(UTC)
     user_job.resume_uploaded_at = resume.uploaded_at
-    user_job.updated_at = datetime.now(timezone.utc)
+    user_job.updated_at = datetime.now(UTC)
 
     db.add(user_job)
     db.commit()
@@ -212,7 +213,7 @@ def _persist_score(
     )
 
 
-def _build_response(user_job: UserJob, *, cached: bool, needs_rescore: bool) -> dict:
+def _build_response(user_job: UserJob, *, cached: bool, needs_rescore: bool) -> dict[str, Any]:
     """Serialise user_job score fields into response dict."""
     return {
         "match_score": user_job.match_score,
