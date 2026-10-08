@@ -126,3 +126,18 @@ def get_active_resume(
             },
         )
     return resume
+
+
+# ── AI Rate Limiting Dependency ──────────────────────────────────────────────
+
+def check_ai_rate_limit(
+    user: CurrentUser,
+    db: DbSession,
+) -> None:
+    """
+    FastAPI dependency — verifies authenticated user has not exceeded
+    AI_RATE_LIMIT_PER_MINUTE. Raises HTTP 429 AI_RATE_LIMIT_EXCEEDED.
+    """
+    from app.services.rate_limit_service import RateLimitService
+
+    RateLimitService(db).check_ai_rate_limit(user.id)

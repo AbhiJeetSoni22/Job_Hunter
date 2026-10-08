@@ -24,10 +24,10 @@ any existing route in the existing jobs router (different path).
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.ai.gemini_client import AIError
-from app.dependencies import CurrentUser, DbSession
+from app.dependencies import CurrentUser, DbSession, check_ai_rate_limit
 from app.schemas.interview_prep import InterviewPrepResponse
 from app.schemas.job import ApiResponse
 from app.services.interview_prep_service import InterviewPrepService, JobNotFoundError
@@ -49,6 +49,7 @@ router = APIRouter(prefix="/jobs", tags=["interview-prep"])
         "to revise, and interview tips. Stateless — nothing is persisted. "
         "Does not affect existing job match scores or resume analysis."
     ),
+    dependencies=[Depends(check_ai_rate_limit)],
 )
 def generate_interview_prep(
     job_id: uuid.UUID,

@@ -47,6 +47,9 @@ logger = logging.getLogger(__name__)
 # Maximum PDF file size: 5 MB
 MAX_FILE_SIZE_BYTES: int = 5 * 1024 * 1024
 
+# PDF file signature (%PDF-)
+PDF_MAGIC_BYTES: bytes = b"%PDF-"
+
 # Allowed MIME types for PDF uploads
 ALLOWED_CONTENT_TYPES: frozenset[str] = frozenset({
     "application/pdf",
@@ -170,14 +173,17 @@ class ResumeService:
         if self._user_id is None:
             raise ValueError("User ID is required to upload a resume")
 
-        # ── Step 1: validate ───────────────────────────────────────────────
+        # ── Step 1: validate filename & content type ───────────────────────
         filename = self._validate_file(file)
 
-        # ── Step 2: read bytes ─────────────────────────────────────────────
-        content = await file.read()
+        # ── Step 2: bounded read & size validation ─────────────────────────
+        content = await file.read(MAX_FILE_SIZE_BYTES + 1)
         self._validate_size(content, filename)
 
-        # ── Step 3: extract text ───────────────────────────────────────────
+        # ── Step 3: validate PDF magic bytes ───────────────────────────────
+        self._validate_magic_bytes(content, filename)
+
+        # ── Step 4: extract text ───────────────────────────────────────────
         extraction = self._extract_text(content, filename)
         logger.info(
             "ResumeService.upload_resume: extracted %d chars from %d pages — '%s'",
@@ -323,10 +329,22 @@ class ResumeService:
             raise ValueError(f"Uploaded file '{filename}' is empty")
 
         if len(content) > MAX_FILE_SIZE_BYTES:
-            size_mb = len(content) / (1024 * 1024)
+            size_mb = MAX_FILE_SIZE_BYTES // (1024 * 1024)
             raise ValueError(
-                f"File '{filename}' is {size_mb:.1f} MB. "
-                f"Maximum allowed size is {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB"
+                f"File '{filename}' exceeds maximum allowed size of {size_mb} MB"
+            )
+
+    def _validate_magic_bytes(self, content: bytes, filename: str) -> None:
+        """
+        Validate file begins with PDF magic bytes (%PDF-).
+
+        Raises:
+            ValueError: if content does not start with PDF_MAGIC_BYTES.
+        """
+        if not content.startswith(PDF_MAGIC_BYTES):
+            raise ValueError(
+                f"File '{filename}' is not a valid PDF document. "
+                "Content does not start with PDF magic bytes (%PDF-)."
             )
 
     # ── Private: PDF extraction ────────────────────────────────────────────

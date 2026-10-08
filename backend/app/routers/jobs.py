@@ -17,7 +17,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import AIError
-from app.dependencies import CurrentUser, DbSession, get_active_resume
+from app.config import get_settings
+from app.dependencies import CurrentUser, DbSession, check_ai_rate_limit, get_active_resume
 from app.models.resume import Resume
 from app.schemas.job import (
     ApiResponse,
@@ -129,6 +130,7 @@ def list_jobs(
         "for the authenticated user. Schedules background scoring and returns a "
         "ScoringRun ID that can be polled via GET /api/scraper/scoring-status."
     ),
+    dependencies=[Depends(check_ai_rate_limit)],
 )
 def bulk_score_jobs(
     user: CurrentUser,
@@ -141,11 +143,20 @@ def bulk_score_jobs(
     limit: int = Query(
         default=50,
         ge=1,
-        le=100,
         description="Maximum number of jobs to score in this batch",
     ),
     _resume: Resume = Depends(get_active_resume),
 ) -> ApiResponse[BulkScoreResponse]:
+    max_limit = get_settings().MAX_BULK_SCORE_LIMIT
+    if limit > max_limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "VALIDATION_ERROR",
+                "message": f"limit cannot exceed {max_limit}",
+            },
+        )
+
     scraper_service = ScraperService(db, user_id=user.id)
 
     # Check for active concurrent scoring run for this user
@@ -239,6 +250,7 @@ def get_job(
     "/{job_id}/score",
     response_model=ApiResponse[ScoreResponse],
     summary="Score job against resume",
+    dependencies=[Depends(check_ai_rate_limit)],
 )
 def score_job(
     job_id: uuid.UUID,

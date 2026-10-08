@@ -105,6 +105,7 @@ def db_engine() -> Generator[Engine, None, None]:
 
     # Import all models so their tables are registered on Base.metadata
     import app.models.job  # noqa: F401
+    import app.models.rate_limit  # noqa: F401
     import app.models.resume  # noqa: F401
     import app.models.scoring_run  # noqa: F401
     import app.models.scrape_run  # noqa: F401

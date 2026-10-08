@@ -20,10 +20,10 @@ Handles HTTP concerns for:
         method) in the existing resume or jobs routers.
         """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.ai.gemini_client import AIError
-from app.dependencies import CurrentUser, DbSession
+from app.dependencies import CurrentUser, DbSession, check_ai_rate_limit
 from app.schemas.job import ApiResponse
 from app.schemas.resume_analysis import ResumeAnalysisRequest, ResumeAnalysisResponse
 from app.services.resume_analysis_service import ResumeAnalysisService
@@ -45,6 +45,7 @@ router = APIRouter(prefix="/resume", tags=["resume-analysis"])
         "suggestions, and ATS optimization tips. Does not upload a new "
         "resume and does not affect existing job match scores."
     ),
+    dependencies=[Depends(check_ai_rate_limit)],
 )
 def analyze_resume(
     payload: ResumeAnalysisRequest,

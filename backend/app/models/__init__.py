@@ -26,6 +26,7 @@ IMPORT ORDER:
 
 from app.models.email_otp import EmailOtp
 from app.models.job import Job
+from app.models.rate_limit import RateLimitEvent
 from app.models.resume import Resume
 from app.models.scoring_run import ScoringRun
 from app.models.scrape_run import ScrapeRun
@@ -35,6 +36,7 @@ from app.models.user_job import UserJob
 __all__ = [
     "EmailOtp",
     "Job",
+    "RateLimitEvent",
     "Resume",
     "ScrapeRun",
     "ScoringRun",

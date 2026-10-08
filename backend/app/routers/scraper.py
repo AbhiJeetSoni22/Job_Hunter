@@ -25,6 +25,7 @@ from app.schemas.job import (
     ScraperRunSummary,
     ScrapeRunResponse,
 )
+from app.services.rate_limit_service import RateLimitService
 from app.services.scraper_service import ScraperService
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
@@ -80,18 +81,20 @@ def run_scrapers(
     db: DbSession,
     background_tasks: BackgroundTasks,
 ) -> ApiResponse[ScraperRunSummary]:
-    service = ScraperService(db)
-    summary, new_job_ids = service.run_all()
-    if new_job_ids:
-        scoring_run = service.start_scoring_run(len(new_job_ids), user_id=user.id)
-        summary.scoring_run_id = scoring_run.id
-        background_tasks.add_task(
-            _auto_score_in_background,
-            new_job_ids,
-            scoring_run.id,
-            user.id,
-        )
-    return ApiResponse(data=summary)
+    rate_limiter = RateLimitService(db)
+    with rate_limiter.scraper_run_guard(user.id):
+        service = ScraperService(db)
+        summary, new_job_ids = service.run_all()
+        if new_job_ids:
+            scoring_run = service.start_scoring_run(len(new_job_ids), user_id=user.id)
+            summary.scoring_run_id = scoring_run.id
+            background_tasks.add_task(
+                _auto_score_in_background,
+                new_job_ids,
+                scoring_run.id,
+                user.id,
+            )
+        return ApiResponse(data=summary)
 
 
 # ── GET /api/scraper/status ────────────────────────────────────────────────

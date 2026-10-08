@@ -130,6 +130,23 @@ class TestValidateSize:
         self._svc()._validate_size(b"x" * MAX_FILE_SIZE_BYTES, "resume.pdf")
 
 
+class TestValidateMagicBytes:
+
+    def _svc(self) -> ResumeService:
+        return ResumeService(db=MagicMock())
+
+    def test_valid_magic_bytes_no_raise(self) -> None:
+        self._svc()._validate_magic_bytes(b"%PDF-1.4 dummy content", "resume.pdf")
+
+    def test_invalid_magic_bytes_raises(self) -> None:
+        with pytest.raises(ValueError, match="magic bytes"):
+            self._svc()._validate_magic_bytes(b"NOT A REAL PDF", "resume.pdf")
+
+    def test_short_bytes_raises(self) -> None:
+        with pytest.raises(ValueError, match="magic bytes"):
+            self._svc()._validate_magic_bytes(b"%PD", "resume.pdf")
+
+
 class TestExtractSkillsSafe:
 
     def _svc(self) -> ResumeService:
