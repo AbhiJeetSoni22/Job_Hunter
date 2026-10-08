@@ -18,7 +18,12 @@ from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import AIError
 from app.config import get_settings
-from app.dependencies import CurrentUser, DbSession, check_ai_rate_limit, get_active_resume
+from app.dependencies import (
+    CurrentUser,
+    DbSession,
+    check_ai_rate_limit,
+    get_active_resume,
+)
 from app.models.resume import Resume
 from app.schemas.job import (
     ApiResponse,

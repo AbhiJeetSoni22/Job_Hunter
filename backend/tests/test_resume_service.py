@@ -264,12 +264,18 @@ class TestUploadResume:
         self,
         filename: str = "resume.pdf",
         content_type: str = "application/pdf",
-        content: bytes = b"fake-pdf-content",
+        content: bytes = b"%PDF-1.4\nfake-pdf-content",
     ) -> MagicMock:
         m = MagicMock()
         m.filename = filename
         m.content_type = content_type
-        m.read = AsyncMock(return_value=content)
+
+        def _mock_read(size: int = -1) -> bytes:
+            if size is None or size < 0:
+                return content
+            return content[:size]
+
+        m.read = AsyncMock(side_effect=_mock_read)
         return m
 
     @pytest.mark.asyncio
@@ -283,6 +289,37 @@ class TestUploadResume:
         assert result.filename == "resume.pdf"
         assert result.page_count == 2
         assert result.char_count > 0
+
+    @pytest.mark.asyncio
+    async def test_upload_valid_magic_bytes_accepted(self, resume_service: ResumeService) -> None:
+        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.extract_skills.return_value = ["Python"]
+            result = await resume_service.upload_resume(
+                self._file(filename="resume.pdf", content=b"%PDF-1.7\nvalid resume")
+            )
+        assert result.filename == "resume.pdf"
+
+    @pytest.mark.asyncio
+    async def test_upload_non_pdf_bytes_rejected(self, resume_service: ResumeService) -> None:
+        with pytest.raises(ValueError, match="magic bytes"):
+            await resume_service.upload_resume(
+                self._file(filename="resume.pdf", content=b"THIS IS PLAIN TEXT NOT PDF")
+            )
+
+    @pytest.mark.asyncio
+    async def test_upload_octet_stream_with_valid_pdf_bytes_accepted(
+        self, resume_service: ResumeService
+    ) -> None:
+        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+            MockGemini.return_value.extract_skills.return_value = ["FastAPI"]
+            result = await resume_service.upload_resume(
+                self._file(
+                    filename="resume.pdf",
+                    content_type="application/octet-stream",
+                    content=b"%PDF-1.4\nvalid octet stream pdf",
+                )
+            )
+        assert result.filename == "resume.pdf"
 
     @pytest.mark.asyncio
     async def test_upload_replaces_existing_resume(
@@ -310,6 +347,16 @@ class TestUploadResume:
     ) -> None:
         with pytest.raises(ValueError, match="empty"):
             await resume_service.upload_resume(self._file(content=b""))
+
+    @pytest.mark.asyncio
+    async def test_upload_oversized_file_raises(
+        self, resume_service: ResumeService
+    ) -> None:
+        from app.services.resume_service import MAX_FILE_SIZE_BYTES
+        with pytest.raises(ValueError, match="MB"):
+            await resume_service.upload_resume(
+                self._file(content=b"%PDF-" + b"x" * (MAX_FILE_SIZE_BYTES + 10))
+            )
 
     @pytest.mark.asyncio
     async def test_upload_skills_empty_when_gemini_fails(

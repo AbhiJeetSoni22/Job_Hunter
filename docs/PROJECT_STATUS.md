@@ -2,8 +2,8 @@
 
 **Project:** AI Internship Hunter / Job Hunter  
 **Current Milestone:** Phase 0 — Stabilization  
-**Current Batch:** Batch 2 — Scraper Correctness & Safety (COMPLETED)  
-**Next Milestone:** Phase 0 → Batch 3 — Security / Configuration Hardening  
+**Current Batch:** Batch 3 — Security / Configuration Hardening (COMPLETED)  
+**Next Milestone:** Phase 0 → Batch 4 — Tests / CI / Documentation Alignment  
 **Current Implementation Status:** Synchronized with Codebase  
 
 ---
@@ -15,6 +15,7 @@ AI Internship Hunter is an AI-powered job discovery and application tracking pla
 A controlled production-hardening roadmap is underway.
 - **Phase 0 — Batch 1 (Scoring Pipeline Correctness)** has been completed, resolving critical scoring pipeline bugs, hardening AI error handling, providing force-rescore and bulk-scoring capabilities, implementing stuck run reconciliation, and ensuring strict multi-user score isolation.
 - **Phase 0 — Batch 2 (Scraper Correctness & Safety)** has been completed, eliminating accidental mass expiry from failed or empty scrapes, introducing an explicit `ScraperResult` contract, fixing critical selector fallback bugs in the YC parser, and making database upserts and job lifecycle state transitions fully transactional.
+- **Phase 0 — Batch 3 (Security / Configuration Hardening)** has been completed, securing JWT configuration, enforcing production CORS policies, hardening email fail-closed behavior, adding HTTP security headers, protecting OTP endpoints with advisory locks, bounding resume uploads and validating PDF magic bytes, adding PostgreSQL-backed per-user AI rate limiting, and guarding scraper runs with advisory locks and cooldown periods.
 
 ---
 
@@ -37,7 +38,19 @@ A controlled production-hardening roadmap is underway.
   - Added DOM anchor vs parsed job validation to detect YC parser breakage.
   - Transactional rollback safety in `JobService.upsert_jobs` ensuring partial DB failures never corrupt state.
   - Preserved multi-user data isolation across global scraping and user-scoped auto-scoring.
-- [ ] **Batch 3 — Security / Configuration Hardening**
+- [x] **Batch 3 — Security / Configuration Hardening**
+  - Production JWT secret validation (length >= 32, forbidden insecure defaults in prod).
+  - Production CORS validation (forbidden wildcards in prod, origin parsing).
+  - JWT access token lifetime reduced to 24 hours.
+  - Fail-closed email service configuration in production mode.
+  - Concurrency & attempt protection for OTP requests & verification using PostgreSQL advisory locks.
+  - HTTP security headers middleware (`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Content-Security-Policy`).
+  - Max bulk score limit tied to environment configuration (`settings.MAX_BULK_SCORE_LIMIT`).
+  - Bounded resume uploads (`MAX_FILE_SIZE_BYTES = 5MB`, bounded stream read avoiding unbounded memory consumption).
+  - Strict PDF magic-byte validation (`b"%PDF-"`).
+  - Per-user AI rate limiting (`AI_RATE_LIMIT_PER_MINUTE`, HTTP 429 `AI_RATE_LIMIT_EXCEEDED`, envelope format, PostgreSQL-backed).
+  - Scraper cooldown and concurrent run serialization (`SCRAPER_COOLDOWN_SECONDS`, HTTP 429 `SCRAPER_RATE_LIMITED`, PostgreSQL advisory locks).
+  - Schema migration: `c3d4e5f6a7b8_add_rate_limit_events_table.py`.
 - [ ] **Batch 4 — Tests / CI / Documentation Alignment**
 
 ### PHASE 1 — POSTGRESQL TASK QUEUE + WORKER (PLANNED)
@@ -143,12 +156,65 @@ A controlled production-hardening roadmap is underway.
 
 ---
 
-## 5. Completed Capabilities (Historical)
+## 5. Phase 0 Batch 3: Security / Configuration Hardening (Implementation Details)
+
+### What Was Vulnerable / Unhardened:
+1. **Unbounded Resume Upload**: Resume upload endpoint allowed unbounded `file.read()`, permitting gigabyte-scale memory consumption DoS attacks.
+2. **Missing PDF Content Validation**: Upload validation checked only MIME type (`application/pdf` or `application/octet-stream`) and filename extension (`.pdf`), allowing arbitrary files or malware payloads to be uploaded if disguised with a `.pdf` extension.
+3. **Missing Per-User AI Rate Limiting**: AI endpoints (`/api/jobs/{id}/score`, `/api/jobs/bulk-score`, `/api/resume/analyze`, `/api/jobs/{id}/interview-prep`) lacked rate limiting, exposing the system to quota depletion, runaway Google Gemini API costs, and abuse.
+4. **Scraper Concurrency & Abuse**: Scraping trigger lacked user-scoped cooldown and concurrent run serialization, allowing users to flood background scraper runs or trigger overlapping processes.
+5. **Hardcoded Bulk Scoring Limit**: `POST /api/jobs/bulk-score` had hardcoded `le=100` in route annotations instead of binding to `settings.MAX_BULK_SCORE_LIMIT`.
+6. **Insecure Production Defaults**: JWT secret lacked production enforcement, wildcard CORS was tolerated in production mode, and JWT access token lifetimes lasted up to 7 days.
+7. **OTP Endpoint Concurrency & Email Fail-Open**: OTP generation and verification lacked concurrency locks and allowed partial verification brute forcing; email sending silently caught failures in production.
+8. **Missing HTTP Security Headers**: HTTP responses lacked standard defense-in-depth security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`, etc.).
+
+### What Was Fixed:
+1. **Bounded Resume File Read**: `ResumeService.upload_resume` reads at most `MAX_FILE_SIZE_BYTES + 1` (5MB + 1 byte) via chunked or bounded streaming, rejecting oversized files with HTTP 422 immediately without loading excessive bytes into memory.
+2. **PDF Magic-Byte Verification**: `ResumeService._validate_magic_bytes` inspects the initial bytes of uploaded file content, strictly enforcing the `b"%PDF-"` file header magic bytes before parsing text with PyMuPDF.
+3. **Per-User AI Rate Limiting (PostgreSQL-Backed)**:
+   - Added `RateLimitEvent` model and `rate_limit_events` table (migration `c3d4e5f6a7b8_add_rate_limit_events_table.py`).
+   - Implemented `RateLimitService.check_ai_rate_limit` tracking a 60-second sliding window against `settings.AI_RATE_LIMIT_PER_MINUTE` (default 30).
+   - Injected `check_ai_rate_limit` dependency into `/api/jobs/{id}/score`, `/api/jobs/bulk-score`, `/api/resume/analyze`, and `/api/jobs/{id}/interview-prep`.
+   - Returns standard HTTP 429 envelope `{ success: false, data: null, error: { code: "AI_RATE_LIMIT_EXCEEDED", message: "..." } }`.
+4. **Scraper Cooldown & Advisory Lock Concurrency Protection**:
+   - `RateLimitService.scraper_run_guard` combines PostgreSQL session advisory locks (`pg_try_advisory_lock(hashtext('scraper_run:{user_id}'))`) with `rate_limit_events` DB status records.
+   - Enforces `settings.SCRAPER_COOLDOWN_SECONDS` (default 60) between consecutive scraper runs for the same user.
+   - Prevents overlapping concurrent scraper executions per user, returning HTTP 429 `SCRAPER_RATE_LIMITED`.
+5. **Configurable Bulk Scoring Limit**:
+   - `POST /api/jobs/bulk-score` dynamically validates payload `limit` against `get_settings().MAX_BULK_SCORE_LIMIT`, raising HTTP 422 `VALIDATION_ERROR` with custom detail message if exceeded.
+6. **Production Configuration Hardening**:
+   - Enforced production JWT secret length >= 32 characters, rejecting insecure default values.
+   - Reduced JWT access token expiration to 24 hours.
+   - Enforced CORS validation rejecting wildcard `*` in production mode.
+   - Configured production email delivery fail-closed behavior.
+7. **OTP Row-Level & Advisory Locking**:
+   - Added PostgreSQL advisory locks for OTP request serialization and `SELECT ... FOR UPDATE` row locks for OTP verification attempt protection.
+8. **HTTP Security Headers Middleware**:
+   - Registered middleware injecting `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Content-Security-Policy`.
+
+### Files Modified / Created:
+- `backend/app/models/rate_limit.py`: Created `RateLimitEvent` model.
+- `backend/app/models/__init__.py`: Registered `RateLimitEvent`.
+- `backend/alembic/versions/c3d4e5f6a7b8_add_rate_limit_events_table.py`: Migration for `rate_limit_events`.
+- `backend/app/services/rate_limit_service.py`: Implemented AI rate limiting and scraper cooldown/concurrency guards.
+- `backend/app/dependencies.py`: Added `check_ai_rate_limit` dependency.
+- `backend/app/services/resume_service.py`: Added bounded streaming read and PDF magic byte verification (`b"%PDF-"`).
+- `backend/app/routers/jobs.py`: Added `check_ai_rate_limit` to single and bulk scoring; bound bulk score limit to `MAX_BULK_SCORE_LIMIT`.
+- `backend/app/routers/resume_analysis.py`: Added `check_ai_rate_limit` to `/analyze`.
+- `backend/app/routers/interview_prep.py`: Added `check_ai_rate_limit` to `/{job_id}/interview-prep`.
+- `backend/app/routers/scraper.py`: Protected scraper execution with `scraper_run_guard`.
+- `backend/tests/test_resume_service.py`: Added magic-byte and bounded-read unit tests.
+- `backend/tests/test_batch3_security_hardening.py`: Added 15 comprehensive unit & integration tests.
+- `docs/PROJECT_STATUS.md`: Updated status to Batch 3 COMPLETED.
+
+---
+
+## 6. Completed Capabilities (Historical)
 
 ### ✅ Phase 0 — Core Infrastructure & Database
 - **Backend Architecture**: FastAPI application factory with standard exception handlers and CORS middleware (`app/main.py`, `app/config.py`).
-- **Database Layer**: PostgreSQL database configured with 6 SQLAlchemy 2.x models (`Job`, `Resume`, `ScrapeRun`, `ScoringRun`, `User`, `UserJob`).
-- **Migrations**: 7 Alembic migrations applied (`cc9c2e74a08d`, `63d3ec745a23`, `68abbd5b8e5a`, `7a1b2c3d4e5f`, `8c3d4e5f6a7b`, `9d4e5f6a7b8c`, `b2c3d4e5f6a7`).
+- **Database Layer**: PostgreSQL database configured with 7 SQLAlchemy 2.x models (`Job`, `Resume`, `ScrapeRun`, `ScoringRun`, `User`, `UserJob`, `RateLimitEvent`).
+- **Migrations**: 8 Alembic migrations applied (`cc9c2e74a08d`, `63d3ec745a23`, `68abbd5b8e5a`, `7a1b2c3d4e5f`, `8c3d4e5f6a7b`, `9d4e5f6a7b8c`, `b2c3d4e5f6a7`, `c3d4e5f6a7b8`).
 - **Health Check**: Endpoint `GET /api/health` checking liveness and database connectivity.
 
 ### ✅ Authentication Foundation & Multi-User Data Isolation
@@ -183,7 +249,7 @@ A controlled production-hardening roadmap is underway.
 
 ---
 
-## 6. Known Limitations
+## 7. Known Limitations
 
 - **In-Process BackgroundTasks**: Scraping and bulk scoring still run via FastAPI in-process `BackgroundTasks` until Phase 1 PostgreSQL Task Queue is introduced. Server restart during an active job will interrupt execution (though now safely reconciled via timeout recovery).
 - **Database Dependency for Tests**: Backend integration tests require a live PostgreSQL database configured via `TEST_DATABASE_URL`.
