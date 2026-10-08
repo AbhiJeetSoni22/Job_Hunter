@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -154,7 +155,14 @@ def auth_headers_beta(user_beta: User) -> dict[str, str]:
 
 class TestForceRescorePipeline:
 
-    def test_force_rescore_via_endpoint(self, client, auth_headers_alpha, sample_jobs, resume_alpha, db):
+    def test_force_rescore_via_endpoint(
+        self,
+        client: TestClient,
+        auth_headers_alpha: dict[str, str],
+        sample_jobs: list[Job],
+        resume_alpha: Resume,
+        db: Session,
+    ) -> None:
         job = sample_jobs[0]
 
         with patch("app.services.match_service.GeminiClient") as MockGemini:
@@ -192,7 +200,14 @@ class TestForceRescorePipeline:
             assert data3["cached"] is False
             MockGemini.return_value.match_job.assert_called_once()
 
-    def test_failed_rescore_preserves_valid_score(self, client, auth_headers_alpha, sample_jobs, resume_alpha, db):
+    def test_failed_rescore_preserves_valid_score(
+        self,
+        client: TestClient,
+        auth_headers_alpha: dict[str, str],
+        sample_jobs: list[Job],
+        resume_alpha: Resume,
+        db: Session,
+    ) -> None:
         job = sample_jobs[0]
 
         # Initial successful score
@@ -225,7 +240,13 @@ class TestForceRescorePipeline:
 
 class TestBulkScoring:
 
-    def test_find_unscored_and_stale_jobs(self, db, user_alpha, resume_alpha, sample_jobs):
+    def test_find_unscored_and_stale_jobs(
+        self,
+        db: Session,
+        user_alpha: User,
+        resume_alpha: Resume,
+        sample_jobs: list[Job],
+    ) -> None:
         job_service = JobService(db, user_id=user_alpha.id)
 
         # Initially all 3 jobs are unscored
@@ -269,7 +290,15 @@ class TestBulkScoring:
         )
         assert set(unscored_only) == {sample_jobs[2].id}
 
-    def test_bulk_score_zero_eligible_jobs(self, client, auth_headers_alpha, db, user_alpha, resume_alpha, sample_jobs):
+    def test_bulk_score_zero_eligible_jobs(
+        self,
+        client: TestClient,
+        auth_headers_alpha: dict[str, str],
+        db: Session,
+        user_alpha: User,
+        resume_alpha: Resume,
+        sample_jobs: list[Job],
+    ) -> None:
         # Mark all sample jobs as scored with current resume
         for j in sample_jobs:
             uj = UserJob(
@@ -291,7 +320,14 @@ class TestBulkScoring:
         assert data["scoring_run_id"] is None
         assert data["status"] == "completed"
 
-    def test_bulk_score_starts_background_run(self, client, auth_headers_alpha, sample_jobs, resume_alpha, db):
+    def test_bulk_score_starts_background_run(
+        self,
+        client: TestClient,
+        auth_headers_alpha: dict[str, str],
+        sample_jobs: list[Job],
+        resume_alpha: Resume,
+        db: Session,
+    ) -> None:
         with patch("app.routers.scraper._auto_score_in_background"):
             res = client.post("/api/jobs/bulk-score", headers=auth_headers_alpha)
             assert res.status_code == 200
@@ -306,7 +342,14 @@ class TestBulkScoring:
             assert run.user_id == resume_alpha.user_id
             assert run.status == "running"
 
-    def test_concurrent_bulk_scoring_protection(self, client, auth_headers_alpha, sample_jobs, resume_alpha, db):
+    def test_concurrent_bulk_scoring_protection(
+        self,
+        client: TestClient,
+        auth_headers_alpha: dict[str, str],
+        sample_jobs: list[Job],
+        resume_alpha: Resume,
+        db: Session,
+    ) -> None:
         # Create an actively running scoring run
         service = ScraperService(db, user_id=resume_alpha.user_id)
         service.start_scoring_run(total_jobs=3, user_id=resume_alpha.user_id)
@@ -324,7 +367,13 @@ class TestBulkScoring:
 
 class TestGeminiFailureHardening:
 
-    def test_malformed_response_does_not_abort_batch(self, db, user_alpha, resume_alpha, sample_jobs):
+    def test_malformed_response_does_not_abort_batch(
+        self,
+        db: Session,
+        user_alpha: User,
+        resume_alpha: Resume,
+        sample_jobs: list[Job],
+    ) -> None:
         service = ScraperService(db, user_id=user_alpha.id)
         run = service.start_scoring_run(total_jobs=2, user_id=user_alpha.id)
 
@@ -339,12 +388,19 @@ class TestGeminiFailureHardening:
             service.run_auto_score(job_ids, scoring_run_id=run.id, user_id=user_alpha.id, force=True)
 
         finished = service.get_scoring_run(run.id, user_id=user_alpha.id)
+        assert finished is not None
         assert finished.status == "completed"
         assert finished.scored_jobs == 1
         assert finished.failed_jobs == 1
         assert finished.total_jobs == 2
 
-    def test_unhandled_crash_marks_scoring_run_failed(self, db, user_alpha, resume_alpha, sample_jobs):
+    def test_unhandled_crash_marks_scoring_run_failed(
+        self,
+        db: Session,
+        user_alpha: User,
+        resume_alpha: Resume,
+        sample_jobs: list[Job],
+    ) -> None:
         service = ScraperService(db, user_id=user_alpha.id)
         run = service.start_scoring_run(total_jobs=2, user_id=user_alpha.id)
 
@@ -354,6 +410,7 @@ class TestGeminiFailureHardening:
             service.run_auto_score(job_ids, scoring_run_id=run.id, user_id=user_alpha.id)
 
         finished = service.get_scoring_run(run.id, user_id=user_alpha.id)
+        assert finished is not None
         assert finished.status == "failed"
         assert finished.completed_at is not None
         assert finished.error_message is not None
@@ -366,7 +423,11 @@ class TestGeminiFailureHardening:
 
 class TestStuckRunRecovery:
 
-    def test_reconcile_stuck_runs_after_timeout(self, db, user_alpha):
+    def test_reconcile_stuck_runs_after_timeout(
+        self,
+        db: Session,
+        user_alpha: User,
+    ) -> None:
         service = ScraperService(db, user_id=user_alpha.id)
 
         # Create a run that started 30 minutes ago and was left running
@@ -391,7 +452,11 @@ class TestStuckRunRecovery:
         assert reconciled[0].completed_at is not None
         assert "timed out" in (reconciled[0].error_message or "")
 
-    def test_reconcile_leaves_active_runs_untouched(self, db, user_alpha):
+    def test_reconcile_leaves_active_runs_untouched(
+        self,
+        db: Session,
+        user_alpha: User,
+    ) -> None:
         service = ScraperService(db, user_id=user_alpha.id)
 
         # Create a run that started 1 minute ago
@@ -411,9 +476,16 @@ class TestStuckRunRecovery:
         assert len(reconciled) == 0
 
         current = service.get_scoring_run(active_run.id, user_id=user_alpha.id)
+        assert current is not None
         assert current.status == "running"
 
-    def test_recover_stuck_runs_endpoint(self, client, auth_headers_alpha, db, user_alpha):
+    def test_recover_stuck_runs_endpoint(
+        self,
+        client: TestClient,
+        auth_headers_alpha: dict[str, str],
+        db: Session,
+        user_alpha: User,
+    ) -> None:
         stuck_run = ScoringRun(
             id=uuid.uuid4(),
             user_id=user_alpha.id,
@@ -438,8 +510,13 @@ class TestStuckRunRecovery:
 class TestScoringIsolation:
 
     def test_user_a_cannot_view_or_poll_user_b_scoring_run(
-        self, client, auth_headers_alpha, auth_headers_beta, db, user_beta
-    ):
+        self,
+        client: TestClient,
+        auth_headers_alpha: dict[str, str],
+        auth_headers_beta: dict[str, str],
+        db: Session,
+        user_beta: User,
+    ) -> None:
         service = ScraperService(db, user_id=user_beta.id)
         run_b = service.start_scoring_run(total_jobs=1, user_id=user_beta.id)
 
@@ -452,8 +529,15 @@ class TestScoringIsolation:
         assert res_alpha.status_code == 404
 
     def test_user_a_scoring_does_not_affect_user_b_score(
-        self, client, auth_headers_alpha, auth_headers_beta, sample_jobs, resume_alpha, resume_beta, db
-    ):
+        self,
+        client: TestClient,
+        auth_headers_alpha: dict[str, str],
+        auth_headers_beta: dict[str, str],
+        sample_jobs: list[Job],
+        resume_alpha: Resume,
+        resume_beta: Resume,
+        db: Session,
+    ) -> None:
         job = sample_jobs[0]
 
         # User Alpha scores job with 95%
@@ -489,5 +573,7 @@ class TestScoringIsolation:
         # Check DB: User Alpha has 98, User Beta still has 60
         uj_alpha = db.scalar(select(UserJob).where(UserJob.job_id == job.id, UserJob.user_id == resume_alpha.user_id))
         uj_beta = db.scalar(select(UserJob).where(UserJob.job_id == job.id, UserJob.user_id == resume_beta.user_id))
+        assert uj_alpha is not None
+        assert uj_beta is not None
         assert uj_alpha.match_score == 98
         assert uj_beta.match_score == 60

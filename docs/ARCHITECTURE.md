@@ -95,6 +95,14 @@ Services contain all business rules, transaction boundaries, and integrations.
 | `DashboardService` | Class | Single-pass aggregate metric calculation and top matches lookup. |
 | `ResumeAnalysisService` | Class | On-demand resume gap analysis against external job text. |
 | `InterviewPrepService` | Class | Job description + active resume synthesis for interview prep generation. |
+| `RateLimitService` | Class | AI sliding-window rate limiting with PostgreSQL transaction advisory locks, scraper cooldown & session advisory locking. |
+
+### 2.3 Security & Hardening Architecture
+- **HTTP Security Headers Middleware**: Injects `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 0` (modern standard per OWASP), `Referrer-Policy: strict-origin-when-cross-origin`, and `Content-Security-Policy`.
+- **Bounded Resume Upload**: Reads up to `MAX_FILE_SIZE_BYTES + 1` (5MB + 1 byte) via `await file.read(MAX_FILE_SIZE_BYTES + 1)` and validates magic bytes `b"%PDF-"` before parsing.
+- **Concurrency-Safe AI Rate Limiting**: Employs PostgreSQL transaction-scoped advisory locking (`pg_advisory_xact_lock(hashtext('ai_rate_limit:' || user_id))`) ensuring atomic check-and-insert for per-user 60-second sliding windows.
+- **Scraper Cooldown & Concurrency Guard**: Uses session advisory locks (`pg_try_advisory_lock(hashtext('scraper_run:' || user_id))`) and `rate_limit_events` tracking to enforce cooldowns and serialize concurrent scraper executions per user.
+- **Production Configuration Validation**: Validates minimum JWT secret length (>= 32 chars), rejects wildcard CORS origins in production, and enforces fail-closed email delivery.
 
 ---
 
@@ -196,36 +204,56 @@ GeminiClient Configuration:
 
 PostgreSQL 16 database configured via SQLAlchemy 2.x ORM models and managed by Alembic.
 
-### 7.1 Schema Overview (4 Tables)
+### 7.1 Schema Overview (8 Tables)
 
 ```text
 +-----------------------+       +-----------------------+
 |         jobs          |       |        resumes        |
 +-----------------------+       +-----------------------+
 | id (UUID, PK)         |       | id (UUID, PK)         |
-| title, company, url   |       | filename, raw_text    |
-| description, source   |       | skills (JSONB)        |
-| status, notes         |       | uploaded_at           |
+| title, company, url   |       | user_id (UUID, FK)    |
+| description, source   |       | filename, raw_text    |
+| last_seen_at          |       | skills (JSONB)        |
+| missing_sync_count    |       | uploaded_at           |
+| expired_at            |       +-----------------------+
+| created_at, updated_at|
++-----------------------+       +-----------------------+
+                                |      scrape_runs      |
++-----------------------+       +-----------------------+
+|       user_jobs       |       | id (UUID, PK)         |
++-----------------------+       | source, jobs_found    |
+| id (UUID, PK)         |       | jobs_new, error       |
+| user_id (UUID, FK)    |       | started_at, completed |
+| job_id (UUID, FK)     |       +-----------------------+
+| status, notes         |
 | match_score, summary  |       +-----------------------+
-| missing_skills(JSONB) |
+| missing_skills(JSONB) |       |      email_otps       |
 | matched_at            |       +-----------------------+
-| resume_uploaded_at    |       |      scrape_runs      |
-| last_seen_at          |       +-----------------------+
-| missing_sync_count    |       | id (UUID, PK)         |
-| expired_at            |       | source, jobs_found    |
-| created_at, updated_at|       | jobs_new, error       |
-+-----------------------+       | started_at, completed |
-                                +-----------------------+
-+-----------------------+
+| resume_uploaded_at    |       | id (UUID, PK)         |
+| created_at, updated_at|       | email, otp_hash       |
++-----------------------+       | attempts_left, expires|
+                                | created_at            |
++-----------------------+       +-----------------------+
 |     scoring_runs      |
-+-----------------------+
-| id (UUID, PK)         |
-| status (running/comp) |
-| total_jobs            |
-| scored_jobs           |
-| failed_jobs           |
-| created_at, completed |
-+-----------------------+
++-----------------------+       +-----------------------+
+| id (UUID, PK)         |       |   rate_limit_events   |
+| user_id (UUID, FK)    |       +-----------------------+
+| status (running/comp/ |       | id (UUID, PK)         |
+|         failed)       |       | user_id (UUID, FK)    |
+| total_jobs            |       | event_type, status    |
+| scored_jobs           |       | created_at, completed |
+| failed_jobs           |       +-----------------------+
+| error_message         |
+| created_at, completed |       +-----------------------+
++-----------------------+       |         users         |
+                                +-----------------------+
+                                | id (UUID, PK)         |
+                                | email, name           |
+                                | password_hash         |
+                                | is_active, is_verified|
+                                | google_id, avatar_url |
+                                | created_at, updated_at|
+                                +-----------------------+
 ```
 
 ### 7.2 Migrations
@@ -236,6 +264,8 @@ PostgreSQL 16 database configured via SQLAlchemy 2.x ORM models and managed by A
 5. `8c3d4e5f6a7b_add_google_oauth_to_users.py`: Added Google OAuth identity columns to `users`.
 6. `9d4e5f6a7b8c_multi_user_data_isolation.py`: Created `user_jobs`, added `user_id` FKs to `resumes` and `scoring_runs`, relocated user-specific columns from `jobs` to `user_jobs`.
 7. `a1b2c3d4e5f6_add_email_otps_table.py`: Created `email_otps` table for secure salted OTP authentication with attempt and cooldown rate-limiting.
+8. `b2c3d4e5f6a7_add_error_message_to_scoring_runs.py`: Added `error_message` column and `"failed"` status support to `scoring_runs`.
+9. `c3d4e5f6a7b8_add_rate_limit_events_table.py`: Created `rate_limit_events` table for concurrency-safe AI rate limiting and scraper cooldown tracking (current head: `c3d4e5f6a7b8`).
 
 ---
 
@@ -292,17 +322,17 @@ Standard Error Codes: `NOT_FOUND`, `INVALID_PARAM`, `INVALID_STATUS`, `NO_RESUME
 ```
 Job_Hunter/
 ├── backend/
-│   ├── alembic/versions/          # 6 Alembic migrations
+│   ├── alembic/versions/          # 9 Alembic migrations (head: c3d4e5f6a7b8)
 │   ├── app/
-│   │   ├── main.py                # App factory & router registration
+│   │   ├── main.py                # App factory, security headers, & router registration
 │   │   ├── cleanup.py             # Expired job cleanup CLI script
-│   │   ├── models/                # user.py, job.py, user_job.py, resume.py, scrape_run.py, scoring_run.py
-│   │   ├── schemas/               # Pydantic schemas (job.py, resume.py, dashboard.py, user.py, etc.)
-│   │   ├── routers/               # auth.py, jobs.py, scraper.py, resume.py, resume_analysis.py, interview_prep.py, dashboard.py
-│   │   ├── services/              # user_service.py, job_service.py, resume_service.py, match_service.py, scraper_service.py, etc.
+│   │   ├── models/                # 8 models: user, job, user_job, resume, scrape_run, scoring_run, email_otp, rate_limit
+│   │   ├── schemas/               # Pydantic schemas (job, resume, dashboard, user, auth, rate_limit)
+│   │   ├── routers/               # 8 routers: auth, jobs, scraper, resume, resume_analysis, interview_prep, dashboard, health
+│   │   ├── services/              # Services: user, job, resume, match, scraper, dashboard, email, otp, rate_limit
 │   │   ├── scrapers/              # base.py, remoteok.py, yc_jobs.py
 │   │   └── ai/                    # gemini_client.py, prompts.py
-│   └── tests/                     # Backend pytest suite (multi-user isolation, service tests)
+│   └── tests/                     # 292 tests (multi-user isolation, service tests, concurrency & security hardening)
 └── frontend/
     ├── app/                       # Next.js pages (dashboard/, jobs/, resume/, login/, register/, auth/)
     ├── components/                # ui/, jobs/, resume/, dashboard/, auth/

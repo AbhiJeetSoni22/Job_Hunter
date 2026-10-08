@@ -94,14 +94,14 @@ Job_Hunter/
 │   │   ├── database.py             # Engine, SessionLocal, Base, health check
 │   │   ├── dependencies.py         # DbSession alias, get_active_resume dependency
 │   │   ├── cleanup.py              # Management command script for purging expired jobs
-│   │   ├── models/                 # 6 SQLAlchemy models: Job, Resume, ScrapeRun, ScoringRun, User, UserJob
+│   │   ├── models/                 # 8 SQLAlchemy models: Job, Resume, ScrapeRun, ScoringRun, User, UserJob, EmailOTP, RateLimitEvent
 │   │   ├── schemas/                # Pydantic schemas + ApiResponse envelope
-│   │   ├── routers/                # 7 Routers: health, jobs, scraper, resume, resume_analysis, interview_prep, dashboard
-│   │   ├── services/               # 7 Services: job, resume, match, resume_analysis, interview_prep, scraper, dashboard
+│   │   ├── routers/                # 8 Routers: health, auth, jobs, scraper, resume, resume_analysis, interview_prep, dashboard
+│   │   ├── services/               # Services: job, resume, match, resume_analysis, interview_prep, scraper, dashboard, auth, email, otp, rate_limit
 │   │   ├── scrapers/               # BaseScraper ABC + RemoteOKScraper + YCJobsScraper
 │   │   └── ai/                     # gemini_client.py (GeminiClient, AIError) + prompts.py (4 prompts)
-│   ├── alembic/                    # 6 Migrations: initial_schema, add_job_lifecycle_fields, add_scoring_runs_table, add_users_table, add_google_oauth_to_users, multi_user_data_isolation
-│   ├── tests/                      # Pytest suite (includes multi-user isolation and migration safety tests; requires PostgreSQL TEST_DATABASE_URL)
+│   ├── alembic/                    # 9 Migrations: initial_schema through add_rate_limit_events_table (head: c3d4e5f6a7b8)
+│   ├── tests/                      # Pytest suite (292 tests; strictly requires PostgreSQL TEST_DATABASE_URL; fails clearly in CI if omitted)
 │   └── pyproject.toml
 ├── frontend/
 │   ├── app/                        # Next.js App Router routes: /, /dashboard, /jobs, /jobs/[id], /resume, /resume-review
@@ -189,7 +189,7 @@ This operation deletes only expired jobs with status `"saved"` and no user notes
 
 ## Running Tests
 
-The backend test suite consists of **123 tests** written for pytest:
+The backend test suite consists of **292 tests** written for pytest:
 
 ```bash
 cd backend
@@ -197,7 +197,7 @@ export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/test_db"
 python -m pytest
 ```
 
-> **Note on test environment**: Database tests require PostgreSQL (`TEST_DATABASE_URL`). When `TEST_DATABASE_URL` is omitted, 110 database-dependent tests are automatically skipped, and the 13 non-database unit tests execute and pass. All Gemini API calls are mocked during testing (`mock_gemini` fixture).
+> **Note on test environment**: Database integration tests strictly require PostgreSQL (`TEST_DATABASE_URL`). When running in CI or with `FAIL_ON_MISSING_TEST_DB=true`, an omitted `TEST_DATABASE_URL` will fail clearly with an error rather than silently skipping integration tests. All external AI and email provider calls are mocked during testing.
 
 See [`docs/TESTING.md`](docs/TESTING.md) for full test details.
 

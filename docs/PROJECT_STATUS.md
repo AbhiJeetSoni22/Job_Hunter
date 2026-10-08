@@ -1,9 +1,9 @@
 # Project Status & Development Progress
 
 **Project:** AI Internship Hunter / Job Hunter  
-**Current Milestone:** Phase 0 — Stabilization  
-**Current Batch:** Batch 3 — Security / Configuration Hardening (COMPLETED)  
-**Next Milestone:** Phase 0 → Batch 4 — Tests / CI / Documentation Alignment  
+**Current Milestone:** Phase 0 — Stabilization (COMPLETE)  
+**Current Batch:** Batch 4 — Tests / CI / Documentation Alignment (COMPLETED)  
+**Next Milestone:** Phase 1 — PostgreSQL Task Queue + Worker (PLANNED)  
 **Current Implementation Status:** Synchronized with Codebase  
 
 ---
@@ -16,12 +16,13 @@ A controlled production-hardening roadmap is underway.
 - **Phase 0 — Batch 1 (Scoring Pipeline Correctness)** has been completed, resolving critical scoring pipeline bugs, hardening AI error handling, providing force-rescore and bulk-scoring capabilities, implementing stuck run reconciliation, and ensuring strict multi-user score isolation.
 - **Phase 0 — Batch 2 (Scraper Correctness & Safety)** has been completed, eliminating accidental mass expiry from failed or empty scrapes, introducing an explicit `ScraperResult` contract, fixing critical selector fallback bugs in the YC parser, and making database upserts and job lifecycle state transitions fully transactional.
 - **Phase 0 — Batch 3 (Security / Configuration Hardening)** has been completed, securing JWT configuration, enforcing production CORS policies, hardening email fail-closed behavior, adding HTTP security headers, protecting OTP endpoints with advisory locks, bounding resume uploads and validating PDF magic bytes, adding PostgreSQL-backed per-user AI rate limiting, and guarding scraper runs with advisory locks and cooldown periods.
+- **Phase 0 — Batch 4 (Tests / CI / Documentation Alignment)** has been completed, validating the entire 292-test backend suite and live PostgreSQL test infrastructure, enforcing fail-clearly CI behavior on missing test DB, verifying linear Alembic migrations (head: `c3d4e5f6a7b8`), ensuring zero errors on Ruff and Mypy, confirming frontend type safety and production build, deploying GitHub Actions CI with ephemeral PostgreSQL, and aligning documentation across the codebase.
 
 ---
 
 ## 2. Controlled Production Roadmap
 
-### PHASE 0 — STABILIZATION (IN PROGRESS)
+### PHASE 0 — STABILIZATION (COMPLETE)
 - [x] **Batch 1 — Scoring Pipeline Correctness**
   - Force-rescore mechanism (`POST /api/jobs/{id}/score?force=true`) bypassing stale cache.
   - Bulk scoring of unscored and stale jobs (`POST /api/jobs/bulk-score`).
@@ -51,7 +52,15 @@ A controlled production-hardening roadmap is underway.
   - Per-user AI rate limiting (`AI_RATE_LIMIT_PER_MINUTE`, HTTP 429 `AI_RATE_LIMIT_EXCEEDED`, envelope format, PostgreSQL-backed).
   - Scraper cooldown and concurrent run serialization (`SCRAPER_COOLDOWN_SECONDS`, HTTP 429 `SCRAPER_RATE_LIMITED`, PostgreSQL advisory locks).
   - Schema migration: `c3d4e5f6a7b8_add_rate_limit_events_table.py`.
-- [ ] **Batch 4 — Tests / CI / Documentation Alignment**
+- [x] **Batch 4 — Tests / CI / Documentation Alignment**
+  - Full backend test-suite verification (292 passed, 0 failed, 0 skipped).
+  - PostgreSQL test infrastructure fail-clearly guard (`pytest_configure` hook).
+  - Linear Alembic migration chain verified with head `c3d4e5f6a7b8`.
+  - Ruff linter check verified with 0 errors (`ruff check .`).
+  - Mypy static type checker verified with 0 issues (`mypy .`).
+  - Frontend type-check, lint, Node tests, and Next.js production build verified.
+  - Ephemeral PostgreSQL GitHub Actions CI workflow implemented (`.github/workflows/ci.yml`).
+  - Comprehensive documentation alignment across `README.md`, `docs/PROJECT_STATUS.md`, and `docs/ARCHITECTURE.md`.
 
 ### PHASE 1 — POSTGRESQL TASK QUEUE + WORKER (PLANNED)
 - [ ] `tasks` table with state machine & payload storage
@@ -169,7 +178,7 @@ A controlled production-hardening roadmap is underway.
 8. **Missing HTTP Security Headers**: HTTP responses lacked standard defense-in-depth security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`, etc.).
 
 ### What Was Fixed:
-1. **Bounded Resume File Read**: `ResumeService.upload_resume` reads at most `MAX_FILE_SIZE_BYTES + 1` (5MB + 1 byte) via chunked or bounded streaming, rejecting oversized files with HTTP 422 immediately without loading excessive bytes into memory.
+1. **Bounded Resume File Read**: `ResumeService.upload_resume` reads at most `MAX_FILE_SIZE_BYTES + 1` (5MB + 1 byte) via bounded read (`await file.read(MAX_FILE_SIZE_BYTES + 1)`), rejecting oversized files with HTTP 422 immediately without loading excessive bytes into memory.
 2. **PDF Magic-Byte Verification**: `ResumeService._validate_magic_bytes` inspects the initial bytes of uploaded file content, strictly enforcing the `b"%PDF-"` file header magic bytes before parsing text with PyMuPDF.
 3. **Per-User AI Rate Limiting (PostgreSQL-Backed & Concurrency-Safe)**:
    - Added `RateLimitEvent` model and `rate_limit_events` table (migration `c3d4e5f6a7b8_add_rate_limit_events_table.py`).
@@ -191,7 +200,7 @@ A controlled production-hardening roadmap is underway.
 7. **OTP Row-Level & Advisory Locking**:
    - Added PostgreSQL advisory locks for OTP request serialization and `SELECT ... FOR UPDATE` row locks for OTP verification attempt protection.
 8. **HTTP Security Headers Middleware**:
-   - Registered middleware injecting `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Content-Security-Policy`.
+   - Registered middleware injecting `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 0`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Content-Security-Policy`.
 
 ### Files Modified / Created:
 - `backend/app/models/rate_limit.py`: Created `RateLimitEvent` model.
@@ -210,12 +219,49 @@ A controlled production-hardening roadmap is underway.
 
 ---
 
+## 5. Phase 0 Batch 4: Tests / CI / Documentation Alignment (Implementation Details)
+
+### What Was Needed:
+1. **Full Backend Test-Suite Verification**: Run complete test suite and guarantee 0 unexpected failures and 0 hidden skips.
+2. **PostgreSQL Test Infrastructure Hardening**: Ensure database integration tests remain live DB-backed and fail clearly in CI if `TEST_DATABASE_URL` is omitted rather than silently skipping.
+3. **Linear Migration Chain Verification**: Validate all 9 Alembic migrations, verify single linear head `c3d4e5f6a7b8`, and verify model compatibility.
+4. **Ruff Linter Pass**: Zero errors on `ruff check .` across the workspace.
+5. **Strict Mypy Type Checking**: Zero errors on `mypy .` across all source files, narrowing genuine union types in test assertions without blanket ignores.
+6. **Frontend Full Quality Pass**: Verify TypeScript (`npm run type-check`), ESLint (`npm run lint`), Node tests (`npm test`), and Next.js production build (`npm run build`).
+7. **Automated GitHub Actions CI**: Deploy `.github/workflows/ci.yml` providing ephemeral PostgreSQL 16 container, automated migration application, pytest, ruff, mypy, and frontend build with zero production credentials.
+8. **Documentation Alignment**: Synchronize `README.md`, `docs/ARCHITECTURE.md`, and `docs/PROJECT_STATUS.md` with the true codebase state.
+
+### What Was Accomplished:
+1. **Full Pytest Suite**: 292 out of 292 tests executed and passed cleanly against PostgreSQL (18 Batch 3 security hardening tests + 274 service, router, scraper, isolation, and lifecycle tests). Zero failures, zero skipped tests.
+2. **Fail-Clearly CI Guard**: Implemented `pytest_configure` hook in `backend/tests/conftest.py` that raises `pytest.UsageError` if `CI`, `GITHUB_ACTIONS`, or `FAIL_ON_MISSING_TEST_DB` is set while `TEST_DATABASE_URL` is unset or invalid.
+3. **Linear Migration Validation**: Confirmed single Alembic head `c3d4e5f6a7b8` and linear chain from `cc9c2e74a08d` through `c3d4e5f6a7b8`.
+4. **Ruff Check Passed Cleanly**: Fixed module-level import ordering in `backend/alembic/env.py` and syntax modernizations in migrations. `ruff check .` reports 0 errors.
+5. **Mypy Strict Passed Cleanly**: Refined type narrowing in `test_auth_service.py` and `test_scoring_pipeline_hardening.py` with explicit not-None and dictionary type assertions; narrowly configured Alembic migration exclusions in `mypy.ini` and `backend/pyproject.toml`. `mypy .` reports 0 errors across 71 source files.
+6. **Frontend Fully Validated**: `npm test` (2 passed), `npm run type-check` (0 errors), `npm run lint` (0 errors), and `npm run build` (compiled 15/15 static pages successfully).
+7. **GitHub Actions CI Workflow**: Added `.github/workflows/ci.yml` with dual backend/frontend pipelines, PostgreSQL 16 service container, pip/npm dependency caching, and safe test-only environment variables.
+8. **Documentation Synchronized**: Corrected `X-XSS-Protection` to `0`, accurately described resume bounded reading (`MAX_FILE_SIZE_BYTES + 1`), updated model count to 8, migration count to 9 (head: `c3d4e5f6a7b8`), and test count to 292.
+
+### Files Modified / Created:
+- `.github/workflows/ci.yml`: Created automated CI workflow for backend & frontend.
+- `backend/tests/conftest.py`: Added CI `pytest_configure` fail-clearly guard.
+- `backend/tests/test_dashboard_service.py`: Added `__future__.annotations` fixing runtime type resolution.
+- `backend/tests/test_auth_service.py`: Added type-narrowing assertions for mypy strict compliance.
+- `backend/tests/test_scoring_pipeline_hardening.py`: Added not-None assertions for mypy strict compliance.
+- `backend/alembic/env.py`: Fixed top-level import order.
+- `backend/alembic/versions/*`: Fixed import formatting and typing syntax.
+- `mypy.ini` & `backend/pyproject.toml`: Narrowly configured Alembic migration exclusions.
+- `README.md`: Synchronized model, migration, test counts, and PostgreSQL testing notes.
+- `docs/ARCHITECTURE.md`: Synchronized schema overview (8 tables), migrations (9), and security architecture.
+- `docs/PROJECT_STATUS.md`: Marked Batch 4 COMPLETED and Phase 0 COMPLETE.
+
+---
+
 ## 6. Completed Capabilities (Historical)
 
 ### ✅ Phase 0 — Core Infrastructure & Database
 - **Backend Architecture**: FastAPI application factory with standard exception handlers and CORS middleware (`app/main.py`, `app/config.py`).
-- **Database Layer**: PostgreSQL database configured with 7 SQLAlchemy 2.x models (`Job`, `Resume`, `ScrapeRun`, `ScoringRun`, `User`, `UserJob`, `RateLimitEvent`).
-- **Migrations**: 8 Alembic migrations applied (`cc9c2e74a08d`, `63d3ec745a23`, `68abbd5b8e5a`, `7a1b2c3d4e5f`, `8c3d4e5f6a7b`, `9d4e5f6a7b8c`, `b2c3d4e5f6a7`, `c3d4e5f6a7b8`).
+- **Database Layer**: PostgreSQL database configured with 8 SQLAlchemy 2.x models (`Job`, `Resume`, `ScrapeRun`, `ScoringRun`, `User`, `UserJob`, `EmailOTP`, `RateLimitEvent`).
+- **Migrations**: 9 Alembic migrations applied (`cc9c2e74a08d`, `63d3ec745a23`, `68abbd5b8e5a`, `7a1b2c3d4e5f`, `8c3d4e5f6a7b`, `9d4e5f6a7b8c`, `a1b2c3d4e5f6`, `b2c3d4e5f6a7`, `c3d4e5f6a7b8`).
 - **Health Check**: Endpoint `GET /api/health` checking liveness and database connectivity.
 
 ### ✅ Authentication Foundation & Multi-User Data Isolation

@@ -13,20 +13,19 @@ To apply migrations:
     alembic upgrade head
 """
 
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
-
-from alembic import context
 
 # ── Import all models so Alembic sees every table in Base.metadata ────────
 # PHASE 1A: app.models imported so Job, Resume, ScrapeRun register into
 # Base.metadata before autogenerate inspects it. Without this import,
 # autogenerate produces an empty migration even though models exist.
 import app.models  # noqa: F401  — side effect: registers all ORM tables
-
-from app.database import Base
+from alembic import context
 from app.config import get_settings
+from app.database import Base
 
 # ── Alembic config object ─────────────────────────────────────────────────
 config = context.config
@@ -36,7 +35,6 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Override sqlalchemy.url with the value from environment or pydantic settings
-import os
 settings = get_settings()
 db_url = os.environ.get("ALEMBIC_DATABASE_URL") or os.environ.get("DATABASE_URL") or settings.database_url_str
 config.set_main_option("sqlalchemy.url", str(db_url))

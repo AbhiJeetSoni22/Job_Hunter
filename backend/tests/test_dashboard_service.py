@@ -13,18 +13,19 @@ Coverage:
 All tests require a live PostgreSQL database (JSONB + UUID).
 Skip gracefully when TEST_DATABASE_URL is absent.
 """
+from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy.orm import Session
 
+from app.models.job import Job
+from app.models.user import User
+from app.models.user_job import UserJob
+from app.services.dashboard_service import DashboardService
 from tests.conftest import needs_db
-
-if TYPE_CHECKING:
-    from app.models.job import Job
 
 pytestmark = needs_db
 
@@ -39,10 +40,6 @@ def _make_job(
     company: str = "Co",
     source: str = "remoteok",
 ) -> Job:
-    from app.models.job import Job  # noqa: PLC0415
-    from app.models.user import User  # noqa: PLC0415
-    from app.models.user_job import UserJob  # noqa: PLC0415
-
     now = datetime.now(UTC)
     job = Job(
         id=uuid.uuid4(),
@@ -81,9 +78,7 @@ def _make_job(
 
 
 @pytest.fixture()
-def dashboard_service(db, sample_user):
-    from app.services.dashboard_service import DashboardService  # noqa: PLC0415
-
+def dashboard_service(db: Session, sample_user: User) -> DashboardService:
     return DashboardService(db, user_id=sample_user.id)
 
 
@@ -93,7 +88,7 @@ def dashboard_service(db, sample_user):
 
 class TestDashboardMetrics:
 
-    def test_empty_db_returns_zeroed_stats(self, dashboard_service):
+    def test_empty_db_returns_zeroed_stats(self, dashboard_service: DashboardService) -> None:
         stats = dashboard_service.get_stats()
         assert stats.total_jobs == 0
         assert stats.scored_jobs == 0
@@ -102,7 +97,7 @@ class TestDashboardMetrics:
         assert stats.applications_submitted == 0
         assert stats.top_matches == []
 
-    def test_total_and_scored_counts(self, db, dashboard_service):
+    def test_total_and_scored_counts(self, db: Session, dashboard_service: DashboardService) -> None:
         _make_job(db, score=90)
         _make_job(db, score=None)
         _make_job(db, score=70)
@@ -111,7 +106,7 @@ class TestDashboardMetrics:
         assert stats.total_jobs == 3
         assert stats.scored_jobs == 2
 
-    def test_average_and_best_score(self, db, dashboard_service):
+    def test_average_and_best_score(self, db: Session, dashboard_service: DashboardService) -> None:
         _make_job(db, score=80)
         _make_job(db, score=60)
 
@@ -119,7 +114,7 @@ class TestDashboardMetrics:
         assert stats.average_match_score == 70.0
         assert stats.best_match_score == 80
 
-    def test_applications_submitted_counts_applied_status(self, db, dashboard_service):
+    def test_applications_submitted_counts_applied_status(self, db: Session, dashboard_service: DashboardService) -> None:
         _make_job(db, score=90, status="applied")
         _make_job(db, score=85, status="applied")
         _make_job(db, score=50, status="saved")
@@ -134,7 +129,7 @@ class TestDashboardMetrics:
 
 class TestMatchQualityBreakdown:
 
-    def test_bucket_boundaries(self, db, dashboard_service):
+    def test_bucket_boundaries(self, db: Session, dashboard_service: DashboardService) -> None:
         _make_job(db, score=90)  # excellent (boundary)
         _make_job(db, score=89)  # good (boundary)
         _make_job(db, score=75)  # good (boundary)
@@ -156,7 +151,7 @@ class TestMatchQualityBreakdown:
 
 class TestTopMatches:
 
-    def test_excludes_unscored_jobs(self, db, dashboard_service):
+    def test_excludes_unscored_jobs(self, db: Session, dashboard_service: DashboardService) -> None:
         _make_job(db, score=None)
         scored = _make_job(db, score=95)
 
@@ -164,7 +159,7 @@ class TestTopMatches:
         assert len(top) == 1
         assert top[0].id == scored.id
 
-    def test_sorted_descending(self, db, dashboard_service):
+    def test_sorted_descending(self, db: Session, dashboard_service: DashboardService) -> None:
         _make_job(db, score=50, title="Low")
         _make_job(db, score=95, title="High")
         _make_job(db, score=70, title="Mid")
@@ -174,14 +169,14 @@ class TestTopMatches:
         assert scores == sorted(scores, reverse=True)
         assert top[0].title == "High"
 
-    def test_limited_to_top_5(self, db, dashboard_service):
+    def test_limited_to_top_5(self, db: Session, dashboard_service: DashboardService) -> None:
         for i in range(8):
             _make_job(db, score=50 + i)
 
         top = dashboard_service.get_stats().top_matches
         assert len(top) == 5
 
-    def test_top_match_fields(self, db, dashboard_service):
+    def test_top_match_fields(self, db: Session, dashboard_service: DashboardService) -> None:
         _make_job(db, score=96, title="Frontend Engineer", company="Acme", source="remoteok")
 
         item = dashboard_service.get_stats().top_matches[0]

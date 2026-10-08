@@ -55,6 +55,27 @@ load_dotenv()
 
 _TEST_DB_URL = os.environ.get("TEST_DATABASE_URL")
 
+
+def pytest_configure(config: pytest.Config) -> None:
+    """
+    Strict CI and environment validation.
+
+    In CI environments (CI=true / GITHUB_ACTIONS=true) or when FAIL_ON_MISSING_TEST_DB=true,
+    TEST_DATABASE_URL must be explicitly provided so that integration tests are never
+    silently skipped.
+    """
+    is_ci = bool(
+        os.environ.get("CI")
+        or os.environ.get("GITHUB_ACTIONS")
+        or os.environ.get("FAIL_ON_MISSING_TEST_DB")
+    )
+    if is_ci and not os.environ.get("TEST_DATABASE_URL"):
+        raise pytest.UsageError(
+            "TEST_DATABASE_URL environment variable is missing in CI environment. "
+            "Integration tests require a dedicated PostgreSQL test database and cannot be silently skipped."
+        )
+
+
 needs_db = pytest.mark.skipif(
     not _TEST_DB_URL,
     reason="TEST_DATABASE_URL environment variable is not set",
