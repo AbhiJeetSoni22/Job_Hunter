@@ -171,9 +171,10 @@ A controlled production-hardening roadmap is underway.
 ### What Was Fixed:
 1. **Bounded Resume File Read**: `ResumeService.upload_resume` reads at most `MAX_FILE_SIZE_BYTES + 1` (5MB + 1 byte) via chunked or bounded streaming, rejecting oversized files with HTTP 422 immediately without loading excessive bytes into memory.
 2. **PDF Magic-Byte Verification**: `ResumeService._validate_magic_bytes` inspects the initial bytes of uploaded file content, strictly enforcing the `b"%PDF-"` file header magic bytes before parsing text with PyMuPDF.
-3. **Per-User AI Rate Limiting (PostgreSQL-Backed)**:
+3. **Per-User AI Rate Limiting (PostgreSQL-Backed & Concurrency-Safe)**:
    - Added `RateLimitEvent` model and `rate_limit_events` table (migration `c3d4e5f6a7b8_add_rate_limit_events_table.py`).
    - Implemented `RateLimitService.check_ai_rate_limit` tracking a 60-second sliding window against `settings.AI_RATE_LIMIT_PER_MINUTE` (default 30).
+   - Serialized concurrent rate-limit checks per user using PostgreSQL transaction-scoped advisory locks (`pg_advisory_xact_lock(hashtext('ai_rate_limit:' || user_id))`), guaranteeing atomic check-and-insert execution and eliminating race conditions across concurrent requests.
    - Injected `check_ai_rate_limit` dependency into `/api/jobs/{id}/score`, `/api/jobs/bulk-score`, `/api/resume/analyze`, and `/api/jobs/{id}/interview-prep`.
    - Returns standard HTTP 429 envelope `{ success: false, data: null, error: { code: "AI_RATE_LIMIT_EXCEEDED", message: "..." } }`.
 4. **Scraper Cooldown & Advisory Lock Concurrency Protection**:
@@ -196,7 +197,7 @@ A controlled production-hardening roadmap is underway.
 - `backend/app/models/rate_limit.py`: Created `RateLimitEvent` model.
 - `backend/app/models/__init__.py`: Registered `RateLimitEvent`.
 - `backend/alembic/versions/c3d4e5f6a7b8_add_rate_limit_events_table.py`: Migration for `rate_limit_events`.
-- `backend/app/services/rate_limit_service.py`: Implemented AI rate limiting and scraper cooldown/concurrency guards.
+- `backend/app/services/rate_limit_service.py`: Implemented AI rate limiting with transaction-scoped advisory locks and scraper cooldown/concurrency guards.
 - `backend/app/dependencies.py`: Added `check_ai_rate_limit` dependency.
 - `backend/app/services/resume_service.py`: Added bounded streaming read and PDF magic byte verification (`b"%PDF-"`).
 - `backend/app/routers/jobs.py`: Added `check_ai_rate_limit` to single and bulk scoring; bound bulk score limit to `MAX_BULK_SCORE_LIMIT`.
@@ -204,7 +205,7 @@ A controlled production-hardening roadmap is underway.
 - `backend/app/routers/interview_prep.py`: Added `check_ai_rate_limit` to `/{job_id}/interview-prep`.
 - `backend/app/routers/scraper.py`: Protected scraper execution with `scraper_run_guard`.
 - `backend/tests/test_resume_service.py`: Added magic-byte and bounded-read unit tests.
-- `backend/tests/test_batch3_security_hardening.py`: Added 15 comprehensive unit & integration tests.
+- `backend/tests/test_batch3_security_hardening.py`: Added 18 comprehensive unit, integration, and multi-connection concurrency tests.
 - `docs/PROJECT_STATUS.md`: Updated status to Batch 3 COMPLETED.
 
 ---

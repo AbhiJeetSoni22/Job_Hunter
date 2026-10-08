@@ -38,6 +38,10 @@ class RateLimitService:
         """
         Enforce per-user rate limit for expensive AI operations.
 
+        Uses PostgreSQL transaction-scoped advisory locking (pg_advisory_xact_lock)
+        scoped deterministically to the user_id to eliminate race conditions where
+        concurrent requests could read the same count and bypass AI_RATE_LIMIT_PER_MINUTE.
+
         Counts 'ai_operation' events recorded for this user within the last 60 seconds.
         If the count reaches or exceeds AI_RATE_LIMIT_PER_MINUTE, raises HTTP 429.
         Otherwise, records the event in the database.
@@ -47,46 +51,66 @@ class RateLimitService:
         now = custom_now or datetime.now(UTC)
         window_start = now - timedelta(seconds=60)
 
-        # Count events in the 1-minute window
-        stmt = (
-            select(func.count(RateLimitEvent.id))
-            .where(
-                RateLimitEvent.user_id == user_id,
-                RateLimitEvent.event_type == "ai_operation",
-                RateLimitEvent.created_at >= window_start,
-            )
+        is_pg = (
+            self._db.bind is not None
+            and getattr(self._db.bind.dialect, "name", "") == "postgresql"
         )
-        count = self._db.execute(stmt).scalar() or 0
 
-        if count >= limit:
-            logger.warning(
-                "RateLimitService: AI rate limit exceeded for user %s (%d/%d in last 60s)",
-                user_id,
-                count,
-                limit,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
-                    "code": "AI_RATE_LIMIT_EXCEEDED",
-                    "message": (
-                        f"AI rate limit of {limit} requests per minute exceeded. "
-                        "Please wait before making more requests."
-                    ),
-                },
+        # 1. Transaction-level advisory lock serializes concurrent rate-limit checks
+        # for this specific user. Automatically released on COMMIT or ROLLBACK.
+        if is_pg:
+            self._db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                {"lock_key": f"ai_rate_limit:{user_id}"},
             )
 
-        # Record event
-        event = RateLimitEvent(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            event_type="ai_operation",
-            status="completed",
-            created_at=now,
-            completed_at=now,
-        )
-        self._db.add(event)
-        self._db.commit()
+        try:
+            # 2. Count events in the 1-minute window
+            stmt = (
+                select(func.count(RateLimitEvent.id))
+                .where(
+                    RateLimitEvent.user_id == user_id,
+                    RateLimitEvent.event_type == "ai_operation",
+                    RateLimitEvent.created_at >= window_start,
+                )
+            )
+            count = self._db.execute(stmt).scalar() or 0
+
+            if count >= limit:
+                logger.warning(
+                    "RateLimitService: AI rate limit exceeded for user %s (%d/%d in last 60s)",
+                    user_id,
+                    count,
+                    limit,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail={
+                        "code": "AI_RATE_LIMIT_EXCEEDED",
+                        "message": (
+                            f"AI rate limit of {limit} requests per minute exceeded. "
+                            "Please wait before making more requests."
+                        ),
+                    },
+                )
+
+            # 3. Record event and commit atomically within the advisory lock
+            event = RateLimitEvent(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                event_type="ai_operation",
+                status="completed",
+                created_at=now,
+                completed_at=now,
+            )
+            self._db.add(event)
+            self._db.commit()
+        except HTTPException:
+            raise
+        except Exception:
+            if is_pg:
+                self._db.rollback()
+            raise
 
     @contextmanager
     def scraper_run_guard(

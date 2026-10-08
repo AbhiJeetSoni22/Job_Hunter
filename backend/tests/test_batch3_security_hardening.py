@@ -10,13 +10,19 @@ Comprehensive tests for Phase 0 — Batch 3 Security Hardening:
 
 from __future__ import annotations
 
+import threading
+import time
 import uuid
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -26,6 +32,7 @@ from app.models.rate_limit import RateLimitEvent
 from app.models.resume import Resume
 from app.models.user import User
 from app.schemas.job import ScraperRunSummary, ScrapeRunResponse
+from app.services.rate_limit_service import RateLimitService
 from tests.conftest import needs_db
 
 pytestmark = needs_db
@@ -440,6 +447,260 @@ class TestAIRateLimiting:
         # Normal GET /api/resume
         res_resume = client.get("/api/resume", headers=auth_headers_one)
         assert res_resume.status_code == 200
+
+    def test_concurrent_ai_rate_limit_requests_strictly_enforce_limit(
+        self,
+        db_engine: Engine,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Simulate concurrent AI rate-limit checks for the same user.
+        PostgreSQL transaction-scoped advisory locks must guarantee that even under
+        high concurrency across different connections, exactly N requests succeed
+        and the rest are rejected with 429.
+        Persisted rate-limit events must strictly equal N.
+        """
+        test_limit = 4
+        total_workers = 8
+        fixed_now = datetime.now(UTC)
+        concurrent_user_id = uuid.uuid4()
+
+        # Seed committed user visible across all separate worker connections
+        with db_engine.begin() as init_conn:
+            init_conn.execute(
+                text(
+                    "INSERT INTO users (id, email, name, password_hash, is_active, created_at, updated_at) "
+                    "VALUES (:id, :email, 'Concurrent User', 'hash', true, now(), now())"
+                ),
+                {
+                    "id": concurrent_user_id,
+                    "email": f"concurrent-{concurrent_user_id.hex[:6]}@example.com",
+                },
+            )
+
+        monkeypatch.setattr(get_settings(), "AI_RATE_LIMIT_PER_MINUTE", test_limit)
+
+        barrier = threading.Barrier(total_workers)
+        results: list[str | int] = []
+        lock = threading.Lock()
+
+        def worker() -> None:
+            conn = None
+            for _ in range(3):
+                try:
+                    conn = db_engine.connect()
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            assert conn is not None
+
+            sess = Session(bind=conn)
+            try:
+                # All threads synchronize at barrier and hit check_ai_rate_limit concurrently
+                barrier.wait()
+                RateLimitService(sess).check_ai_rate_limit(
+                    concurrent_user_id, custom_now=fixed_now
+                )
+                with lock:
+                    results.append("success")
+            except HTTPException as exc:
+                with lock:
+                    assert exc.status_code == 429
+                    assert isinstance(exc.detail, dict)
+                    assert exc.detail["code"] == "AI_RATE_LIMIT_EXCEEDED"
+                    results.append(exc.status_code)
+            finally:
+                sess.close()
+                conn.close()
+
+        try:
+            with ThreadPoolExecutor(max_workers=total_workers) as executor:
+                list(executor.map(lambda _: worker(), range(total_workers)))
+
+            successes = results.count("success")
+            rejections = results.count(429)
+
+            assert len(results) == total_workers
+            assert successes == test_limit
+            assert rejections == total_workers - test_limit
+
+            # Query database directly: persisted events must not exceed test_limit
+            with Session(bind=db_engine) as verify_session:
+                persisted_count = (
+                    verify_session.query(RateLimitEvent)
+                    .filter(
+                        RateLimitEvent.user_id == concurrent_user_id,
+                        RateLimitEvent.event_type == "ai_operation",
+                        RateLimitEvent.created_at == fixed_now,
+                    )
+                    .count()
+                )
+                assert persisted_count == test_limit
+        finally:
+            with db_engine.begin() as cleanup_conn:
+                cleanup_conn.execute(
+                    text("DELETE FROM rate_limit_events WHERE user_id = :id"),
+                    {"id": concurrent_user_id},
+                )
+                cleanup_conn.execute(
+                    text("DELETE FROM users WHERE id = :id"),
+                    {"id": concurrent_user_id},
+                )
+
+    def test_rejected_request_does_not_create_rate_limit_event(
+        self,
+        client: TestClient,
+        auth_headers_one: dict[str, str],
+        user_one: User,
+        resume_one: Resume,
+        test_job: Job,
+        db: Session,
+        mock_gemini: MagicMock,
+    ) -> None:
+        """When a request is rejected with 429, no additional rate_limit_event is persisted."""
+        settings = get_settings()
+        limit = settings.AI_RATE_LIMIT_PER_MINUTE
+        now = datetime.now(UTC)
+
+        # Seed database to reach exact limit
+        for _ in range(limit):
+            db.add(
+                RateLimitEvent(
+                    id=uuid.uuid4(),
+                    user_id=user_one.id,
+                    event_type="ai_operation",
+                    status="completed",
+                    created_at=now,
+                    completed_at=now,
+                )
+            )
+        db.commit()
+
+        count_before = (
+            db.query(RateLimitEvent)
+            .filter(
+                RateLimitEvent.user_id == user_one.id,
+                RateLimitEvent.event_type == "ai_operation",
+            )
+            .count()
+        )
+        assert count_before == limit
+
+        # Attempt request -> 429
+        res = client.post(f"/api/jobs/{test_job.id}/score", headers=auth_headers_one)
+        assert res.status_code == 429
+
+        # Verify no new event was created
+        count_after = (
+            db.query(RateLimitEvent)
+            .filter(
+                RateLimitEvent.user_id == user_one.id,
+                RateLimitEvent.event_type == "ai_operation",
+            )
+            .count()
+        )
+        assert count_after == limit
+
+    def test_concurrent_ai_requests_for_different_users_do_not_interfere(
+        self,
+        db_engine: Engine,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Concurrent requests for two different users execute without depleting each other's limit."""
+        test_limit = 3
+        workers_per_user = 3
+        total_workers = workers_per_user * 2
+        fixed_now = datetime.now(UTC)
+
+        user_a_id = uuid.uuid4()
+        user_b_id = uuid.uuid4()
+
+        with db_engine.begin() as init_conn:
+            init_conn.execute(
+                text(
+                    "INSERT INTO users (id, email, name, password_hash, is_active, created_at, updated_at) "
+                    "VALUES (:id, :email, 'User A', 'hash', true, now(), now())"
+                ),
+                {"id": user_a_id, "email": f"usera-{user_a_id.hex[:6]}@example.com"},
+            )
+            init_conn.execute(
+                text(
+                    "INSERT INTO users (id, email, name, password_hash, is_active, created_at, updated_at) "
+                    "VALUES (:id, :email, 'User B', 'hash', true, now(), now())"
+                ),
+                {"id": user_b_id, "email": f"userb-{user_b_id.hex[:6]}@example.com"},
+            )
+
+        monkeypatch.setattr(get_settings(), "AI_RATE_LIMIT_PER_MINUTE", test_limit)
+
+        barrier = threading.Barrier(total_workers)
+        user_a_results: list[str] = []
+        user_b_results: list[str] = []
+        lock = threading.Lock()
+
+        def user_worker(user_id: uuid.UUID, target_list: list[str]) -> None:
+            conn = None
+            for _ in range(3):
+                try:
+                    conn = db_engine.connect()
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            assert conn is not None
+
+            sess = Session(bind=conn)
+            try:
+                barrier.wait()
+                RateLimitService(sess).check_ai_rate_limit(
+                    user_id, custom_now=fixed_now
+                )
+                with lock:
+                    target_list.append("success")
+            finally:
+                sess.close()
+                conn.close()
+
+        try:
+            with ThreadPoolExecutor(max_workers=total_workers) as executor:
+                futs = []
+                for _ in range(workers_per_user):
+                    futs.append(executor.submit(user_worker, user_a_id, user_a_results))
+                    futs.append(executor.submit(user_worker, user_b_id, user_b_results))
+                for f in futs:
+                    f.result()
+
+            assert len(user_a_results) == workers_per_user
+            assert len(user_b_results) == workers_per_user
+
+            with Session(bind=db_engine) as verify_session:
+                u1_count = (
+                    verify_session.query(RateLimitEvent)
+                    .filter(
+                        RateLimitEvent.user_id == user_a_id,
+                        RateLimitEvent.created_at == fixed_now,
+                    )
+                    .count()
+                )
+                u2_count = (
+                    verify_session.query(RateLimitEvent)
+                    .filter(
+                        RateLimitEvent.user_id == user_b_id,
+                        RateLimitEvent.created_at == fixed_now,
+                    )
+                    .count()
+                )
+                assert u1_count == workers_per_user
+                assert u2_count == workers_per_user
+        finally:
+            with db_engine.begin() as cleanup_conn:
+                cleanup_conn.execute(
+                    text("DELETE FROM rate_limit_events WHERE user_id IN (:u1, :u2)"),
+                    {"u1": user_a_id, "u2": user_b_id},
+                )
+                cleanup_conn.execute(
+                    text("DELETE FROM users WHERE id IN (:u1, :u2)"),
+                    {"u1": user_a_id, "u2": user_b_id},
+                )
 
 
 # ---------------------------------------------------------------------------
