@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 # fitz mock factory
 # ---------------------------------------------------------------------------
 
+
 def _make_fitz_mock(page_text: str | None = None, page_count: int = 2) -> MagicMock:
     """
     Build a sys.modules-injectable fitz mock.
@@ -69,8 +70,8 @@ class fitz_patched:
 # Pure-logic tests (no DB required)
 # ---------------------------------------------------------------------------
 
-class TestValidateFile:
 
+class TestValidateFile:
     def _svc(self) -> ResumeService:
         return ResumeService(db=MagicMock())
 
@@ -85,16 +86,22 @@ class TestValidateFile:
         assert result == "resume.pdf"
 
     def test_alternative_pdf_content_type(self) -> None:
-        result = self._svc()._validate_file(self._file("resume.pdf", "application/x-pdf"))
+        result = self._svc()._validate_file(
+            self._file("resume.pdf", "application/x-pdf")
+        )
         assert result == "resume.pdf"
 
     def test_octet_stream_with_pdf_extension_allowed(self) -> None:
-        result = self._svc()._validate_file(self._file("resume.pdf", "application/octet-stream"))
+        result = self._svc()._validate_file(
+            self._file("resume.pdf", "application/octet-stream")
+        )
         assert result == "resume.pdf"
 
     def test_octet_stream_non_pdf_extension_raises(self) -> None:
         with pytest.raises(ValueError, match="must be a PDF"):
-            self._svc()._validate_file(self._file("resume.docx", "application/octet-stream"))
+            self._svc()._validate_file(
+                self._file("resume.docx", "application/octet-stream")
+            )
 
     def test_empty_filename_raises(self) -> None:
         with pytest.raises(ValueError, match="no filename"):
@@ -109,7 +116,6 @@ class TestValidateFile:
 
 
 class TestValidateSize:
-
     def _svc(self) -> ResumeService:
         return ResumeService(db=MagicMock())
 
@@ -122,16 +128,17 @@ class TestValidateSize:
 
     def test_oversized_file_raises(self) -> None:
         from app.services.resume_service import MAX_FILE_SIZE_BYTES
+
         with pytest.raises(ValueError, match="MB"):
             self._svc()._validate_size(b"x" * (MAX_FILE_SIZE_BYTES + 1), "resume.pdf")
 
     def test_exactly_at_limit_no_raise(self) -> None:
         from app.services.resume_service import MAX_FILE_SIZE_BYTES
+
         self._svc()._validate_size(b"x" * MAX_FILE_SIZE_BYTES, "resume.pdf")
 
 
 class TestValidateMagicBytes:
-
     def _svc(self) -> ResumeService:
         return ResumeService(db=MagicMock())
 
@@ -148,7 +155,6 @@ class TestValidateMagicBytes:
 
 
 class TestExtractSkillsSafe:
-
     def _svc(self) -> ResumeService:
         return ResumeService(db=MagicMock())
 
@@ -160,6 +166,7 @@ class TestExtractSkillsSafe:
 
     def test_returns_empty_list_on_ai_error(self) -> None:
         from app.ai.gemini_client import AIError
+
         with patch("app.services.resume_service.GeminiClient") as MockClass:
             MockClass.return_value.extract_skills.side_effect = AIError("fail")
             result = self._svc()._extract_skills_safe("some resume text")
@@ -181,7 +188,6 @@ skip_no_db = needs_db
 
 @skip_no_db
 class TestGetLatest:
-
     def test_raises_when_no_resume(self, resume_service: ResumeService) -> None:
         with pytest.raises(LookupError, match="No resume"):
             resume_service.get_latest()
@@ -190,6 +196,7 @@ class TestGetLatest:
         self, resume_service: ResumeService, sample_resume: Resume
     ) -> None:
         from app.schemas.resume import ResumeResponse
+
         result = resume_service.get_latest()
         assert isinstance(result, ResumeResponse)
         assert result.filename == "john_doe_resume.pdf"
@@ -203,29 +210,27 @@ class TestGetLatest:
 
 @skip_no_db
 class TestGetById:
-
     def test_returns_resume_response(
         self, resume_service: ResumeService, sample_resume: Resume
     ) -> None:
         from app.schemas.resume import ResumeResponse
+
         result = resume_service.get_by_id(sample_resume.id)
         assert isinstance(result, ResumeResponse)
         assert str(result.id) == str(sample_resume.id)
 
-    def test_not_found_raises_lookup_error(
-        self, resume_service: ResumeService
-    ) -> None:
+    def test_not_found_raises_lookup_error(self, resume_service: ResumeService) -> None:
         with pytest.raises(LookupError, match="not found"):
             resume_service.get_by_id(uuid.uuid4())
 
 
 @skip_no_db
 class TestGetLatestWithText:
-
     def test_includes_raw_text(
         self, resume_service: ResumeService, sample_resume: Resume
     ) -> None:
         from app.schemas.resume import ResumeTextResponse
+
         result = resume_service.get_latest_with_text()
         assert isinstance(result, ResumeTextResponse)
         assert len(result.raw_text) > 0
@@ -237,10 +242,7 @@ class TestGetLatestWithText:
 
 @skip_no_db
 class TestDeleteLatest:
-
-    def test_returns_false_when_no_resume(
-        self, resume_service: ResumeService
-    ) -> None:
+    def test_returns_false_when_no_resume(self, resume_service: ResumeService) -> None:
         assert resume_service.delete_latest() is False
 
     def test_returns_true_and_removes_resume(
@@ -259,7 +261,6 @@ class TestDeleteLatest:
 
 @skip_no_db
 class TestUploadResume:
-
     def _file(
         self,
         filename: str = "resume.pdf",
@@ -280,19 +281,28 @@ class TestUploadResume:
 
     @pytest.mark.asyncio
     async def test_upload_happy_path(self, resume_service: ResumeService) -> None:
-        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+        with (
+            fitz_patched(),
+            patch("app.services.resume_service.GeminiClient") as MockGemini,
+        ):
             MockGemini.return_value.extract_skills.return_value = ["Python"]
             result = await resume_service.upload_resume(self._file())
 
         from app.schemas.resume import ResumeUploadResponse
+
         assert isinstance(result, ResumeUploadResponse)
         assert result.filename == "resume.pdf"
         assert result.page_count == 2
         assert result.char_count > 0
 
     @pytest.mark.asyncio
-    async def test_upload_valid_magic_bytes_accepted(self, resume_service: ResumeService) -> None:
-        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+    async def test_upload_valid_magic_bytes_accepted(
+        self, resume_service: ResumeService
+    ) -> None:
+        with (
+            fitz_patched(),
+            patch("app.services.resume_service.GeminiClient") as MockGemini,
+        ):
             MockGemini.return_value.extract_skills.return_value = ["Python"]
             result = await resume_service.upload_resume(
                 self._file(filename="resume.pdf", content=b"%PDF-1.7\nvalid resume")
@@ -300,7 +310,9 @@ class TestUploadResume:
         assert result.filename == "resume.pdf"
 
     @pytest.mark.asyncio
-    async def test_upload_non_pdf_bytes_rejected(self, resume_service: ResumeService) -> None:
+    async def test_upload_non_pdf_bytes_rejected(
+        self, resume_service: ResumeService
+    ) -> None:
         with pytest.raises(ValueError, match="magic bytes"):
             await resume_service.upload_resume(
                 self._file(filename="resume.pdf", content=b"THIS IS PLAIN TEXT NOT PDF")
@@ -310,7 +322,10 @@ class TestUploadResume:
     async def test_upload_octet_stream_with_valid_pdf_bytes_accepted(
         self, resume_service: ResumeService
     ) -> None:
-        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+        with (
+            fitz_patched(),
+            patch("app.services.resume_service.GeminiClient") as MockGemini,
+        ):
             MockGemini.return_value.extract_skills.return_value = ["FastAPI"]
             result = await resume_service.upload_resume(
                 self._file(
@@ -325,7 +340,10 @@ class TestUploadResume:
     async def test_upload_replaces_existing_resume(
         self, resume_service: ResumeService, sample_resume: Resume
     ) -> None:
-        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+        with (
+            fitz_patched(),
+            patch("app.services.resume_service.GeminiClient") as MockGemini,
+        ):
             MockGemini.return_value.extract_skills.return_value = []
             await resume_service.upload_resume(self._file(filename="new_resume.pdf"))
 
@@ -353,6 +371,7 @@ class TestUploadResume:
         self, resume_service: ResumeService
     ) -> None:
         from app.services.resume_service import MAX_FILE_SIZE_BYTES
+
         with pytest.raises(ValueError, match="MB"):
             await resume_service.upload_resume(
                 self._file(content=b"%PDF-" + b"x" * (MAX_FILE_SIZE_BYTES + 10))
@@ -363,7 +382,11 @@ class TestUploadResume:
         self, resume_service: ResumeService
     ) -> None:
         from app.ai.gemini_client import AIError
-        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
+
+        with (
+            fitz_patched(),
+            patch("app.services.resume_service.GeminiClient") as MockGemini,
+        ):
             MockGemini.return_value.extract_skills.side_effect = AIError("quota")
             result = await resume_service.upload_resume(self._file())
         assert result.skills == []
@@ -372,8 +395,15 @@ class TestUploadResume:
     async def test_upload_stores_skills_from_gemini(
         self, resume_service: ResumeService
     ) -> None:
-        with fitz_patched(), patch("app.services.resume_service.GeminiClient") as MockGemini:
-            MockGemini.return_value.extract_skills.return_value = ["Python", "FastAPI", "Docker"]
+        with (
+            fitz_patched(),
+            patch("app.services.resume_service.GeminiClient") as MockGemini,
+        ):
+            MockGemini.return_value.extract_skills.return_value = [
+                "Python",
+                "FastAPI",
+                "Docker",
+            ]
             result = await resume_service.upload_resume(self._file())
         assert "Python" in result.skills
         assert "FastAPI" in result.skills

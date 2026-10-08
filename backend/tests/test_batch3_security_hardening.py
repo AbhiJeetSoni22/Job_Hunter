@@ -35,6 +35,7 @@ pytestmark = needs_db
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def user_one(db: Session) -> User:
     user = User(
@@ -172,8 +173,8 @@ def mock_all_gemini() -> Generator[MagicMock, None, None]:
 # 1. AI Rate Limiting Tests
 # ---------------------------------------------------------------------------
 
-class TestAIRateLimiting:
 
+class TestAIRateLimiting:
     def test_requests_under_limit_succeed(
         self,
         client: TestClient,
@@ -361,7 +362,9 @@ class TestAIRateLimiting:
         res = client.post(
             "/api/resume/analyze",
             headers=auth_headers_one,
-            json={"job_description": "We need a Senior Python and FastAPI Engineer with Docker experience."},
+            json={
+                "job_description": "We need a Senior Python and FastAPI Engineer with Docker experience."
+            },
         )
         assert res.status_code == 429
         assert res.json()["error"]["code"] == "AI_RATE_LIMIT_EXCEEDED"
@@ -443,8 +446,8 @@ class TestAIRateLimiting:
 # 2. Scraper Cooldown & Concurrency Protection Tests
 # ---------------------------------------------------------------------------
 
-class TestScraperCooldownAndConcurrency:
 
+class TestScraperCooldownAndConcurrency:
     def _mock_summary(self) -> ScraperRunSummary:
         return ScraperRunSummary(
             runs=[
@@ -468,7 +471,10 @@ class TestScraperCooldownAndConcurrency:
         auth_headers_one: dict[str, str],
     ) -> None:
         """First scraper request succeeds and returns summary."""
-        with patch("app.services.scraper_service.ScraperService.run_all", return_value=(self._mock_summary(), [])):
+        with patch(
+            "app.services.scraper_service.ScraperService.run_all",
+            return_value=(self._mock_summary(), []),
+        ):
             res = client.post("/api/scraper/run", headers=auth_headers_one)
             assert res.status_code == 200
             assert res.json()["data"]["total_new"] == 1
@@ -528,7 +534,10 @@ class TestScraperCooldownAndConcurrency:
         )
         db.commit()
 
-        with patch("app.services.scraper_service.ScraperService.run_all", return_value=(self._mock_summary(), [])):
+        with patch(
+            "app.services.scraper_service.ScraperService.run_all",
+            return_value=(self._mock_summary(), []),
+        ):
             res = client.post("/api/scraper/run", headers=auth_headers_one)
             assert res.status_code == 200
 
@@ -591,7 +600,10 @@ class TestScraperCooldownAndConcurrency:
         assert res1.json()["error"]["code"] == "SCRAPER_RATE_LIMITED"
 
         # User Two has no cooldown and succeeds
-        with patch("app.services.scraper_service.ScraperService.run_all", return_value=(self._mock_summary(), [])):
+        with patch(
+            "app.services.scraper_service.ScraperService.run_all",
+            return_value=(self._mock_summary(), []),
+        ):
             res2 = client.post("/api/scraper/run", headers=auth_headers_two)
             assert res2.status_code == 200
 
@@ -600,8 +612,8 @@ class TestScraperCooldownAndConcurrency:
 # 3. Bulk Score Limit from Configuration Tests
 # ---------------------------------------------------------------------------
 
-class TestBulkScoreConfiguration:
 
+class TestBulkScoreConfiguration:
     def test_bulk_score_respects_max_limit_from_settings(
         self,
         client: TestClient,
@@ -620,7 +632,10 @@ class TestBulkScoreConfiguration:
         data = res.json()
         assert data["data"] is None
         assert data["error"]["code"] == "VALIDATION_ERROR"
-        assert f"limit cannot exceed {settings.MAX_BULK_SCORE_LIMIT}" in data["error"]["message"]
+        assert (
+            f"limit cannot exceed {settings.MAX_BULK_SCORE_LIMIT}"
+            in data["error"]["message"]
+        )
 
     def test_bulk_score_allows_request_at_configured_limit(
         self,
