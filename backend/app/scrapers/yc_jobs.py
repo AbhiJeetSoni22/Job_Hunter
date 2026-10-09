@@ -17,11 +17,11 @@ using Playwright locators only.
 
 import asyncio
 import logging
-import platform
 import re
+import sys
 from datetime import UTC, datetime
 
-if platform.system() == "Windows":
+if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from playwright.sync_api import (
