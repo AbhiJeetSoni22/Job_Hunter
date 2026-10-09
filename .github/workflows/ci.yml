@@ -28,7 +28,8 @@ jobs:
 
     env:
       APP_ENV: test
-      SECRET_KEY: ci-testing-jwt-secret-key-minimum-32-characters-secure
+      JWT_SECRET_KEY: ci-testing-jwt-secret-key-minimum-32-characters-secure
+      GEMINI_API_KEY: ci-testing-dummy-gemini-api-key
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
       ALEMBIC_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
@@ -56,10 +57,12 @@ jobs:
           alembic upgrade head
 
       - name: Run Pytest test suite
+        working-directory: backend
         run: |
-          pytest -q backend/tests
+          pytest -q tests
 
       - name: Run Ruff linter
+        working-directory: backend
         run: |
           ruff check .
 

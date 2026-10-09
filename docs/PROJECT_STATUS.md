@@ -237,13 +237,14 @@ A controlled production-hardening roadmap is underway.
 3. **Linear Migration Validation**: Confirmed single Alembic head `c3d4e5f6a7b8` and linear chain from `cc9c2e74a08d` through `c3d4e5f6a7b8`.
 4. **Ruff Check Passed Cleanly**: Fixed module-level import ordering in `backend/alembic/env.py` and syntax modernizations in migrations. `ruff check .` reports 0 errors.
 5. **Mypy Strict Passed Cleanly**: Refined type narrowing in `test_auth_service.py` and `test_scoring_pipeline_hardening.py` with explicit not-None and dictionary type assertions; narrowly configured Alembic migration exclusions in `mypy.ini` and `backend/pyproject.toml`. `mypy .` reports 0 errors across 71 source files.
-6. **Frontend Fully Validated**: `npm test` (2 passed), `npm run type-check` (0 errors), `npm run lint` (0 errors), and `npm run build` (compiled 15/15 static pages successfully).
-7. **GitHub Actions CI Workflow**: Added `.github/workflows/ci.yml` with dual backend/frontend pipelines, PostgreSQL 16 service container, pip/npm dependency caching, and safe test-only environment variables.
+6. **Frontend Fully Validated**: `npm test` (2 passed with cross-platform glob matching in `frontend/package.json`), `npm run type-check` (0 errors), `npm run lint` (0 errors), and `npm run build` (compiled 15/15 static pages successfully).
+7. **GitHub Actions CI Workflow**: Added `.github/workflows/ci.yml` with dual backend/frontend pipelines, PostgreSQL 16 service container, pip/npm dependency caching, exact environment variable configuration (`JWT_SECRET_KEY`, `GEMINI_API_KEY`, `APP_ENV=test`, `DATABASE_URL`, `TEST_DATABASE_URL`, `ALEMBIC_DATABASE_URL`), and explicit backend working directory execution.
 8. **Documentation Synchronized**: Corrected `X-XSS-Protection` to `0`, accurately described resume bounded reading (`MAX_FILE_SIZE_BYTES + 1`), updated model count to 8, migration count to 9 (head: `c3d4e5f6a7b8`), and test count to 292.
 
 ### Files Modified / Created:
-- `.github/workflows/ci.yml`: Created automated CI workflow for backend & frontend.
-- `backend/tests/conftest.py`: Added CI `pytest_configure` fail-clearly guard.
+- `.github/workflows/ci.yml`: Created automated CI workflow with accurate env vars (`JWT_SECRET_KEY`, `GEMINI_API_KEY`) and backend working directories.
+- `backend/tests/conftest.py`: Added CI `pytest_configure` fail-clearly guard and cleaned up redundant manual DDL column alteration.
+- `frontend/package.json`: Updated `test` script to support cross-platform glob test file discovery across both root `tests/` and subdirectories.
 - `backend/tests/test_dashboard_service.py`: Added `__future__.annotations` fixing runtime type resolution.
 - `backend/tests/test_auth_service.py`: Added type-narrowing assertions for mypy strict compliance.
 - `backend/tests/test_scoring_pipeline_hardening.py`: Added not-None assertions for mypy strict compliance.

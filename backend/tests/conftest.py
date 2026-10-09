@@ -150,7 +150,6 @@ def db_engine() -> Generator[Engine, None, None]:
         try:
             with engine.begin() as conn:
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
-                conn.execute(text("ALTER TABLE scoring_runs ADD COLUMN IF NOT EXISTS error_message TEXT"))
             Base.metadata.create_all(engine)
             break
         except Exception:
