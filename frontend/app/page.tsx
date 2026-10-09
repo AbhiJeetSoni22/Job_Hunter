@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 export default function LandingPage() {
   return (
     <div className="flex flex-col gap-4 sm:gap-6 pb-12 overflow-x-hidden">
-      {/* 1. Hero with animated product preview */}
+      {/* 1. Hero with animated product preview check */}
       <LandingHero />
 
       {/* 2. Concrete friction breakdown of current job hunt */}
