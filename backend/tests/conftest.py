@@ -130,6 +130,7 @@ def db_engine() -> Generator[Engine, None, None]:
     import app.models.resume  # noqa: F401
     import app.models.scoring_run  # noqa: F401
     import app.models.scrape_run  # noqa: F401
+    import app.models.task  # noqa: F401
     import app.models.user  # noqa: F401
     import app.models.user_job  # noqa: F401
     from app.database import Base  # noqa: PLC0415

@@ -1,9 +1,9 @@
 # Project Status & Development Progress
 
 **Project:** AI Internship Hunter / Job Hunter  
-**Current Milestone:** Phase 0 — Stabilization (COMPLETE)  
-**Current Batch:** Batch 4 — Tests / CI / Documentation Alignment (COMPLETED)  
-**Next Milestone:** Phase 1 — PostgreSQL Task Queue + Worker (PLANNED)  
+**Current Milestone:** Phase 1 — PostgreSQL Task Queue + Background Worker (COMPLETE)  
+**Current Batch:** Phase 1 — PostgreSQL Task Queue + Background Worker (COMPLETED & VERIFIED)  
+**Next Milestone:** Phase 2 — Product / Pipeline Improvements (PLANNED)  
 **Current Implementation Status:** Synchronized with Codebase  
 
 ---
@@ -16,7 +16,8 @@ A controlled production-hardening roadmap is underway.
 - **Phase 0 — Batch 1 (Scoring Pipeline Correctness)** has been completed, resolving critical scoring pipeline bugs, hardening AI error handling, providing force-rescore and bulk-scoring capabilities, implementing stuck run reconciliation, and ensuring strict multi-user score isolation.
 - **Phase 0 — Batch 2 (Scraper Correctness & Safety)** has been completed, eliminating accidental mass expiry from failed or empty scrapes, introducing an explicit `ScraperResult` contract, fixing critical selector fallback bugs in the YC parser, and making database upserts and job lifecycle state transitions fully transactional.
 - **Phase 0 — Batch 3 (Security / Configuration Hardening)** has been completed, securing JWT configuration, enforcing production CORS policies, hardening email fail-closed behavior, adding HTTP security headers, protecting OTP endpoints with advisory locks, bounding resume uploads and validating PDF magic bytes, adding PostgreSQL-backed per-user AI rate limiting, and guarding scraper runs with advisory locks and cooldown periods.
-- **Phase 0 — Batch 4 (Tests / CI / Documentation Alignment)** has been completed, validating the entire 292-test backend suite and live PostgreSQL test infrastructure, enforcing fail-clearly CI behavior on missing test DB, verifying linear Alembic migrations (head: `c3d4e5f6a7b8`), ensuring zero errors on Ruff and Mypy, confirming frontend type safety and production build, deploying GitHub Actions CI with ephemeral PostgreSQL, and aligning documentation across the codebase.
+- **Phase 0 — Batch 4 (Tests / CI / Documentation Alignment)** has been completed, validating the 292-test backend suite and live PostgreSQL test infrastructure, enforcing fail-clearly CI behavior on missing test DB, verifying linear Alembic migrations, ensuring zero errors on Ruff and Mypy, confirming frontend type safety and production build, deploying GitHub Actions CI with ephemeral PostgreSQL, and aligning documentation across the codebase.
+- **Phase 1 (PostgreSQL Task Queue + Background Worker)** has been completed, establishing a production-grade, durable background processing architecture without external queues (Redis/Celery/Kafka). Features include an Alembic migration (`d4e5f6a7b8c9`) creating `tasks` with atomic `FOR UPDATE SKIP LOCKED` claiming, worker heartbeats, exponential backoff failure retries, watchdog recovery for crashed workers, an independent worker entry point (`python -m app.worker.main`), scraper and scoring handlers, user authorization, and 23 dedicated automated tests (suite now at 315 tests).
 
 ---
 
@@ -62,12 +63,18 @@ A controlled production-hardening roadmap is underway.
   - Ephemeral PostgreSQL GitHub Actions CI workflow implemented (`.github/workflows/ci.yml`).
   - Comprehensive documentation alignment across `README.md`, `docs/PROJECT_STATUS.md`, and `docs/ARCHITECTURE.md`.
 
-### PHASE 1 — POSTGRESQL TASK QUEUE + WORKER (PLANNED)
-- [ ] `tasks` table with state machine & payload storage
-- [ ] Dedicated worker process
-- [ ] Retry & dead-letter queue semantics
-- [ ] Durable background processing replacing in-process `BackgroundTasks`
-- [ ] Scheduler foundation for recurring ingestion & maintenance
+### PHASE 1 — POSTGRESQL TASK QUEUE + BACKGROUND WORKER (COMPLETE)
+- [x] `tasks` table with state machine, JSONB payloads/results, and atomic indexes (Migration `d4e5f6a7b8c9`)
+- [x] `TaskQueueService` with atomic `FOR UPDATE SKIP LOCKED` claims, leases, and heartbeat renewals
+- [x] Bounded exponential backoff retries and terminal failure state
+- [x] Watchdog automated recovery for stale/abandoned tasks after worker crash or disconnect
+- [x] Dedicated worker process (`python -m app.worker.main`) with signal handling and graceful shutdown
+- [x] Registered task handlers for scraping (`scrape`), single scoring (`scoring`), and bulk scoring (`bulk_score`)
+- [x] User-scoped task API (`GET /api/tasks/{task_id}`, `GET /api/tasks`, `POST /api/tasks/{task_id}/cancel`)
+- [x] Scraper enqueue endpoint (`POST /api/scraper/enqueue`) returning HTTP 202 Accepted
+- [x] Multi-user isolation, authorization guards, and sanitized error messages
+- [x] 23 dedicated unit and integration tests passing (`tests/test_task_queue.py`)
+
 
 ### PHASE 2 — PRODUCT / PIPELINE IMPROVEMENTS (PLANNED)
 - [ ] Job Search & Filtering

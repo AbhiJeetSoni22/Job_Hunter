@@ -73,7 +73,8 @@ Routers contain **zero business logic** and **zero database queries**. They hand
 | `health.py` | `/api` | `GET /health` | Liveness & PostgreSQL connection status |
 | `auth.py` | `/api/auth` | `POST /otp/request`, `POST /otp/verify`, `GET /me`, `GET /google`, `GET /google/callback`, `POST /google/exchange` | Email OTP request/verification, Google OAuth initiation/callback/exchange, user profile |
 | `jobs.py` | `/api/jobs` | `GET /`, `GET /{id}`, `POST /{id}/score`, `PATCH /{id}`, `DELETE /{id}` | Job listing, detail, scoring, updates, deletion |
-| `scraper.py` | `/api/scraper` | `POST /run`, `GET /status`, `GET /scoring-status` | Scraping trigger, source status, scoring run polling |
+| `scraper.py` | `/api/scraper` | `POST /run`, `POST /enqueue`, `GET /status`, `GET /scoring-status` | Scraping trigger (sync/async queued), source status, scoring run polling |
+| `tasks.py` | `/api/tasks` | `GET /{task_id}`, `GET /`, `POST /{task_id}/cancel` | Background task inspection, user task listing, task cancellation |
 | `resume.py` | `/api/resume` | `POST /`, `GET /`, `DELETE /`, `GET /{resume_id}` | Resume PDF upload, active resume lookup, deletion |
 | `resume_analysis.py` | `/api/resume` | `POST /analyze` | Resume Gap Analyzer (on-demand job text evaluation) |
 | `interview_prep.py` | `/api/jobs` | `POST /{job_id}/interview-prep` | AI Interview Preparation Generator per job |
@@ -92,10 +93,12 @@ Services contain all business rules, transaction boundaries, and integrations.
 | `ResumeService` | Class | PDF validation, PyMuPDF text extraction, Gemini skill extraction, single active resume replacement. |
 | `match_service` | Module | Job match scoring, score cache verification, recommendation label calculation. |
 | `ScraperService` | Class | Scraper orchestration, `ScrapeRun` logging, `ScoringRun` creation, background auto-scoring execution. |
+| `TaskQueueService` | Class | Durable PostgreSQL task queue management: atomic claiming (`FOR UPDATE SKIP LOCKED`), leases, heartbeats, exponential backoff retries, abandoned task recovery. |
 | `DashboardService` | Class | Single-pass aggregate metric calculation and top matches lookup. |
 | `ResumeAnalysisService` | Class | On-demand resume gap analysis against external job text. |
 | `InterviewPrepService` | Class | Job description + active resume synthesis for interview prep generation. |
 | `RateLimitService` | Class | AI sliding-window rate limiting with PostgreSQL transaction advisory locks, scraper cooldown & session advisory locking. |
+
 
 ### 2.3 Security & Hardening Architecture
 - **HTTP Security Headers Middleware**: Injects `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 0` (modern standard per OWASP), `Referrer-Policy: strict-origin-when-cross-origin`, and `Content-Security-Policy`.
@@ -141,6 +144,48 @@ To solve this without an external task queue or losing progress tracking on serv
 
 ### Key Design Guarantee:
 If individual job scoring fails (e.g. `AIError`, missing resume, missing job), `failed_jobs` is incremented. The batch reaches `completed` state exactly when `scored_jobs + failed_jobs == total_jobs`. Polling is guaranteed to terminate cleanly regardless of per-job Gemini failures.
+
+### 3.5 PostgreSQL Task Queue & Background Worker (Phase 1)
+
+Phase 1 introduces a durable, relational-backed asynchronous job engine without introducing Redis, Celery, or external dependencies:
+
+```text
+FastAPI API Request (e.g. POST /api/scraper/enqueue)
+    │
+    ▼
+TaskQueueService.enqueue("scrape", payload, user_id)
+    ├── Inserts Task (status="queued", available_at=NOW())
+    └── Returns TaskResponse with task_id immediately (HTTP 202 Accepted)
+         │
+         ▼
+BackgroundWorker (app/worker/worker.py running via python -m app.worker.main)
+    ├── Atomic Claim:
+    │   SELECT * FROM tasks
+    │   WHERE status = 'queued' AND available_at <= NOW()
+    │   ORDER BY created_at ASC
+    │   FOR UPDATE SKIP LOCKED LIMIT 1
+    │   (Sets status='running', worker_id=W, lease_timeout_at=NOW() + lease_sec)
+    │
+    ├── Execution & Heartbeats:
+    │   Dispatches to TASK_HANDLERS[task_type](task, db)
+    │   Periodically extends lease_timeout_at via heartbeat()
+    │
+    ├── Outcome & Retries:
+    │   - On Success: sets status='succeeded', stores result JSONB, sets completed_at
+    │   - On Recoverable Error (attempt < max_attempts):
+    │     sets status='queued', clears worker_id, computes exponential backoff:
+    │     available_at = NOW() + backoff_base * (2 ** (attempt - 1))
+    │   - On Terminal Failure (attempt >= max_attempts):
+    │     sets status='failed', records error_message, sets completed_at
+    │
+    └── Watchdog Lease Recovery:
+        Finds tasks where status='running' AND lease_timeout_at < NOW() - grace
+        Resets orphaned tasks back to 'queued' with incremented attempt_count.
+```
+
+- **Concurrency Safety**: Atomic `FOR UPDATE SKIP LOCKED` guarantees multiple workers running in parallel never claim or execute the same task concurrently.
+- **Stale Worker Defense**: Any operation updating a claimed task (`complete_task`, `fail_task`, `heartbeat`) verifies `Task.worker_id == current_worker_id`. If a worker's lease expired and the task was claimed by another worker, the stale worker is prevented from overwriting the newer attempt (`TaskLeaseLostError`).
+- **Multi-User Isolation**: User-created tasks record `user_id`. `GET /api/tasks/{task_id}`, `GET /api/tasks`, and `POST /api/tasks/{task_id}/cancel` enforce user ownership and prevent cross-tenant data leakage.
 
 ---
 
@@ -204,7 +249,7 @@ GeminiClient Configuration:
 
 PostgreSQL 16 database configured via SQLAlchemy 2.x ORM models and managed by Alembic.
 
-### 7.1 Schema Overview (8 Tables)
+### 7.1 Schema Overview (9 Tables)
 
 ```text
 +-----------------------+       +-----------------------+
@@ -247,13 +292,19 @@ PostgreSQL 16 database configured via SQLAlchemy 2.x ORM models and managed by A
 | created_at, completed |       +-----------------------+
 +-----------------------+       |         users         |
                                 +-----------------------+
-                                | id (UUID, PK)         |
-                                | email, name           |
-                                | password_hash         |
-                                | is_active, is_verified|
-                                | google_id, avatar_url |
-                                | created_at, updated_at|
-                                +-----------------------+
++-----------------------+       | id (UUID, PK)         |
+|         tasks         |       | email, name           |
++-----------------------+       | password_hash         |
+| id (UUID, PK)         |       | is_active, is_verified|
+| user_id (UUID, FK, opt|       | google_id, avatar_url |
+| task_type, status     |       | created_at, updated_at|
+| payload, result(JSONB)|       +-----------------------+
+| error_message         |
+| attempt_count, max_att|
+| available_at          |
+| worker_id, lease_to_at|
+| created/start/complete|
++-----------------------+
 ```
 
 ### 7.2 Migrations
@@ -265,7 +316,9 @@ PostgreSQL 16 database configured via SQLAlchemy 2.x ORM models and managed by A
 6. `9d4e5f6a7b8c_multi_user_data_isolation.py`: Created `user_jobs`, added `user_id` FKs to `resumes` and `scoring_runs`, relocated user-specific columns from `jobs` to `user_jobs`.
 7. `a1b2c3d4e5f6_add_email_otps_table.py`: Created `email_otps` table for secure salted OTP authentication with attempt and cooldown rate-limiting.
 8. `b2c3d4e5f6a7_add_error_message_to_scoring_runs.py`: Added `error_message` column and `"failed"` status support to `scoring_runs`.
-9. `c3d4e5f6a7b8_add_rate_limit_events_table.py`: Created `rate_limit_events` table for concurrency-safe AI rate limiting and scraper cooldown tracking (current head: `c3d4e5f6a7b8`).
+9. `c3d4e5f6a7b8_add_rate_limit_events_table.py`: Created `rate_limit_events` table for concurrency-safe AI rate limiting and scraper cooldown tracking.
+10. `d4e5f6a7b8c9_add_tasks_table.py`: Created `tasks` table with atomic claiming indexes (`idx_tasks_claim_eligible`, `idx_tasks_stale_lease`, `idx_tasks_user_created`, `idx_tasks_type_status`) for background task execution (current head: `d4e5f6a7b8c9`).
+
 
 ---
 

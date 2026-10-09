@@ -94,14 +94,15 @@ Job_Hunter/
 │   │   ├── database.py             # Engine, SessionLocal, Base, health check
 │   │   ├── dependencies.py         # DbSession alias, get_active_resume dependency
 │   │   ├── cleanup.py              # Management command script for purging expired jobs
-│   │   ├── models/                 # 8 SQLAlchemy models: Job, Resume, ScrapeRun, ScoringRun, User, UserJob, EmailOTP, RateLimitEvent
+│   │   ├── models/                 # 9 SQLAlchemy models: Job, Resume, ScrapeRun, ScoringRun, User, UserJob, EmailOTP, RateLimitEvent, Task
 │   │   ├── schemas/                # Pydantic schemas + ApiResponse envelope
-│   │   ├── routers/                # 8 Routers: health, auth, jobs, scraper, resume, resume_analysis, interview_prep, dashboard
-│   │   ├── services/               # Services: job, resume, match, resume_analysis, interview_prep, scraper, dashboard, auth, email, otp, rate_limit
+│   │   ├── routers/                # 9 Routers: health, auth, jobs, scraper, tasks, resume, resume_analysis, interview_prep, dashboard
+│   │   ├── services/               # Services: job, resume, match, resume_analysis, interview_prep, scraper, task_queue, dashboard, auth, email, otp, rate_limit
 │   │   ├── scrapers/               # BaseScraper ABC + RemoteOKScraper + YCJobsScraper
+│   │   ├── worker/                 # Independent BackgroundWorker process, handlers, and CLI entry point
 │   │   └── ai/                     # gemini_client.py (GeminiClient, AIError) + prompts.py (4 prompts)
-│   ├── alembic/                    # 9 Migrations: initial_schema through add_rate_limit_events_table (head: c3d4e5f6a7b8)
-│   ├── tests/                      # Pytest suite (292 tests; strictly requires PostgreSQL TEST_DATABASE_URL; fails clearly in CI if omitted)
+│   ├── alembic/                    # 10 Migrations: initial_schema through add_tasks_table (head: d4e5f6a7b8c9)
+│   ├── tests/                      # Pytest suite (315 tests; strictly requires PostgreSQL TEST_DATABASE_URL; fails clearly in CI if omitted)
 │   └── pyproject.toml
 ├── frontend/
 │   ├── app/                        # Next.js App Router routes: /, /dashboard, /jobs, /jobs/[id], /resume, /resume-review
@@ -163,11 +164,15 @@ Frontend configuration (`frontend/next.config.ts`):
 # Terminal 1 — Database
 docker compose up -d
 
-# Terminal 2 — Backend
+# Terminal 2 — Backend API
 cd backend
 uvicorn app.main:app --reload --port 8000
 
-# Terminal 3 — Frontend
+# Terminal 3 — Background Task Worker (Phase 1)
+cd backend
+python -m app.worker.main
+
+# Terminal 4 — Frontend
 cd frontend
 npm run dev
 ```
@@ -175,6 +180,8 @@ npm run dev
 - Application UI: `http://localhost:3000`
 - FastAPI OpenAPI Docs: `http://localhost:8000/docs`
 - Health Endpoint: `GET http://localhost:8000/api/health`
+- Tasks API: `GET http://localhost:8000/api/tasks` (User-scoped tasks)
+
 
 ## Cleanup Management Command
 

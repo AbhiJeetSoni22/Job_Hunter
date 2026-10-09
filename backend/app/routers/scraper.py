@@ -25,8 +25,10 @@ from app.schemas.job import (
     ScraperRunSummary,
     ScrapeRunResponse,
 )
+from app.schemas.task import TaskResponse
 from app.services.rate_limit_service import RateLimitService
 from app.services.scraper_service import ScraperService
+from app.services.task_queue_service import TaskQueueService
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
 
@@ -95,6 +97,29 @@ def run_scrapers(
                 user.id,
             )
         return ApiResponse(data=summary)
+
+
+# ── POST /api/scraper/enqueue ──────────────────────────────────────────────
+
+@router.post(
+    "/enqueue",
+    response_model=ApiResponse[TaskResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Enqueue scraper background task",
+    description="Enqueue a full multi-source job scraping task to the PostgreSQL queue for background execution by worker.",
+)
+def enqueue_scraper(
+    user: CurrentUser,
+    db: DbSession,
+) -> ApiResponse[TaskResponse]:
+    rate_limiter = RateLimitService(db)
+    with rate_limiter.scraper_run_guard(user.id):
+        task = TaskQueueService(db, user_id=user.id).enqueue(
+            task_type="scrape",
+            payload={"auto_score": True, "user_id": str(user.id)},
+            user_id=user.id,
+        )
+        return ApiResponse(data=TaskResponse.model_validate(task))
 
 
 # ── GET /api/scraper/status ────────────────────────────────────────────────

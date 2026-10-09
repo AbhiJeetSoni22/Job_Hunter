@@ -24,6 +24,7 @@ from app.routers import (
     resume,
     resume_analysis,
     scraper,
+    tasks,
 )
 
 # ---------------------------------------------------------------------------
@@ -223,3 +224,4 @@ app.include_router(resume.router, prefix="/api")
 app.include_router(resume_analysis.router, prefix="/api")
 app.include_router(interview_prep.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
+app.include_router(tasks.router, prefix="/api")
