@@ -416,3 +416,288 @@ class TestTaskAPI:
         assert data["task_type"] == "scrape"
         assert data["status"] == "queued"
 
+
+# ── Test Worker Heartbeat Regression & Stale Fencing ────────────────────────
+
+class TestWorkerHeartbeatRegression:
+    def test_task_running_longer_than_lease_renews_heartbeat(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Simulate a handler executing longer than initial lease duration.
+        Background heartbeat thread continually renews the lease, preventing
+        watchdog from prematurely re-queuing the active task.
+        """
+        service = TaskQueueService(db)
+        task = service.enqueue("scrape", {}, max_attempts=3)
+
+        # Custom handler simulating a long-running scrape
+        from app.worker import handlers
+
+        def slow_handler(t: Any, s: Session) -> dict[str, Any]:
+            time.sleep(2.5)
+            return {"scraped": 42}
+
+        monkeypatch.setitem(handlers.TASK_HANDLERS, "scrape", slow_handler)
+
+        worker = BackgroundWorker(
+            worker_id="slow-worker-1",
+            lease_seconds=2,  # 2-second lease, handler runs for 2.5s
+            session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+        )
+
+        processed = worker.run_once()
+        assert processed is True
+
+        db.refresh(task)
+        assert task.status == "succeeded"
+        assert task.result == {"scraped": 42}
+
+    def test_stale_worker_resuming_after_recovery_cannot_complete_or_fail(
+        self,
+        db: Session,
+    ) -> None:
+        """
+        Simulate a stale worker whose lease expired and was reclaimed by watchdog.
+        When the stale worker resumes, its attempts to complete or fail the task
+        must be rejected with TaskLeaseLostError, preserving the re-queued task.
+        """
+        service = TaskQueueService(db)
+        task = service.enqueue("scrape", {}, max_attempts=3)
+        claimed = service.claim_task("stale-worker-1", lease_seconds=10)
+        assert claimed is not None
+
+        # Expire lease and run watchdog recovery
+        task.lease_timeout_at = datetime.now(UTC) - timedelta(seconds=20)
+        db.commit()
+
+        recovered = service.recover_stale_tasks(lease_grace_seconds=0)
+        assert len(recovered) == 1
+        assert recovered[0].status == "queued"
+        assert recovered[0].worker_id is None
+
+        # Stale worker attempts to complete task after recovery
+        with pytest.raises(TaskLeaseLostError):
+            service.complete_task(
+                task.id,
+                worker_id="stale-worker-1",
+                result={"corrupted": True},
+                expected_attempt=1,
+            )
+
+        # Stale worker attempts to fail task after recovery
+        with pytest.raises(TaskLeaseLostError):
+            service.fail_task(
+                task.id,
+                worker_id="stale-worker-1",
+                error_message="Stale error",
+                expected_attempt=1,
+            )
+
+        # Task in DB remains untouched in 'queued' status
+        db.refresh(task)
+        assert task.status == "queued"
+        assert task.worker_id is None
+
+    def test_stale_worker_cannot_overwrite_newer_attempt_by_another_worker(
+        self,
+        db: Session,
+    ) -> None:
+        """
+        When watchdog recovers a task and a second worker claims attempt 2,
+        the first worker's attempt 1 must not be able to heartbeat or complete.
+        """
+        service = TaskQueueService(db)
+        task = service.enqueue("scrape", {}, max_attempts=3)
+        w1_task = service.claim_task("worker-1", lease_seconds=10)
+        assert w1_task is not None
+        assert w1_task.attempt_count == 1
+
+        # Expire and recover
+        task.lease_timeout_at = datetime.now(UTC) - timedelta(seconds=10)
+        db.commit()
+        service.recover_stale_tasks(lease_grace_seconds=0)
+
+        # Reset available_at so worker-2 can claim immediately
+        task.available_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.commit()
+
+        # Worker 2 claims attempt 2
+        w2_task = service.claim_task("worker-2", lease_seconds=60)
+        assert w2_task is not None
+        assert w2_task.attempt_count == 2
+        assert w2_task.worker_id == "worker-2"
+
+        # Worker 1 tries heartbeat with attempt 1
+        assert service.heartbeat(task.id, "worker-1", expected_attempt=1) is False
+
+        # Worker 1 tries complete_task with attempt 1
+        with pytest.raises(TaskLeaseLostError):
+            service.complete_task(task.id, "worker-1", expected_attempt=1)
+
+        # Worker 2 completes attempt 2 successfully
+        w2_completed = service.complete_task(
+            task.id, "worker-2", result={"worker": 2}, expected_attempt=2
+        )
+        assert w2_completed.status == "succeeded"
+
+
+# ── Test Idempotent Enqueueing & Concurrency ────────────────────────────────
+
+class TestIdempotentEnqueueingConcurrency:
+    def test_concurrent_enqueue_race_condition_prevented(
+        self,
+        db_engine: Any,
+    ) -> None:
+        """
+        Simulate concurrent enqueue requests across independent PostgreSQL sessions.
+        Ensures that exactly one task is created and all callers receive the same task.
+        """
+        import threading
+
+        from app.models.user import User
+
+        init_session = Session(db_engine)
+        test_user = User(
+            id=uuid.uuid4(),
+            email=f"concurrent-{uuid.uuid4().hex[:8]}@example.com",
+            name="Concurrent Test User",
+            password_hash="test-password-hash",
+            is_active=True,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        init_session.add(test_user)
+        init_session.commit()
+        user_id = test_user.id
+        init_session.close()
+
+        concurrency = 6
+        barrier = threading.Barrier(concurrency)
+        results: list[uuid.UUID] = []
+        errors: list[Exception] = []
+        key = f"concurrent-test-{uuid.uuid4().hex[:8]}"
+
+        def worker_thread() -> None:
+            session = Session(db_engine)
+            try:
+                barrier.wait(timeout=10.0)
+                service = TaskQueueService(session, user_id=user_id)
+                task = service.enqueue(
+                    task_type="scrape",
+                    payload={"run": "concurrent"},
+                    idempotency_key=key,
+                    user_id=user_id,
+                )
+                results.append(task.id)
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                session.close()
+
+        threads = [threading.Thread(target=worker_thread) for _ in range(concurrency)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15.0)
+
+        cleanup_session = Session(db_engine)
+        try:
+            assert not errors, f"Concurrent enqueue had errors: {errors}"
+            assert len(results) == concurrency
+            # All callers received the exact same task ID
+            assert len(set(results)) == 1
+
+            from app.models.task import Task
+            count = (
+                cleanup_session.query(Task)
+                .filter(Task.idempotency_key == key)
+                .count()
+            )
+            assert count == 1
+        finally:
+            from app.models.task import Task
+            cleanup_session.query(Task).filter(Task.user_id == user_id).delete()
+            cleanup_session.query(User).filter(User.id == user_id).delete()
+            cleanup_session.commit()
+            cleanup_session.close()
+
+    def test_idempotency_scope_isolates_users_and_system(
+        self,
+        db: Session,
+        sample_user: User,
+        second_user: User,
+    ) -> None:
+        """
+        Verify that idempotency key uniqueness is correctly scoped by:
+        - task_type
+        - user ownership (User A != User B != System)
+        """
+        shared_key = f"scoped-key-{uuid.uuid4().hex[:8]}"
+
+        # User 1 task
+        service_u1 = TaskQueueService(db, user_id=sample_user.id)
+        task_u1 = service_u1.enqueue(
+            "scrape", {"u": 1}, idempotency_key=shared_key, user_id=sample_user.id
+        )
+
+        # User 2 task with same key
+        service_u2 = TaskQueueService(db, user_id=second_user.id)
+        task_u2 = service_u2.enqueue(
+            "scrape", {"u": 2}, idempotency_key=shared_key, user_id=second_user.id
+        )
+
+        # System task (user_id=None) with same key
+        service_sys = TaskQueueService(db)
+        task_sys = service_sys.enqueue(
+            "scrape", {"sys": True}, idempotency_key=shared_key, user_id=None
+        )
+
+        # All 3 tasks must be distinct
+        assert task_u1.id != task_u2.id
+        assert task_u1.id != task_sys.id
+        assert task_u2.id != task_sys.id
+
+        # Re-enqueueing for User 1 returns User 1's existing task
+        task_u1_dup = service_u1.enqueue(
+            "scrape", {"u": 1}, idempotency_key=shared_key, user_id=sample_user.id
+        )
+        assert task_u1_dup.id == task_u1.id
+
+        # Re-enqueueing for System returns System's existing task
+        task_sys_dup = service_sys.enqueue(
+            "scrape", {"sys": True}, idempotency_key=shared_key, user_id=None
+        )
+        assert task_sys_dup.id == task_sys.id
+
+    def test_idempotency_preserves_valid_retries_after_terminal_state(
+        self,
+        db: Session,
+        sample_user: User,
+    ) -> None:
+        """
+        Once an idempotent task reaches a terminal state (succeeded / failed),
+        subsequent enqueue calls with the same key must create a new task.
+        """
+        service = TaskQueueService(db, user_id=sample_user.id)
+        key = f"retry-key-{uuid.uuid4().hex[:8]}"
+
+        # Enqueue initial task
+        task1 = service.enqueue("scrape", {}, idempotency_key=key, user_id=sample_user.id)
+        claimed = service.claim_task("worker-1")
+        assert claimed is not None
+        assert claimed.id == task1.id
+
+        # Complete task1 (terminal 'succeeded')
+        service.complete_task(task1.id, "worker-1", result={"done": True})
+        db.refresh(task1)
+        assert task1.status == "succeeded"
+
+        # Enqueue new task with same key
+        task2 = service.enqueue("scrape", {}, idempotency_key=key, user_id=sample_user.id)
+        assert task2.id != task1.id
+        assert task2.status == "queued"
+
+

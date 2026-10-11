@@ -118,6 +118,7 @@ def enqueue_scraper(
             task_type="scrape",
             payload={"auto_score": True, "user_id": str(user.id)},
             user_id=user.id,
+            idempotency_key=f"scrape:{user.id}",
         )
         return ApiResponse(data=TaskResponse.model_validate(task))
 

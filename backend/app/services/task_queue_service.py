@@ -17,7 +17,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.task import Task
@@ -80,8 +81,21 @@ class TaskQueueService:
         now = datetime.now(UTC)
         available_at = now + timedelta(seconds=max(0, delay_seconds))
 
-        # Idempotency check: if an identical task is already queued or running, return it
+        is_pg = (
+            self._db.bind is not None
+            and getattr(self._db.bind.dialect, "name", "") == "postgresql"
+        )
+
+        # Idempotency check: if an identical task is already queued or running, return it.
+        # Uses transaction advisory lock + DB partial unique index for concurrency safety.
         if idempotency_key is not None:
+            if is_pg:
+                lock_key = f"task_idempotency:{task_type}:{str(resolved_user_id) if resolved_user_id else 'system'}:{idempotency_key}"
+                self._db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                    {"lock_key": lock_key},
+                )
+
             existing = self._find_existing_idempotent_task(
                 task_type=task_type,
                 resolved_user_id=resolved_user_id,
@@ -96,20 +110,42 @@ class TaskQueueService:
                 )
                 return existing
 
+        payload_copy = dict(payload)
+        if idempotency_key is not None:
+            payload_copy["idempotency_key"] = idempotency_key
+
         task = Task(
             id=uuid.uuid4(),
             task_type=task_type,
             status="queued",
             user_id=resolved_user_id,
-            payload=payload,
+            idempotency_key=idempotency_key,
+            payload=payload_copy,
             max_attempts=max_attempts,
             attempt_count=0,
             available_at=available_at,
             created_at=now,
         )
         self._db.add(task)
-        self._db.commit()
-        self._db.refresh(task)
+        try:
+            self._db.commit()
+            self._db.refresh(task)
+        except IntegrityError:
+            self._db.rollback()
+            if idempotency_key is not None:
+                existing = self._find_existing_idempotent_task(
+                    task_type=task_type,
+                    resolved_user_id=resolved_user_id,
+                    idempotency_key=idempotency_key,
+                )
+                if existing is not None:
+                    logger.info(
+                        "enqueue: resolved race condition, returned existing task_id=%s",
+                        existing.id,
+                    )
+                    return existing
+            raise
+
         logger.info(
             "enqueue: task enqueued id=%s type=%s user_id=%s available_at=%s",
             task.id,
@@ -201,15 +237,18 @@ class TaskQueueService:
         task_id: uuid.UUID,
         worker_id: str,
         extend_seconds: int = 300,
+        expected_attempt: int | None = None,
     ) -> bool:
         """
         Renew worker lease for an ongoing task to prevent premature crash recovery.
 
-        Verifies worker_id ownership and that the task is currently 'running'.
+        Verifies worker_id ownership, expected_attempt fencing, and that the task is currently 'running'
+        with an active (non-expired) lease.
 
         Returns:
             True if lease was extended, False if lease was lost.
         """
+        now = datetime.now(UTC)
         task = self._db.get(Task, task_id)
         if task is None:
             return False
@@ -224,7 +263,27 @@ class TaskQueueService:
             )
             return False
 
-        task.lease_timeout_at = datetime.now(UTC) + timedelta(seconds=extend_seconds)
+        if expected_attempt is not None and task.attempt_count != expected_attempt:
+            logger.warning(
+                "heartbeat rejected: task_id=%s worker=%s attempt_count=%d expected_attempt=%d",
+                task_id,
+                worker_id,
+                task.attempt_count,
+                expected_attempt,
+            )
+            return False
+
+        if task.lease_timeout_at is not None and task.lease_timeout_at < now:
+            logger.warning(
+                "heartbeat rejected: task_id=%s worker=%s lease already expired at %s (now=%s)",
+                task_id,
+                worker_id,
+                task.lease_timeout_at,
+                now,
+            )
+            return False
+
+        task.lease_timeout_at = now + timedelta(seconds=extend_seconds)
         self._db.commit()
         return True
 
@@ -235,13 +294,16 @@ class TaskQueueService:
         task_id: uuid.UUID,
         worker_id: str,
         result: dict[str, Any] | None = None,
+        expected_attempt: int | None = None,
     ) -> Task:
         """
         Mark a running task as succeeded.
 
-        Verifies that worker_id still owns the active lease.
+        Verifies that worker_id still owns the active, non-expired lease and matches expected_attempt.
         """
-        task = self._get_task_for_worker_update(task_id, worker_id)
+        task = self._get_task_for_worker_update(
+            task_id, worker_id, expected_attempt=expected_attempt
+        )
 
         now = datetime.now(UTC)
         task.status = "succeeded"
@@ -267,6 +329,7 @@ class TaskQueueService:
         error_message: str,
         retry: bool = True,
         backoff_base_seconds: int = 30,
+        expected_attempt: int | None = None,
     ) -> Task:
         """
         Handle task failure with bounded exponential backoff retries.
@@ -276,7 +339,9 @@ class TaskQueueService:
         Else:
             Marks task as terminal 'failed'.
         """
-        task = self._get_task_for_worker_update(task_id, worker_id)
+        task = self._get_task_for_worker_update(
+            task_id, worker_id, expected_attempt=expected_attempt
+        )
 
         now = datetime.now(UTC)
         safe_error = (error_message or "Unknown failure")[:1000]
@@ -446,20 +511,36 @@ class TaskQueueService:
 
     # ── Internal Helpers ───────────────────────────────────────────────────
 
-    def _get_task_for_worker_update(self, task_id: uuid.UUID, worker_id: str) -> Task:
-        """Fetch task and verify caller worker owns the active lease."""
+    def _get_task_for_worker_update(
+        self,
+        task_id: uuid.UUID,
+        worker_id: str,
+        expected_attempt: int | None = None,
+    ) -> Task:
+        """Fetch task and verify caller worker owns the active, non-expired lease."""
         task = self._db.get(Task, task_id)
         if task is None:
             raise TaskNotFoundError(f"Task {task_id} not found")
 
         if task.status != "running":
-            raise InvalidTaskTransitionError(
-                f"Task {task_id} is in status '{task.status}', expected 'running'"
+            raise TaskLeaseLostError(
+                f"Task {task_id} is in status '{task.status}', expected 'running' (lease lost or recovered)"
             )
 
         if task.worker_id != worker_id:
             raise TaskLeaseLostError(
                 f"Worker '{worker_id}' does not own active lease on task {task_id} (owned by '{task.worker_id}')"
+            )
+
+        if expected_attempt is not None and task.attempt_count != expected_attempt:
+            raise TaskLeaseLostError(
+                f"Task {task_id} attempt {task.attempt_count} does not match worker attempt {expected_attempt} (newer attempt running)"
+            )
+
+        now = datetime.now(UTC)
+        if task.lease_timeout_at is not None and task.lease_timeout_at < now:
+            raise TaskLeaseLostError(
+                f"Worker '{worker_id}' lease on task {task_id} expired at {task.lease_timeout_at} (now={now})"
             )
 
         return task
@@ -474,9 +555,11 @@ class TaskQueueService:
         query = select(Task).where(
             Task.task_type == task_type,
             Task.status.in_(["queued", "running"]),
-            Task.payload.contains({"idempotency_key": idempotency_key}),
+            (Task.idempotency_key == idempotency_key) | (Task.payload.contains({"idempotency_key": idempotency_key})),
         )
         if resolved_user_id is not None:
             query = query.where(Task.user_id == resolved_user_id)
+        else:
+            query = query.where(Task.user_id.is_(None))
 
         return self._db.execute(query.limit(1)).scalar_one_or_none()

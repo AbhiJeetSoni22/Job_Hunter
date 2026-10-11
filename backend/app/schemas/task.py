@@ -20,6 +20,7 @@ class TaskResponse(BaseModel):
     task_type: str
     status: str
     user_id: uuid.UUID | None = None
+    idempotency_key: str | None = None
     attempt_count: int = 0
     max_attempts: int = 3
     created_at: datetime
@@ -34,3 +35,4 @@ class EnqueueTaskRequest(BaseModel):
 
     task_type: str = Field(..., description="Type of task: 'scrape', 'scoring', 'bulk_score'")
     payload: dict[str, Any] = Field(default_factory=dict, description="Task execution parameters")
+    idempotency_key: str | None = Field(default=None, description="Optional key to deduplicate active tasks")

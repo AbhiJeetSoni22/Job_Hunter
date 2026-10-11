@@ -81,6 +81,13 @@ class Task(Base):
         doc="Owner of the task; nullable for system-wide tasks.",
     )
 
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        doc="Optional client/system idempotency key for deduplicating active tasks.",
+    )
+
     # ── Payload & Results ───────────────────────────────────────────────────
     payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
@@ -173,6 +180,14 @@ class Task(Base):
             postgresql_where=text("status = 'running'"),
         ),
         Index("idx_tasks_user_created", "user_id", "created_at"),
+        Index(
+            "uq_tasks_active_idempotency",
+            "task_type",
+            text("COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running') AND idempotency_key IS NOT NULL"),
+        ),
     )
 
     def __repr__(self) -> str:

@@ -63,17 +63,21 @@ A controlled production-hardening roadmap is underway.
   - Ephemeral PostgreSQL GitHub Actions CI workflow implemented (`.github/workflows/ci.yml`).
   - Comprehensive documentation alignment across `README.md`, `docs/PROJECT_STATUS.md`, and `docs/ARCHITECTURE.md`.
 
-### PHASE 1 — POSTGRESQL TASK QUEUE + BACKGROUND WORKER (COMPLETE)
+### PHASE 1 — POSTGRESQL TASK QUEUE + BACKGROUND WORKER (COMPLETE & RELIABILITY-HARDENED)
 - [x] `tasks` table with state machine, JSONB payloads/results, and atomic indexes (Migration `d4e5f6a7b8c9`)
-- [x] `TaskQueueService` with atomic `FOR UPDATE SKIP LOCKED` claims, leases, and heartbeat renewals
+- [x] Dedicated `idempotency_key` column and PostgreSQL partial unique index `uq_tasks_active_idempotency`
+- [x] `TaskQueueService` with atomic `FOR UPDATE SKIP LOCKED` claims, leases, and threaded heartbeat renewals
+- [x] Threaded background heartbeat strategy (`threading.Thread`) with independent session isolation
+- [x] Stale worker lease fencing (`expected_attempt` validation and lease expiration checks preventing split-brain writes)
+- [x] Atomic idempotent enqueueing with PostgreSQL advisory locking (`pg_advisory_xact_lock`) and terminal retry preservation
 - [x] Bounded exponential backoff retries and terminal failure state
 - [x] Watchdog automated recovery for stale/abandoned tasks after worker crash or disconnect
 - [x] Dedicated worker process (`python -m app.worker.main`) with signal handling and graceful shutdown
 - [x] Registered task handlers for scraping (`scrape`), single scoring (`scoring`), and bulk scoring (`bulk_score`)
 - [x] User-scoped task API (`GET /api/tasks/{task_id}`, `GET /api/tasks`, `POST /api/tasks/{task_id}/cancel`)
-- [x] Scraper enqueue endpoint (`POST /api/scraper/enqueue`) returning HTTP 202 Accepted
+- [x] Scraper enqueue endpoint (`POST /api/scraper/enqueue`) returning HTTP 202 Accepted (coexisting with legacy `POST /api/scraper/run`)
 - [x] Multi-user isolation, authorization guards, and sanitized error messages
-- [x] 23 dedicated unit and integration tests passing (`tests/test_task_queue.py`)
+- [x] 28 dedicated automated unit, integration, and concurrency tests passing (`tests/test_task_queue.py`) (suite now at 320 tests)
 
 
 ### PHASE 2 — PRODUCT / PIPELINE IMPROVEMENTS (PLANNED)

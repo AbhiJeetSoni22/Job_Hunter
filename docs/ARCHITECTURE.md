@@ -32,7 +32,7 @@ AI Internship Hunter is an AI-powered job discovery and tracking platform built 
   - `User` → `Resumes` (Each user has their own active resume; `user_id` FK CASCADE).
   - `User` → `UserJobs` → global `Jobs` (User pipeline state, notes, and AI match scores live on `UserJob`; `Job` listings remain globally shared and deduplicated by URL).
   - `User` → `ScoringRuns` (Background auto-scoring runs and progress are owned by the triggering user; `user_id` FK CASCADE).
-- **No External Task Queue / Message Broker**: Scoring batches execute via FastAPI `BackgroundTasks`, with state persisted in PostgreSQL for polling.
+- **PostgreSQL Task Queue & Background Worker Architecture (Phase 1)**: Asynchronous scraping and scoring tasks execute via an independent background worker (`python -m app.worker.main`) consuming from a PostgreSQL-backed durable queue (`tasks` table). Legacy synchronous scraper runs (`POST /api/scraper/run`) continue to use FastAPI `BackgroundTasks` for backwards compatibility until all background flows are fully migrated.
 - **Safe Job Deletion**: Removing a job from a user's board deletes only their `UserJob` record; global `Job` listings are never deleted by users.
 
 ```text
@@ -184,7 +184,17 @@ BackgroundWorker (app/worker/worker.py running via python -m app.worker.main)
 ```
 
 - **Concurrency Safety**: Atomic `FOR UPDATE SKIP LOCKED` guarantees multiple workers running in parallel never claim or execute the same task concurrently.
-- **Stale Worker Defense**: Any operation updating a claimed task (`complete_task`, `fail_task`, `heartbeat`) verifies `Task.worker_id == current_worker_id`. If a worker's lease expired and the task was claimed by another worker, the stale worker is prevented from overwriting the newer attempt (`TaskLeaseLostError`).
+- **Threaded Heartbeat & Session Isolation**: During task execution, an independent daemon thread (`threading.Thread`) periodically renews worker leases at `min(30s, max(1s, lease_seconds / 3))`. Crucially, the heartbeat thread opens and closes its own isolated SQLAlchemy `Session` from `SessionLocal()`, eliminating concurrent usage of the handler's active session.
+- **Fencing & Stale Worker Defense**: Tasks track `attempt_count`. Any heartbeat, completion, or failure operation verifies `Task.worker_id == current_worker_id`, `Task.attempt_count == expected_attempt`, and that `Task.lease_timeout_at` has not expired. If a worker paused, hung, or lost its lease to watchdog recovery, any subsequent attempt to mutate the task raises `TaskLeaseLostError`, preventing stale workers from corrupting re-queued tasks.
+- **Atomic Idempotent Enqueueing**:
+  Concurrent enqueue requests are protected by:
+  1. Transaction-level advisory lock (`pg_advisory_xact_lock`) serialized on `task_idempotency:{task_type}:{user_id|system}:{idempotency_key}`.
+  2. PostgreSQL partial unique index `uq_tasks_active_idempotency` on `(task_type, COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid), idempotency_key)` WHERE `status IN ('queued', 'running') AND idempotency_key IS NOT NULL`.
+  Because the unique index is partial to active tasks, once a task enters a terminal state (`succeeded`, `failed`, or `cancelled`), subsequent enqueue calls with the same key succeed, preserving valid retries.
+- **Operations Requiring Idempotency**:
+  - `scrape`: Heavy HTTP ingestion and Playwright browser instances. Scoped per user (`scrape:<user_id>`) or system (`scrape:system`) to prevent duplicate scraping and third-party rate limiting.
+  - `bulk_score`: Large batch LLM operations. Scoped per user (`bulk_score:<user_id>`) to prevent duplicate Gemini API calls and quota exhaustion.
+  - Ad-hoc tasks: Idempotency is optional (`idempotency_key=None`) when independent execution is explicitly desired.
 - **Multi-User Isolation**: User-created tasks record `user_id`. `GET /api/tasks/{task_id}`, `GET /api/tasks`, and `POST /api/tasks/{task_id}/cancel` enforce user ownership and prevent cross-tenant data leakage.
 
 ---

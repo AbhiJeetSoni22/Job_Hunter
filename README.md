@@ -41,7 +41,8 @@ The system features complete multi-user authentication and data isolation, separ
 |---|---|
 | Resume Upload & Parsing | PDF upload -> PyMuPDF text extraction -> Gemini skill extraction. Uploading replaces the previous active resume. |
 | Multi-Source Job Scraping | RemoteOK API + YC "Work at a Startup" (Playwright). Deduplicated by canonical URL across sources. |
-| Persistent Background Scoring | Scraper sync creates a `ScoringRun` row (`running` \| `completed`) tracked via FastAPI `BackgroundTasks`. Polled via `GET /api/scraper/scoring-status`. |
+| PostgreSQL Task Queue (Phase 1) | Durable queue (`tasks` table) with atomic `FOR UPDATE SKIP LOCKED` claims, worker lease heartbeats, stale worker recovery, and idempotent enqueueing. |
+| Background Worker Process | Independent process (`python -m app.worker.main`) executing scrape and AI scoring tasks out-of-process. |
 | Job Lifecycle & Expiration | Tracks missing sync occurrences. Jobs missing for 2 consecutive syncs are marked expired. Filtered via `include_expired` flag. |
 | Cleanup CLI Command | Executable management script (`python -m app.cleanup [--days 30]`) to purge un-annotated, saved expired jobs older than N days. |
 | Application Tracking | PATCH job status and notes (`saved`, `applied`, `interview`, `offer`, `rejected`). |
@@ -54,16 +55,51 @@ See [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) for detailed implementati
 ## Architecture
 
 ```mermaid
-flowchart LR
-    A[Next.js Frontend] -->|"/api/* (rewrite proxy)"| B[FastAPI Routers]
-    B --> C[Service Layer]
-    C --> D[GeminiClient]
-    C --> E[SQLAlchemy ORM]
-    E --> F[(PostgreSQL Database)]
-    D --> G[(Google Gemini API)]
-    C --> H[Scrapers: RemoteOK / YC Jobs]
-    H --> I[(External Job Sources)]
+flowchart TD
+    subgraph Clients
+        A[Next.js Frontend]
+    end
+
+    subgraph Web_API [FastAPI Web Service]
+        B[Routers: jobs, resume, scraper, tasks]
+        C[Service Layer]
+        D[FastAPI BackgroundTasks - Legacy sync flow]
+    end
+
+    subgraph Task_Queue [Durable PostgreSQL Queue]
+        E[(tasks table: FOR UPDATE SKIP LOCKED)]
+    end
+
+    subgraph Worker_Process [Independent Background Worker]
+        F[python -m app.worker.main]
+        G[Task Handlers: scrape, scoring, bulk_score]
+        H[Heartbeat Thread & Lease Watchdog]
+    end
+
+    subgraph External_Integrations
+        I[(Google Gemini API)]
+        J[RemoteOK API]
+        K[YC Jobs Playwright]
+    end
+
+    A -->|"/api/*"| B
+    B --> C
+    B -->|POST /api/scraper/run| D
+    B -->|POST /api/scraper/enqueue| E
+    F -->|Poll & Claim Task| E
+    F --> H
+    F --> G
+    G --> C
+    C --> I
+    C --> J
+    C --> K
 ```
+
+### Scraping & Scoring Execution Modes
+
+The backend supports two distinct scraping execution paths:
+1. **Queued Asynchronous Scraper (Phase 1)**: `POST /api/scraper/enqueue` returns `HTTP 202 Accepted` with a `TaskResponse` immediately. Execution is handled out-of-process by the `BackgroundWorker`, supporting leases, heartbeats, exponential retries, and atomic deduplication. Task status is inspected via `GET /api/tasks/{task_id}` and cancelled via `POST /api/tasks/{task_id}/cancel`.
+2. **Legacy Synchronous Scraper**: `POST /api/scraper/run` blocks until scraping completes, returning a `ScraperRunSummary` directly in the HTTP response. Newly inserted jobs are scored via in-process FastAPI `BackgroundTasks`. *Note: Phase 1 introduces the task queue architecture, but retains `BackgroundTasks` on this legacy endpoint for backwards compatibility.*
 
 Routers contain no business logic or database access — they validate HTTP requests and delegate to services. Services raise Python exceptions (`ValueError`, `LookupError`, `AIError`) which global FastAPI handlers format into standard `ApiResponse` envelopes (`{ "data": ..., "error": ... }`). Full details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -171,6 +207,11 @@ uvicorn app.main:app --reload --port 8000
 # Terminal 3 — Background Task Worker (Phase 1)
 cd backend
 python -m app.worker.main
+# Options:
+#   --worker-id <id>          Custom worker identifier
+#   --poll-interval <seconds> Queue polling interval (default: 2.0s)
+#   --lease-seconds <seconds> Worker lease expiration duration (default: 300s)
+#   --once                    Process at most one task and cleanly exit
 
 # Terminal 4 — Frontend
 cd frontend
@@ -180,7 +221,11 @@ npm run dev
 - Application UI: `http://localhost:3000`
 - FastAPI OpenAPI Docs: `http://localhost:8000/docs`
 - Health Endpoint: `GET http://localhost:8000/api/health`
-- Tasks API: `GET http://localhost:8000/api/tasks` (User-scoped tasks)
+- Tasks API:
+  - `POST /api/scraper/enqueue` — Enqueue asynchronous scraping task (`HTTP 202 Accepted`)
+  - `GET /api/tasks/{task_id}` — Inspect background task status, execution progress, and results
+  - `GET /api/tasks` — List recent background tasks for authenticated user
+  - `POST /api/tasks/{task_id}/cancel` — Cancel a queued task before worker claims it
 
 
 ## Cleanup Management Command
@@ -196,7 +241,7 @@ This operation deletes only expired jobs with status `"saved"` and no user notes
 
 ## Running Tests
 
-The backend test suite consists of **292 tests** written for pytest:
+The backend test suite consists of **320 tests** written for pytest:
 
 ```bash
 cd backend

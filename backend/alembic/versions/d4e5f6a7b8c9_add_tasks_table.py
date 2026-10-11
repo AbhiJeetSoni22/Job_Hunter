@@ -32,6 +32,7 @@ def upgrade() -> None:
         sa.Column("task_type", sa.String(length=50), nullable=False),
         sa.Column("status", sa.String(length=20), server_default=sa.text("'queued'"), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=True),
+        sa.Column("idempotency_key", sa.String(length=255), nullable=True),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), nullable=False),
         sa.Column("result", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
@@ -72,9 +73,28 @@ def upgrade() -> None:
         ["task_type", "status"],
         unique=False,
     )
+    op.create_index(
+        "idx_tasks_idempotency_key",
+        "tasks",
+        ["idempotency_key"],
+        unique=False,
+    )
+    op.create_index(
+        "uq_tasks_active_idempotency",
+        "tasks",
+        ["task_type", sa.text("COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid)"), "idempotency_key"],
+        unique=True,
+        postgresql_where=sa.text("status IN ('queued', 'running') AND idempotency_key IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "uq_tasks_active_idempotency",
+        table_name="tasks",
+        postgresql_where=sa.text("status IN ('queued', 'running') AND idempotency_key IS NOT NULL"),
+    )
+    op.drop_index("idx_tasks_idempotency_key", table_name="tasks")
     op.drop_index("idx_tasks_type_status", table_name="tasks")
     op.drop_index("idx_tasks_user_created", table_name="tasks")
     op.drop_index(
