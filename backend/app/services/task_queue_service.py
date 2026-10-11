@@ -382,10 +382,15 @@ class TaskQueueService:
     def cancel_task(
         self,
         task_id: uuid.UUID,
-        user_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | str | None = None,
     ) -> Task:
         """Cancel a queued task before execution begins."""
-        task = self.get_task(task_id, user_id=user_id)
+        resolved_user_id = (
+            uuid.UUID(str(user_id))
+            if user_id is not None
+            else self._user_id
+        )
+        task = self.get_task(task_id, user_id=resolved_user_id)
         if task is None:
             raise TaskNotFoundError(f"Task {task_id} not found")
 
@@ -470,26 +475,35 @@ class TaskQueueService:
     def get_task(
         self,
         task_id: uuid.UUID,
-        user_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | str | None = None,
     ) -> Task | None:
         """
         Fetch a task by ID with user ownership authorization.
 
-        If user_id is provided, only returns the task if user owns it.
+        If user_id is provided or bound to this service instance,
+        only returns the task if it is owned by that user.
+        System tasks (user_id=None) and tasks owned by other users
+        return None when queried in a user context.
+        Internal/worker callers with no user context (user_id=None and self._user_id=None)
+        can access any task.
         """
         task = self._db.get(Task, task_id)
         if task is None:
             return None
 
-        uid = user_id or self._user_id
-        if uid is not None and task.user_id is not None and task.user_id != uid:
+        resolved_user_id = (
+            uuid.UUID(str(user_id))
+            if user_id is not None
+            else self._user_id
+        )
+        if resolved_user_id is not None and task.user_id != resolved_user_id:
             return None
 
         return task
 
     def list_tasks(
         self,
-        user_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | str | None = None,
         task_type: str | None = None,
         status: str | None = None,
         limit: int = 50,
@@ -497,9 +511,13 @@ class TaskQueueService:
         """List tasks for operational inspection or user dashboard."""
         query = select(Task).order_by(Task.created_at.desc()).limit(limit)
 
-        uid = user_id or self._user_id
-        if uid is not None:
-            query = query.where(Task.user_id == uid)
+        resolved_user_id = (
+            uuid.UUID(str(user_id))
+            if user_id is not None
+            else self._user_id
+        )
+        if resolved_user_id is not None:
+            query = query.where(Task.user_id == resolved_user_id)
 
         if task_type:
             query = query.where(Task.task_type == task_type)

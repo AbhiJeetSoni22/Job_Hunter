@@ -403,6 +403,129 @@ class TestTaskAPI:
         assert resp.status_code == 200
         assert resp.json()["data"]["status"] == "cancelled"
 
+    def test_get_system_owned_task_forbidden_for_user(
+        self,
+        db: Session,
+        auth_headers: dict[str, str],
+        client: TestClient,
+    ) -> None:
+        """Authenticated user cannot inspect a system-owned task (returns 404)."""
+        service = TaskQueueService(db)
+        sys_task = service.enqueue("scrape", {"internal": True}, user_id=None)
+
+        resp = client.get(f"/api/tasks/{sys_task.id}", headers=auth_headers)
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+    def test_cancel_system_owned_task_forbidden_for_user(
+        self,
+        db: Session,
+        auth_headers: dict[str, str],
+        client: TestClient,
+    ) -> None:
+        """Authenticated user cannot cancel a system-owned task (returns 404)."""
+        service = TaskQueueService(db)
+        sys_task = service.enqueue("scrape", {"internal": True}, user_id=None)
+
+        resp = client.post(f"/api/tasks/{sys_task.id}/cancel", headers=auth_headers)
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+        # Task in DB remains queued
+        db.refresh(sys_task)
+        assert sys_task.status == "queued"
+
+    def test_cancel_other_user_task_forbidden(
+        self,
+        db: Session,
+        sample_user: User,
+        second_user: User,
+        client: TestClient,
+    ) -> None:
+        """User B cannot cancel User A's task (returns 404)."""
+        from app.core.security import create_access_token
+
+        # User A's task
+        service = TaskQueueService(db, user_id=sample_user.id)
+        task = service.enqueue("scrape", {}, user_id=sample_user.id)
+
+        # User B attempts to cancel
+        token2 = create_access_token({"sub": str(second_user.id), "email": second_user.email})
+        resp = client.post(
+            f"/api/tasks/{task.id}/cancel",
+            headers={"Authorization": f"Bearer {token2}"},
+        )
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+        # Task remains queued
+        db.refresh(task)
+        assert task.status == "queued"
+
+    def test_list_tasks_excludes_system_and_other_user_tasks(
+        self,
+        db: Session,
+        sample_user: User,
+        second_user: User,
+        auth_headers: dict[str, str],
+        client: TestClient,
+    ) -> None:
+        """GET /api/tasks only returns tasks owned by the requesting user."""
+        service_a = TaskQueueService(db, user_id=sample_user.id)
+        task_a = service_a.enqueue("scrape", {"owner": "a"}, user_id=sample_user.id)
+
+        service_b = TaskQueueService(db, user_id=second_user.id)
+        service_b.enqueue("scrape", {"owner": "b"}, user_id=second_user.id)
+
+        service_sys = TaskQueueService(db)
+        service_sys.enqueue("scrape", {"owner": "sys"}, user_id=None)
+
+        resp = client.get("/api/tasks", headers=auth_headers)
+        assert resp.status_code == 200
+        items = resp.json()["data"]
+        item_ids = [it["id"] for it in items]
+        assert str(task_a.id) in item_ids
+        for it in items:
+            assert it["user_id"] == str(sample_user.id)
+
+    def test_internal_worker_can_process_system_owned_task(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Internal worker processes system-owned tasks normally."""
+        from typing import cast
+
+        from app.models.task import Task
+        from app.worker.handlers import TASK_HANDLERS
+        from app.worker.worker import BackgroundWorker
+
+        def _mock_handler(task: Task, session: Session) -> dict[str, Any]:
+            return {"system_job": "completed"}
+
+        monkeypatch.setitem(TASK_HANDLERS, "scrape", _mock_handler)
+
+        service = TaskQueueService(db)
+        sys_task = service.enqueue("scrape", {"cron": True}, user_id=None)
+        assert sys_task.user_id is None
+
+        # Internal service query can inspect system task
+        inspected = service.get_task(sys_task.id)
+        assert inspected is not None
+        assert inspected.id == sys_task.id
+
+        worker = BackgroundWorker(
+            worker_id="system-worker-1",
+            lease_seconds=30,
+            session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+        )
+        processed = worker.run_once()
+        assert processed is True
+
+        db.refresh(sys_task)
+        assert sys_task.status == "succeeded"
+        assert sys_task.result == {"system_job": "completed"}
+
     def test_enqueue_scraper_api(
         self,
         db: Session,

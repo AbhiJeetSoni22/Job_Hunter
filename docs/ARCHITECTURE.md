@@ -195,7 +195,10 @@ BackgroundWorker (app/worker/worker.py running via python -m app.worker.main)
   - `scrape`: Heavy HTTP ingestion and Playwright browser instances. Scoped per user (`scrape:<user_id>`) or system (`scrape:system`) to prevent duplicate scraping and third-party rate limiting.
   - `bulk_score`: Large batch LLM operations. Scoped per user (`bulk_score:<user_id>`) to prevent duplicate Gemini API calls and quota exhaustion.
   - Ad-hoc tasks: Idempotency is optional (`idempotency_key=None`) when independent execution is explicitly desired.
-- **Multi-User Isolation**: User-created tasks record `user_id`. `GET /api/tasks/{task_id}`, `GET /api/tasks`, and `POST /api/tasks/{task_id}/cancel` enforce user ownership and prevent cross-tenant data leakage.
+- **Multi-User Isolation & Authorization**:
+  - Tasks record `user_id`. An authenticated user can only retrieve or cancel tasks matching `task.user_id == current_user.id`.
+  - An authenticated user cannot retrieve, cancel, or inspect another user's task or any system-owned task (`user_id=None`). All unauthorized attempts return HTTP 404 (`NOT_FOUND`) to prevent disclosing task existence.
+  - System-owned tasks remain fully accessible to internal background workers and system-level operations (`claim_task`, `heartbeat`, `complete_task`, `fail_task`, `recover_stale_tasks`, and internal service calls without user context).
 
 ---
 
