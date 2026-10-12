@@ -10,24 +10,35 @@ The backend includes a comprehensive pytest suite located in `backend/tests/`.
 
 ### 1.1 Test Suite Summary
 
-- **Total Test Items Collected**: **147 tests**
+- **Total Test Items Collected**: **326 tests**
 - **Test Framework**: `pytest 8.3+` with `pytest-asyncio`, `pytest-mock`, `pytest-cov`
 - **Execution State without `TEST_DATABASE_URL`**:
-  - **22 Passed** (Non-database unit tests)
-  - **125 Skipped** (Database-dependent tests using PostgreSQL)
-- **Full Execution Requirement**: Running all 147 tests requires setting `TEST_DATABASE_URL` to a valid PostgreSQL instance.
+  - **13 Passed** (Non-database unit tests)
+  - **313 Skipped** (Database-dependent tests using PostgreSQL)
+- **Full Execution Requirement**: Running all 326 tests requires setting `TEST_DATABASE_URL` to a valid PostgreSQL instance.
 
 ### 1.2 Test Modules
 
 | Test File | Service / Area Tested | Key Coverage |
 |---|---|---|
+| `test_auth_router.py` | `/api/auth` HTTP endpoints | Login, registration, email OTP request/verify, Google OAuth callback, token refresh, and input validation. |
 | `test_auth_service.py` | `UserService`, `security`, `dependencies` | Argon2id password security, PyJWT token generation/validation/expiration, email normalization, registration, login authentication, inactive user checks, and `get_current_user` dependency resolution. |
+| `test_batch3_security_hardening.py` | Security Middleware & Defenses | Bounded resume file reads (magic bytes and 5MB limit), CSP & security headers middleware, AI sliding-window rate limiting with PostgreSQL transaction advisory locks, scraper cooldown enforcement, fail-closed email delivery, and production configuration validation. |
+| `test_dashboard_service.py` | `DashboardService` | Single-pass aggregate metric calculation, match quality breakdown tiers, top matches filtering, and expired job exclusion. |
+| `test_google_oauth.py` | Google OAuth Service | Google OAuth 2.0 flow, token exchange, profile payload verification, user auto-provisioning, and account linking. |
+| `test_health.py` | Health Check | Service availability and database connectivity probe (`/health`). |
 | `test_job_service.py` | `JobService` | Paginated listing, sorting, status/notes updates, deduplication (`upsert_jobs`), lifecycle aging, and expired job cleanup (`cleanup_expired_jobs`). |
 | `test_match_service.py` | `match_service` | Job match scoring, score cache hits/misses, stale score detection (`needs_rescore`), and recommendation label mapping. |
-| `test_resume_service.py` | `ResumeService` | PDF validation, text extraction mocking, Gemini skill extraction, single active resume replacement, and resume deletion. |
-| `test_scraper_service.py` | `ScraperService` | Scraper orchestration, error handling resilience, `ScrapeRun` logging, `ScoringRun` creation, and background auto-scoring lifecycle. |
-| `test_dashboard_service.py` | `DashboardService` | Single-pass aggregate metric calculation, match quality breakdown tiers, top matches filtering, and expired job exclusion. |
+| `test_migration_hardening.py` | Database Migrations | Schema validation, column nullability, indexes, and foreign key constraints across migrations. |
+| `test_multi_user_isolation.py` | Multi-Tenant Data Isolation | Verifies users cannot access, mutate, or delete another user's jobs, resumes, notes, match scores, or scoring runs. |
+| `test_otp_service.py` | `OtpService` & `EmailService` | Salted OTP hash generation/verification, expiry windows, cooldown rate-limiting, single-use invalidation, and Brevo transactional email dispatch. |
 | `test_resume_analysis_service.py` | `ResumeAnalysisService` | Resume Gap Analyzer prompt input handling, structured response validation, and active resume requirement checks. |
+| `test_resume_service.py` | `ResumeService` | PDF validation, text extraction mocking, Gemini skill extraction, single active resume replacement, and resume deletion. |
+| `test_scoring_pipeline_hardening.py` | Background Scoring Pipeline | `ScoringRun` progress tracking, partial batch failures, concurrency limits, and terminal status handling. |
+| `test_scraper_hardening.py` | Scraper Resilience | Network timeouts, HTML parsing malformations, rate-limiting backoff, and deduplication guarantees. |
+| `test_scraper_service.py` | `ScraperService` | Scraper orchestration, error handling resilience, `ScrapeRun` logging, `ScoringRun` creation, and background auto-scoring lifecycle. |
+| `test_task_queue.py` | `TaskQueueService` & Background Worker | Atomic claim (`FOR UPDATE SKIP LOCKED`), heartbeat renewal & session isolation, watchdog lease recovery, `TaskLeaseLostError` fencing, partial unique idempotency, exponential backoff retries, and multi-user authorization. |
+| `test_test_setup.py` | Test Infrastructure | PostgreSQL connection validation, fixture sanity, and test isolation. |
 
 ### 1.3 Test Fixtures & External Mocks (`tests/conftest.py`)
 
@@ -45,16 +56,15 @@ The backend includes a comprehensive pytest suite located in `backend/tests/`.
 ```bash
 cd backend
 
-# Option A: Run unit tests only (13 passed, 110 skipped)
+# Option A: Run unit tests only (13 passed, 313 skipped)
 python -m pytest
 
-# Option B: Run full test suite against PostgreSQL database (all 123 tests)
+# Option B: Run full test suite against PostgreSQL database (all 326 tests)
 export TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/test_db"
 python -m pytest
 ```
 
 ### 1.5 Current Automated Test Suite Gaps
-- **Router / HTTP Integration Tests**: HTTP endpoints in `app/routers/` are not currently covered by FastAPI `TestClient` integration tests.
 - **Interview Prep Service Unit Tests**: `InterviewPrepService` currently lacks a dedicated `test_interview_prep_service.py` test file.
 - **Frontend Automated Tests**: Frontend does not contain automated Jest or React Testing Library suites (`npm run lint` and type checks available).
 

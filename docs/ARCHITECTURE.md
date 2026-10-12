@@ -200,6 +200,60 @@ BackgroundWorker (app/worker/worker.py running via python -m app.worker.main)
   - An authenticated user cannot retrieve, cancel, or inspect another user's task or any system-owned task (`user_id=None`). All unauthorized attempts return HTTP 404 (`NOT_FOUND`) to prevent disclosing task existence.
   - System-owned tasks remain fully accessible to internal background workers and system-level operations (`claim_task`, `heartbeat`, `complete_task`, `fail_task`, `recover_stale_tasks`, and internal service calls without user context).
 
+### 3.6 Background Worker Deployment (Render Background Worker)
+
+To execute asynchronous tasks (`scrape`, `bulk_score`) decoupled from user-facing HTTP request cycles, the background worker runs as a dedicated **Render Background Worker** service alongside the existing FastAPI Web Service.
+
+```text
+                               ┌────────────────────────────────────────────────────────┐
+                               │                    Neon PostgreSQL                     │
+                               │  - tasks (atomic queue: FOR UPDATE SKIP LOCKED)        │
+                               │  - user_jobs, jobs, resumes, scoring_runs              │
+                               └─────────────────────────┬──────────────────────────────┘
+                                                         │
+                                  ┌──────────────────────┴──────────────────────┐
+                                  ▼                                             ▼
+                       ┌──────────────────────┐                     ┌──────────────────────┐
+                       │  Render Web Service  │                     │  Render Background   │
+                       │     (FastAPI API)    │                     │        Worker        │
+                       │                      │                     │                      │
+                       │ - Web / HTTP traffic │                     │ - Task polling loop  │
+                       │ - Enqueues tasks     │                     │ - Long-running scrape│
+                       │ - Healthcheck / API  │                     │ - AI bulk scoring    │
+                       └──────────────────────┘                     └──────────────────────┘
+```
+
+#### Service Specifications
+- **Render Service Type**: Background Worker (private, non-HTTP, isolated process).
+- **Root Directory**: `backend`
+- **Build Command**:
+  ```bash
+  pip install -e ".[dev]" && playwright install --with-deps chromium
+  ```
+- **Start Command**:
+  ```bash
+  python -m app.worker.main --poll-interval 2.0 --lease-seconds 300
+  ```
+- **Process Isolation**: The worker process does not bind to an HTTP port and does not require incoming web routing.
+- **Graceful Shutdown**: The worker registers signal handlers for `SIGTERM` and `SIGINT`. On shutdown, it completes the currently processing task if possible, terminates active heartbeat threads, and exits cleanly within Render's termination timeout window.
+
+#### Required Environment Variables
+| Variable | Required | Description | Example / Default |
+|---|---|---|---|
+| `DATABASE_URL` | **Yes** | Connection string for Neon PostgreSQL database. | `postgresql://user:pass@host/dbname?sslmode=require` |
+| `GEMINI_API_KEY` | **Yes** | API key used by `GeminiClient` during `bulk_score` tasks. | Secret |
+| `APP_ENV` | **Yes** | Application environment. Set to `production` on Render. | `production` |
+| `JWT_SECRET_KEY` | **Yes** | Cryptographic secret for `app.core.config.Settings` validation ($\ge 32$ chars). | Secret |
+| `CORS_ORIGINS` | **Yes** | Production frontend origin list (validated during config startup). | `https://your-frontend.vercel.app` |
+| `GEMINI_MODEL` | No | Target Gemini model identifier. | `gemini-2.5-flash` |
+| `LOG_LEVEL` | No | Python logging level. | `INFO` |
+| `TASK_QUEUE_DEFAULT_LEASE_SECONDS`| No | Default worker lease timeout duration in seconds. | `300` |
+| `TASK_QUEUE_DEFAULT_POLL_INTERVAL`| No | Task polling interval in seconds. | `2.0` |
+| `TASK_QUEUE_MAX_ATTEMPTS` | No | Maximum retry attempts before permanent failure. | `3` |
+
+> [!IMPORTANT]
+> **Pre-Deploy Migration Requirement**: The worker relies on the `tasks` table created in Alembic migration `d4e5f6a7b8c9`. Attempting to start the background worker before applying pending migrations will cause the worker to crash with `relation "tasks" does not exist`. Migrations must be executed via Render Pre-Deploy Command (`alembic upgrade head`) or manually prior to worker launch.
+
 ---
 
 ## 4. Job Lifecycle & Expiration Architecture
@@ -388,17 +442,18 @@ Standard Error Codes: `NOT_FOUND`, `INVALID_PARAM`, `INVALID_STATUS`, `NO_RESUME
 ```
 Job_Hunter/
 ├── backend/
-│   ├── alembic/versions/          # 9 Alembic migrations (head: c3d4e5f6a7b8)
+│   ├── alembic/versions/          # 10 Alembic migrations (head: d4e5f6a7b8c9)
 │   ├── app/
 │   │   ├── main.py                # App factory, security headers, & router registration
 │   │   ├── cleanup.py             # Expired job cleanup CLI script
-│   │   ├── models/                # 8 models: user, job, user_job, resume, scrape_run, scoring_run, email_otp, rate_limit
-│   │   ├── schemas/               # Pydantic schemas (job, resume, dashboard, user, auth, rate_limit)
-│   │   ├── routers/               # 8 routers: auth, jobs, scraper, resume, resume_analysis, interview_prep, dashboard, health
-│   │   ├── services/              # Services: user, job, resume, match, scraper, dashboard, email, otp, rate_limit
+│   │   ├── models/                # 9 models: user, job, user_job, resume, scrape_run, scoring_run, email_otp, rate_limit, task
+│   │   ├── schemas/               # Pydantic schemas (job, resume, dashboard, user, auth, rate_limit, task)
+│   │   ├── routers/               # 9 routers: auth, jobs, scraper, resume, resume_analysis, interview_prep, dashboard, health, tasks
+│   │   ├── services/              # Services: user, job, resume, match, scraper, task_queue, dashboard, email, otp, rate_limit
 │   │   ├── scrapers/              # base.py, remoteok.py, yc_jobs.py
+│   │   ├── worker/                # Background worker engine (main.py, worker.py, handlers.py)
 │   │   └── ai/                    # gemini_client.py, prompts.py
-│   └── tests/                     # 292 tests (multi-user isolation, service tests, concurrency & security hardening)
+│   └── tests/                     # 326 tests across 18 test files (multi-user isolation, service tests, concurrency, task queue, & security hardening)
 └── frontend/
     ├── app/                       # Next.js pages (dashboard/, jobs/, resume/, login/, register/, auth/)
     ├── components/                # ui/, jobs/, resume/, dashboard/, auth/

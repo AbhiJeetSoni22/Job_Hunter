@@ -17,7 +17,7 @@ A controlled production-hardening roadmap is underway.
 - **Phase 0 — Batch 2 (Scraper Correctness & Safety)** has been completed, eliminating accidental mass expiry from failed or empty scrapes, introducing an explicit `ScraperResult` contract, fixing critical selector fallback bugs in the YC parser, and making database upserts and job lifecycle state transitions fully transactional.
 - **Phase 0 — Batch 3 (Security / Configuration Hardening)** has been completed, securing JWT configuration, enforcing production CORS policies, hardening email fail-closed behavior, adding HTTP security headers, protecting OTP endpoints with advisory locks, bounding resume uploads and validating PDF magic bytes, adding PostgreSQL-backed per-user AI rate limiting, and guarding scraper runs with advisory locks and cooldown periods.
 - **Phase 0 — Batch 4 (Tests / CI / Documentation Alignment)** has been completed, validating the 292-test backend suite and live PostgreSQL test infrastructure, enforcing fail-clearly CI behavior on missing test DB, verifying linear Alembic migrations, ensuring zero errors on Ruff and Mypy, confirming frontend type safety and production build, deploying GitHub Actions CI with ephemeral PostgreSQL, and aligning documentation across the codebase.
-- **Phase 1 (PostgreSQL Task Queue + Background Worker)** has been completed, establishing a production-grade, durable background processing architecture without external queues (Redis/Celery/Kafka). Features include an Alembic migration (`d4e5f6a7b8c9`) creating `tasks` with atomic `FOR UPDATE SKIP LOCKED` claiming, worker heartbeats, exponential backoff failure retries, watchdog recovery for crashed workers, an independent worker entry point (`python -m app.worker.main`), scraper and scoring handlers, user authorization, and 23 dedicated automated tests (suite now at 315 tests).
+- **Phase 1 (PostgreSQL Task Queue + Background Worker)** has been completed, establishing a production-grade, durable background processing architecture without external queues (Redis/Celery/Kafka). Features include an Alembic migration (`d4e5f6a7b8c9`) creating `tasks` with atomic `FOR UPDATE SKIP LOCKED` claiming, worker heartbeats, exponential backoff failure retries, watchdog recovery for crashed workers, an independent worker entry point (`python -m app.worker.main`), scraper and scoring handlers, user authorization, and 34 dedicated automated tests (suite now at 326 tests).
 
 ---
 
@@ -77,7 +77,7 @@ A controlled production-hardening roadmap is underway.
 - [x] User-scoped task API (`GET /api/tasks/{task_id}`, `GET /api/tasks`, `POST /api/tasks/{task_id}/cancel`)
 - [x] Scraper enqueue endpoint (`POST /api/scraper/enqueue`) returning HTTP 202 Accepted (coexisting with legacy `POST /api/scraper/run`)
 - [x] Multi-user isolation, authorization guards, and sanitized error messages
-- [x] 28 dedicated automated unit, integration, and concurrency tests passing (`tests/test_task_queue.py`) (suite now at 320 tests)
+- [x] 34 dedicated automated unit, integration, and concurrency tests passing (`tests/test_task_queue.py`) (suite now at 326 tests)
 
 
 ### PHASE 2 — PRODUCT / PIPELINE IMPROVEMENTS (PLANNED)
@@ -318,7 +318,7 @@ A controlled production-hardening roadmap is underway.
   - Authenticated users can only retrieve or cancel tasks where `task.user_id == current_user.id`.
   - Authenticated users cannot inspect, retrieve, or cancel system-owned tasks (`user_id=None`) or other users' tasks (returns HTTP 404 `NOT_FOUND`).
   - Internal worker and watchdog operations remain fully capable of processing system-owned and user-owned tasks without restriction.
-- **Test Coverage**: 34 dedicated task queue regression tests in `test_task_queue.py` (320 tests across full backend test suite).
+- **Test Coverage**: 34 dedicated task queue regression tests in `test_task_queue.py` (326 tests across full backend test suite).
 
 ---
 
