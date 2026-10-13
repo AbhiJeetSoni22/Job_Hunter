@@ -35,7 +35,6 @@ class RateLimitEvent(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
         doc="User who initiated this action.",
     )
 
@@ -66,6 +65,8 @@ class RateLimitEvent(Base):
     )
 
     __table_args__ = (
+        Index("idx_rate_limit_events_user_id", "user_id"),
+        Index("idx_rate_limit_events_created_at", "created_at"),
         Index("idx_rate_limit_user_event_created", "user_id", "event_type", "created_at"),
     )
 

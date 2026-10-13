@@ -62,7 +62,6 @@ class Task(Base):
     task_type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        index=True,
         doc=f"Type of task: {TASK_TYPE_VALUES}",
     )
 
@@ -77,14 +76,12 @@ class Task(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=True,
-        index=True,
         doc="Owner of the task; nullable for system-wide tasks.",
     )
 
     idempotency_key: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
-        index=True,
         doc="Optional client/system idempotency key for deduplicating active tasks.",
     )
 
@@ -180,6 +177,8 @@ class Task(Base):
             postgresql_where=text("status = 'running'"),
         ),
         Index("idx_tasks_user_created", "user_id", "created_at"),
+        Index("idx_tasks_type_status", "task_type", "status"),
+        Index("idx_tasks_idempotency_key", "idempotency_key"),
         Index(
             "uq_tasks_active_idempotency",
             "task_type",
