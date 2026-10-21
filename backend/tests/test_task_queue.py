@@ -335,6 +335,278 @@ class TestWorkerLifecycle:
         assert task.attempt_count == 1
 
 
+# ── Test Background Worker Drain Mode (Phase 1) ─────────────────────────────
+
+class TestWorkerDrainMode:
+    def test_drain_empty_queue_returns_zero(self, db: Session) -> None:
+        """When queue has no eligible tasks, run_drain returns 0 and does not error."""
+        worker = BackgroundWorker(
+            worker_id="test-drain-worker-empty",
+            session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+        )
+        count = worker.run_drain(max_duration_seconds=60.0)
+        assert count == 0
+
+    def test_drain_single_task_success(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """One available task is processed successfully to completion."""
+        service = TaskQueueService(db)
+        task = service.enqueue("scrape", {"auto_score": False})
+
+        from app.worker import handlers
+        mock_handler = MagicMock(return_value={"total_new": 1, "runs": []})
+        monkeypatch.setitem(handlers.TASK_HANDLERS, "scrape", mock_handler)
+
+        worker = BackgroundWorker(
+            worker_id="test-drain-worker-single",
+            session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+        )
+        count = worker.run_drain(max_duration_seconds=60.0)
+        assert count == 1
+        mock_handler.assert_called_once()
+
+        db.refresh(task)
+        assert task.status == "succeeded"
+        assert task.result == {"total_new": 1, "runs": []}
+
+    def test_drain_multiple_tasks(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Multiple eligible tasks are processed sequentially in a single drain run."""
+        service = TaskQueueService(db)
+        task1 = service.enqueue("scrape", {"batch": 1})
+        task2 = service.enqueue("scrape", {"batch": 2})
+        task3 = service.enqueue("scrape", {"batch": 3})
+
+        from app.worker import handlers
+        call_order: list[uuid.UUID] = []
+
+        def _track_handler(task_obj: Any, session: Session) -> dict[str, Any]:
+            call_order.append(task_obj.id)
+            return {"batch": task_obj.payload.get("batch")}
+
+        monkeypatch.setitem(handlers.TASK_HANDLERS, "scrape", _track_handler)
+
+        worker = BackgroundWorker(
+            worker_id="test-drain-worker-multi",
+            session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+        )
+        count = worker.run_drain(max_duration_seconds=60.0)
+        assert count == 3
+        assert len(call_order) == 3
+
+        for t in (task1, task2, task3):
+            db.refresh(t)
+            assert t.status == "succeeded"
+
+    def test_drain_task_failure_follows_retry_semantics_and_does_not_loop(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        A failing task follows exponential backoff retry semantics.
+        The worker reschedules available_at into the future and does not loop infinitely.
+        The task remains in 'queued' status (not completed).
+        """
+        service = TaskQueueService(db)
+        task = service.enqueue("scrape", {}, max_attempts=3)
+
+        from app.worker import handlers
+        mock_failing = MagicMock(side_effect=RuntimeError("Handler failure"))
+        monkeypatch.setitem(handlers.TASK_HANDLERS, "scrape", mock_failing)
+
+        worker = BackgroundWorker(
+            worker_id="test-drain-worker-fail",
+            session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+        )
+        count = worker.run_drain(max_duration_seconds=60.0)
+
+        # Processed attempt 1, then queue had no more immediately eligible tasks
+        assert count == 1
+        mock_failing.assert_called_once()
+
+        db.refresh(task)
+        assert task.status == "queued"
+        assert task.attempt_count == 1
+        assert task.available_at > datetime.now(UTC)
+        assert "Handler failure" in (task.error_message or "")
+
+    def test_drain_deadline_stops_claiming_new_tasks_safely(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Deadline prevents claiming additional tasks without interrupting the active task.
+        In-flight task completes cleanly, subsequent tasks remain queued.
+        """
+        service = TaskQueueService(db)
+        task1 = service.enqueue("scrape", {"step": 1})
+        task2 = service.enqueue("scrape", {"step": 2})
+
+        from app.worker import handlers
+
+        def _slow_handler(task_obj: Any, session: Session) -> dict[str, Any]:
+            time.sleep(0.05)
+            return {"step": task_obj.payload.get("step")}
+
+        monkeypatch.setitem(handlers.TASK_HANDLERS, "scrape", _slow_handler)
+
+        worker = BackgroundWorker(
+            worker_id="test-drain-worker-deadline",
+            session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+        )
+
+        # Deadline of 0.01 seconds guarantees task 1 exceeds it, preventing task 2 from being claimed
+        count = worker.run_drain(max_duration_seconds=0.01)
+        assert count == 1
+
+        db.refresh(task1)
+        assert task1.status == "succeeded"
+
+        db.refresh(task2)
+        assert task2.status == "queued"
+        assert task2.attempt_count == 0
+
+    def test_drain_shutdown_request_stops_claiming(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Shutdown signal stops claiming new work after current task completes."""
+        service = TaskQueueService(db)
+        task1 = service.enqueue("scrape", {"n": 1})
+        task2 = service.enqueue("scrape", {"n": 2})
+
+        from app.worker import handlers
+        worker = BackgroundWorker(
+            worker_id="test-drain-worker-sig",
+            session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+        )
+
+        def _handler_triggering_shutdown(task_obj: Any, session: Session) -> dict[str, Any]:
+            worker.request_shutdown()
+            return {"n": task_obj.payload.get("n")}
+
+        monkeypatch.setitem(handlers.TASK_HANDLERS, "scrape", _handler_triggering_shutdown)
+
+        count = worker.run_drain(max_duration_seconds=60.0)
+        assert count == 1
+
+        db.refresh(task1)
+        assert task1.status == "succeeded"
+
+        db.refresh(task2)
+        assert task2.status == "queued"
+
+    def test_worker_main_drain_empty_queue_exits_zero(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """CLI with --drain exits with code 0 on empty queue."""
+        from app.worker import main
+
+        monkeypatch.setattr(
+            "app.worker.main.BackgroundWorker",
+            lambda **kwargs: BackgroundWorker(
+                session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+                **kwargs,
+            ),
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main.main(["--drain", "--max-duration-seconds", "10"])
+        assert exc_info.value.code == 0
+
+    def test_worker_main_once_flag_exit_codes_preserved(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Existing --once behavior is preserved: exits 1 when empty, exits 0 when task processed."""
+        from app.worker import main
+
+        monkeypatch.setattr(
+            "app.worker.main.BackgroundWorker",
+            lambda **kwargs: BackgroundWorker(
+                session_factory=lambda: cast(Session, _NonClosingSessionWrapper(db)),
+                **kwargs,
+            ),
+        )
+
+        # 1. Empty queue exits with 1
+        with pytest.raises(SystemExit) as exc_empty:
+            main.main(["--once"])
+        assert exc_empty.value.code == 1
+
+        # 2. Populated queue exits with 0
+        service = TaskQueueService(db)
+        service.enqueue("scrape", {})
+
+        from app.worker import handlers
+        monkeypatch.setitem(
+            handlers.TASK_HANDLERS, "scrape", lambda t, s: {"status": "ok"}
+        )
+
+        with pytest.raises(SystemExit) as exc_task:
+            main.main(["--once"])
+        assert exc_task.value.code == 0
+
+    def test_worker_main_database_error_exits_one_and_sanitizes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Database connection or initialization failure logs sanitized error and exits with code 1."""
+        import logging
+
+        from app.worker import main
+
+        sensitive_error = (
+            "OperationalError: password authentication failed for user "
+            "postgresql://db_user:SUPER_SECRET_PASSWORD@db.neon.tech/neondb"
+        )
+
+        def _crashing_drain(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError(sensitive_error)
+
+        monkeypatch.setattr(
+            "app.worker.main.BackgroundWorker.run_drain",
+            _crashing_drain,
+        )
+
+        with (
+            caplog.at_level(logging.CRITICAL, logger="app.worker"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main.main(["--drain"])
+
+        assert exc_info.value.code == 1
+        assert "SUPER_SECRET_PASSWORD" not in caplog.text
+        assert "postgresql://db_user:***@db.neon.tech/neondb" in caplog.text
+
+    def test_sanitize_error_message(self) -> None:
+        """Sanitizer helper redacts database credentials and token patterns."""
+        from app.worker.main import sanitize_error_message
+
+        raw = (
+            "FATAL: connection to postgresql://admin:MyPass123!@ep-xyz.aws.neon.tech/prod_db "
+            "failed with token=eyJhbGciOiJIUzI1NiIsIn and password=super_secret_val"
+        )
+        sanitized = sanitize_error_message(raw)
+        assert "MyPass123!" not in sanitized
+        assert "postgresql://admin:***@ep-xyz.aws.neon.tech/prod_db" in sanitized
+        assert "password=***" in sanitized
+        assert "token=***" in sanitized
+
+
 # ── Test API Endpoints ──────────────────────────────────────────────────────
 
 class TestTaskAPI:

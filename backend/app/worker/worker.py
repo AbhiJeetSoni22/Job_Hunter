@@ -59,6 +59,68 @@ class BackgroundWorker:
             # Signals might not be interceptable in non-main threads or some environments
             pass
 
+    def run_drain(self, max_duration_seconds: float | None = 300.0) -> int:
+        """
+        Drain all currently eligible queued tasks and exit.
+
+        Processes tasks sequentially until:
+        1. No tasks are immediately available (queue has 0 eligible tasks),
+        2. The configured deadline is reached (checked before claiming each new task),
+        3. Shutdown is requested via SIGINT/SIGTERM.
+
+        Safeguards:
+        - Never terminates an active task merely because the deadline was reached;
+          any in-flight task completes its normal execution, heartbeat, and status transition.
+        - Tasks backed off for future retries (available_at > now) are not immediately
+          eligible and will not be claimed, avoiding an infinite polling loop.
+
+        Args:
+            max_duration_seconds: Maximum seconds before the worker stops claiming new tasks.
+                If None or <= 0, no duration deadline is enforced. Defaults to 300.0.
+
+        Returns:
+            The number of tasks processed during this drain execution.
+        """
+        start_time = time.monotonic()
+        processed_count = 0
+        logger.info(
+            "Worker %s entering drain mode (max_duration_seconds=%s)",
+            self.worker_id,
+            max_duration_seconds,
+        )
+        self._setup_signal_handlers()
+
+        while not self._shutdown_requested:
+            # Check deadline before attempting to claim another task
+            if max_duration_seconds is not None and max_duration_seconds > 0:
+                elapsed = time.monotonic() - start_time
+                if elapsed >= max_duration_seconds:
+                    logger.info(
+                        "Worker %s: drain deadline reached (elapsed=%.2fs >= max=%.2fs); "
+                        "stopping claim loop safely without claiming new tasks.",
+                        self.worker_id,
+                        elapsed,
+                        max_duration_seconds,
+                    )
+                    break
+
+            processed = self.run_once()
+            if not processed:
+                logger.info(
+                    "Worker %s: no more eligible tasks in queue. Drain complete.",
+                    self.worker_id,
+                )
+                break
+
+            processed_count += 1
+
+        logger.info(
+            "Worker %s drain finished cleanly: %d task(s) processed.",
+            self.worker_id,
+            processed_count,
+        )
+        return processed_count
+
     def run_once(self) -> bool:
         """
         Attempt to claim and process exactly one task.
