@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # Example: "http://localhost:3000,https://myapp.com"
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # ── GitHub Actions Background Worker Dispatch ──────────────────────────
+    GITHUB_DISPATCH_TOKEN: str = ""
+    GITHUB_REPO_OWNER: str = ""
+    GITHUB_REPO_NAME: str = ""
+
     @field_validator("APP_ENV")
     @classmethod
     def validate_app_env(cls, v: str) -> str:
@@ -119,6 +124,11 @@ class Settings(BaseSettings):
             raise ValueError("AI_RATE_LIMIT_PER_MINUTE must be greater than 0")
         return v
 
+    @field_validator("GITHUB_DISPATCH_TOKEN", "GITHUB_REPO_OWNER", "GITHUB_REPO_NAME")
+    @classmethod
+    def validate_github_dispatch_fields(cls, v: str) -> str:
+        return (v or "").strip()
+
     def model_post_init(self, __context: Any) -> None:
         """Validate production security configuration after model initialization."""
         insecure_defaults = {
@@ -175,6 +185,11 @@ class Settings(BaseSettings):
     def database_url_str(self) -> str:
         """Return DATABASE_URL as a plain string for SQLAlchemy."""
         return str(self.DATABASE_URL)
+
+    @property
+    def is_github_dispatch_configured(self) -> bool:
+        """Return True if all GitHub dispatch parameters are configured."""
+        return bool(self.GITHUB_DISPATCH_TOKEN and self.GITHUB_REPO_OWNER and self.GITHUB_REPO_NAME)
 
 
 @lru_cache

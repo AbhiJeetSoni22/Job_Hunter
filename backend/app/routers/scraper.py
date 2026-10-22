@@ -12,6 +12,7 @@ Multi-user architecture:
     - ScoringRun belongs to user.id and scores against user's active resume.
 """
 
+import logging
 import uuid
 from typing import Any
 
@@ -26,9 +27,52 @@ from app.schemas.job import (
     ScrapeRunResponse,
 )
 from app.schemas.task import TaskResponse
+from app.services.github_dispatch_service import (
+    GitHubDispatchService,
+    sanitize_error_message,
+)
 from app.services.rate_limit_service import RateLimitService
 from app.services.scraper_service import ScraperService
 from app.services.task_queue_service import TaskQueueService
+
+logger = logging.getLogger(__name__)
+
+
+def _trigger_github_dispatch_safe(task_id: uuid.UUID) -> None:
+    """
+    Trigger GitHub Actions worker workflow via repository_dispatch API.
+
+    Executes in a background task after the database transaction has committed
+    and the HTTP 202 Accepted response has returned to the client.
+    Guaranteed never to raise unhandled exceptions or affect persisted tasks.
+    """
+    try:
+        service = GitHubDispatchService()
+        if not service.is_configured:
+            logger.warning(
+                "GitHub Actions dispatch skipped for task %s: dispatch service is not configured.",
+                task_id,
+            )
+            return
+
+        dispatched = service.dispatch_task_queue(
+            event_type="process_task_queue",
+            client_payload={"task_id": str(task_id)},
+            raise_on_error=False,
+        )
+        if not dispatched:
+            logger.warning(
+                "GitHub Actions dispatch failed for task %s; task remains queued in database for scheduled fallback processing.",
+                task_id,
+            )
+    except Exception as exc:
+        safe_msg = sanitize_error_message(str(exc))
+        logger.warning(
+            "Unexpected error during background GitHub dispatch for task %s: %s; task remains queued for fallback processing.",
+            task_id,
+            safe_msg,
+        )
+
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
 
@@ -111,6 +155,7 @@ def run_scrapers(
 def enqueue_scraper(
     user: CurrentUser,
     db: DbSession,
+    background_tasks: BackgroundTasks,
 ) -> ApiResponse[TaskResponse]:
     rate_limiter = RateLimitService(db)
     with rate_limiter.scraper_run_guard(user.id):
@@ -120,6 +165,14 @@ def enqueue_scraper(
             user_id=user.id,
             idempotency_key=f"scrape:{user.id}",
         )
+        if getattr(task, "_is_new", True):
+            background_tasks.add_task(_trigger_github_dispatch_safe, task.id)
+        else:
+            logger.info(
+                "Skipping GitHub Actions dispatch for deduplicated existing task %s (status=%s)",
+                task.id,
+                task.status,
+            )
         return ApiResponse(data=TaskResponse.model_validate(task))
 
 

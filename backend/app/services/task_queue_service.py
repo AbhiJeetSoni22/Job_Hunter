@@ -108,6 +108,7 @@ class TaskQueueService:
                     task_type,
                     existing.status,
                 )
+                existing._is_new = False  # type: ignore[attr-defined]
                 return existing
 
         payload_copy = dict(payload)
@@ -143,6 +144,7 @@ class TaskQueueService:
                         "enqueue: resolved race condition, returned existing task_id=%s",
                         existing.id,
                     )
+                    existing._is_new = False  # type: ignore[attr-defined]
                     return existing
             raise
 
@@ -153,6 +155,7 @@ class TaskQueueService:
             task.user_id,
             task.available_at,
         )
+        task._is_new = True  # type: ignore[attr-defined]
         return task
 
     # ── Worker Claiming (Atomic & Concurrency-Safe) ─────────────────────────
