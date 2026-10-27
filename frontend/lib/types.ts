@@ -415,3 +415,30 @@ export interface TokenResponse {
   token_type: string;
 }
 
+// ── Background Task Queue (Phase 1) ──────────────────────────────────────────
+
+export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export type TaskType = "scrape" | "scoring" | "bulk_score" | string;
+
+export interface TaskResponse {
+  id: string;
+  task_type: TaskType;
+  status: TaskStatus;
+  user_id: string | null;
+  idempotency_key: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  result: Record<string, unknown> | null;
+  error_message: string | null;
+}
+
+export interface TaskListParams {
+  task_type?: string;
+  status?: TaskStatus;
+  limit?: number;
+}
+

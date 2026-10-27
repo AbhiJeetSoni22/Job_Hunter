@@ -94,6 +94,7 @@ Services contain all business rules, transaction boundaries, and integrations.
 | `match_service` | Module | Job match scoring, score cache verification, recommendation label calculation. |
 | `ScraperService` | Class | Scraper orchestration, `ScrapeRun` logging, `ScoringRun` creation, background auto-scoring execution. |
 | `TaskQueueService` | Class | Durable PostgreSQL task queue management: atomic claiming (`FOR UPDATE SKIP LOCKED`), leases, heartbeats, exponential backoff retries, abandoned task recovery. |
+| `GitHubDispatchService` | Class | Triggers GitHub Actions background worker workflows via `repository_dispatch` API (`process_task_queue`), with secret sanitization and fail-safe async execution. |
 | `DashboardService` | Class | Single-pass aggregate metric calculation and top matches lookup. |
 | `ResumeAnalysisService` | Class | On-demand resume gap analysis against external job text. |
 | `InterviewPrepService` | Class | Job description + active resume synthesis for interview prep generation. |
@@ -449,15 +450,16 @@ Job_Hunter/
 │   │   ├── models/                # 9 models: user, job, user_job, resume, scrape_run, scoring_run, email_otp, rate_limit, task
 │   │   ├── schemas/               # Pydantic schemas (job, resume, dashboard, user, auth, rate_limit, task)
 │   │   ├── routers/               # 9 routers: auth, jobs, scraper, resume, resume_analysis, interview_prep, dashboard, health, tasks
-│   │   ├── services/              # Services: user, job, resume, match, scraper, task_queue, dashboard, email, otp, rate_limit
+│   │   ├── services/              # Services: user, job, resume, match, scraper, task_queue, github_dispatch, dashboard, email, otp, rate_limit
 │   │   ├── scrapers/              # base.py, remoteok.py, yc_jobs.py
 │   │   ├── worker/                # Background worker engine (main.py, worker.py, handlers.py)
 │   │   └── ai/                    # gemini_client.py, prompts.py
-│   └── tests/                     # 326 tests across 18 test files (multi-user isolation, service tests, concurrency, task queue, & security hardening)
+│   └── tests/                     # 357 tests across 21 test files (task queue, github dispatch, multi-user isolation, service tests, concurrency, & security hardening)
 └── frontend/
     ├── app/                       # Next.js pages (dashboard/, jobs/, resume/, login/, register/, auth/)
     ├── components/                # ui/, jobs/, resume/, dashboard/, auth/
-    └── lib/                       # api.ts, types.ts, auth.ts
+    ├── lib/                       # api.ts, types.ts, auth.ts
+    └── tests/                     # 5 Node tests (auth callback guard, task queue client)
 ```
 
 ---

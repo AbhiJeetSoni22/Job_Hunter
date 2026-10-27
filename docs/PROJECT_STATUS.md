@@ -17,7 +17,7 @@ A controlled production-hardening roadmap is underway.
 - **Phase 0 — Batch 2 (Scraper Correctness & Safety)** has been completed, eliminating accidental mass expiry from failed or empty scrapes, introducing an explicit `ScraperResult` contract, fixing critical selector fallback bugs in the YC parser, and making database upserts and job lifecycle state transitions fully transactional.
 - **Phase 0 — Batch 3 (Security / Configuration Hardening)** has been completed, securing JWT configuration, enforcing production CORS policies, hardening email fail-closed behavior, adding HTTP security headers, protecting OTP endpoints with advisory locks, bounding resume uploads and validating PDF magic bytes, adding PostgreSQL-backed per-user AI rate limiting, and guarding scraper runs with advisory locks and cooldown periods.
 - **Phase 0 — Batch 4 (Tests / CI / Documentation Alignment)** has been completed, validating the 292-test backend suite and live PostgreSQL test infrastructure, enforcing fail-clearly CI behavior on missing test DB, verifying linear Alembic migrations, ensuring zero errors on Ruff and Mypy, confirming frontend type safety and production build, deploying GitHub Actions CI with ephemeral PostgreSQL, and aligning documentation across the codebase.
-- **Phase 1 (PostgreSQL Task Queue + Background Worker)** has been completed, establishing a production-grade, durable background processing architecture without external queues (Redis/Celery/Kafka). Features include an Alembic migration (`d4e5f6a7b8c9`) creating `tasks` with atomic `FOR UPDATE SKIP LOCKED` claiming, worker heartbeats, exponential backoff failure retries, watchdog recovery for crashed workers, an independent worker entry point (`python -m app.worker.main`), scraper and scoring handlers, user authorization, and 34 dedicated automated tests (suite now at 326 tests).
+- **Phase 1 (PostgreSQL Task Queue + Background Worker)** has been completed, establishing a production-grade, durable background processing architecture without external queues (Redis/Celery/Kafka). Features include an Alembic migration (`d4e5f6a7b8c9`) creating `tasks` with atomic `FOR UPDATE SKIP LOCKED` claiming, worker heartbeats, exponential backoff failure retries, watchdog recovery for crashed workers, an independent worker entry point (`python -m app.worker.main`), scraper and scoring handlers, user authorization, GitHub Actions worker workflow (`.github/workflows/worker.yml`), GitHub repository dispatch integration (`GitHubDispatchService`), frontend task client API, and 55 dedicated automated queue & dispatch tests (backend suite now at 357 tests across 21 files).
 
 ---
 
@@ -76,8 +76,11 @@ A controlled production-hardening roadmap is underway.
 - [x] Registered task handlers for scraping (`scrape`), single scoring (`scoring`), and bulk scoring (`bulk_score`)
 - [x] User-scoped task API (`GET /api/tasks/{task_id}`, `GET /api/tasks`, `POST /api/tasks/{task_id}/cancel`)
 - [x] Scraper enqueue endpoint (`POST /api/scraper/enqueue`) returning HTTP 202 Accepted (coexisting with legacy `POST /api/scraper/run`)
+- [x] Fail-safe `GitHubDispatchService` (`app/services/github_dispatch_service.py`) triggering `repository_dispatch` (`process_task_queue`) upon task enqueue with secret sanitization and non-blocking failure semantics
+- [x] Dedicated GitHub Actions worker workflow (`.github/workflows/worker.yml`) running in drain mode with Playwright Chromium caching, concurrency serialization, and 6-hour cron fallback (`0 */6 * * *`)
+- [x] Complete frontend TypeScript types (`TaskResponse`, `TaskStatus`, `TaskType`, `TaskListParams`) and API client functions (`enqueueScraper`, `getTask`, `listTasks`, `cancelTask`) with verified Node test suite
 - [x] Multi-user isolation, authorization guards, and sanitized error messages
-- [x] 34 dedicated automated unit, integration, and concurrency tests passing (`tests/test_task_queue.py`) (suite now at 326 tests)
+- [x] 55 dedicated automated queue and dispatch regression tests (`tests/test_task_queue.py`, `tests/test_github_dispatch.py`) (backend suite now at 357 tests across 21 files)
 
 
 ### PHASE 2 — PRODUCT / PIPELINE IMPROVEMENTS (PLANNED)
@@ -318,13 +321,16 @@ A controlled production-hardening roadmap is underway.
   - Authenticated users can only retrieve or cancel tasks where `task.user_id == current_user.id`.
   - Authenticated users cannot inspect, retrieve, or cancel system-owned tasks (`user_id=None`) or other users' tasks (returns HTTP 404 `NOT_FOUND`).
   - Internal worker and watchdog operations remain fully capable of processing system-owned and user-owned tasks without restriction.
-- **Test Coverage**: 34 dedicated task queue regression tests in `test_task_queue.py` (326 tests across full backend test suite).
+- **GitHub Actions Background Worker Workflow**: Automated worker execution via `.github/workflows/worker.yml` triggered on `repository_dispatch: [process_task_queue]`, manual `workflow_dispatch`, and a 6-hour cron fallback schedule (`0 */6 * * *`). The workflow installs Playwright Chromium with persistent action caching and runs `python -m app.worker.main --drain --max-duration-seconds 540`.
+- **GitHub Repository Dispatch Service**: `GitHubDispatchService` triggers worker runs asynchronously in background tasks following HTTP 202 task responses. Features comprehensive secret redaction, token masking, and non-blocking failure safety.
+- **Frontend Client Integration**: Complete TypeScript types (`TaskResponse`, `TaskStatus`, `TaskType`, `TaskListParams`) and API functions (`enqueueScraper`, `getTask`, `listTasks`, `cancelTask`) integrated into `lib/types.ts` and `lib/api.ts` with 5 verified Node tests.
+- **Test Coverage**: 55 dedicated task queue and dispatch regression tests (34 in `test_task_queue.py` + 21 in `test_github_dispatch.py`) bringing the backend test suite to 357 passing tests across 21 test files.
 
 ---
 
 ## 7. Known Limitations
 
-- **Production Worker Process Orchestration**: The background worker process is implemented as a standalone Python CLI module (`python -m app.worker.main`), but separate production process orchestration (e.g. systemd unit, Render background worker, Procfile, or dedicated Docker worker container) is not yet configured in repository deployment manifests.
+- **Production Worker Dual Orchestration**: The background worker process is runnable either via GitHub Actions drain workflows (`.github/workflows/worker.yml`) or as a persistent Render Background Worker service (`python -m app.worker.main --poll-interval 2.0 --lease-seconds 300`). For the GitHub Actions dispatch path, `GITHUB_DISPATCH_TOKEN`, `GITHUB_REPO_OWNER`, and `GITHUB_REPO_NAME` must be configured in Render Web Service environment variables.
 - **Legacy Synchronous Scraper Endpoint**: `POST /api/scraper/run` remains available for backward compatibility and continues using in-process `BackgroundTasks` for post-scrape scoring, while `POST /api/scraper/enqueue` routes tasks through the durable Phase 1 PostgreSQL queue.
 - **Database Dependency for Tests**: Backend integration tests require a live PostgreSQL database configured via `TEST_DATABASE_URL`.
 - **Synchronous AI Client SDK**: Uses the synchronous Google Gemini SDK (`google-generativeai`).

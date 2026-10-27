@@ -38,6 +38,8 @@ import type {
   OtpVerifyRequest,
   OtpResponse,
   TokenResponse,
+  TaskResponse,
+  TaskListParams,
 } from "./types";
 
 // ── Client error class ────────────────────────────────────────────────────────
@@ -261,10 +263,14 @@ export async function generateInterviewPrep(
   });
 }
 
-// ── Scraper ───────────────────────────────────────────────────────────────────
+// ── Scraper & Tasks (Phase 1) ────────────────────────────────────────────────
 
 export async function runScraper(): Promise<ScraperRunResult> {
   return apiFetch<ScraperRunResult>("/api/scraper/run", { method: "POST" });
+}
+
+export async function enqueueScraper(): Promise<TaskResponse> {
+  return apiFetch<TaskResponse>("/api/scraper/enqueue", { method: "POST" });
 }
 
 export async function getScraperStatus(): Promise<ScraperRun[]> {
@@ -274,6 +280,29 @@ export async function getScraperStatus(): Promise<ScraperRun[]> {
 export async function getScoringStatus(runId: string): Promise<ScoringStatus> {
   const qs = new URLSearchParams({ run_id: runId });
   return apiFetch<ScoringStatus>(`/api/scraper/scoring-status?${qs}`);
+}
+
+export async function getTask(taskId: string): Promise<TaskResponse> {
+  return apiFetch<TaskResponse>(`/api/tasks/${taskId}`);
+}
+
+export async function listTasks(params?: TaskListParams): Promise<TaskResponse[]> {
+  const qs = new URLSearchParams();
+  if (params?.task_type) {
+    qs.set("task_type", params.task_type);
+  }
+  if (params?.status) {
+    qs.set("status", params.status);
+  }
+  if (params?.limit !== undefined) {
+    qs.set("limit", String(params.limit));
+  }
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return apiFetch<TaskResponse[]>(`/api/tasks${query}`);
+}
+
+export async function cancelTask(taskId: string): Promise<TaskResponse> {
+  return apiFetch<TaskResponse>(`/api/tasks/${taskId}/cancel`, { method: "POST" });
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────

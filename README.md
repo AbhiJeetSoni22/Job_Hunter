@@ -241,7 +241,7 @@ This operation deletes only expired jobs with status `"saved"` and no user notes
 
 ## Running Tests
 
-The backend test suite consists of **326 tests** written for pytest:
+The backend test suite consists of **357 tests** written for pytest:
 
 ```bash
 cd backend

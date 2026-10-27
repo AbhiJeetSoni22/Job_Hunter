@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 /**
  * Unit test simulating React Strict Mode and effect guard behavior
- * for the Google OAuth handoff code exchange.
+ * for the Google OAuth handoff code exchange. 
  */
 test("exchange guard executes exchange exactly once under React Strict Mode double-invocation", async () => {
   let exchangeCallCount = 0;
