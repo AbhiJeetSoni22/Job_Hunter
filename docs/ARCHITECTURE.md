@@ -289,6 +289,24 @@ The frontend is built with **Next.js 15 App Router** and React 19. All primary p
 - All network interaction is encapsulated in `lib/api.ts`.
 - Implements `apiFetch<T>()` with error handling that parses the backend `ApiResponse[T]` envelope and throws typed `ApiClientError` instances on API errors.
 - Navigation history helper (`lib/navigationHistory.ts`) supports back-button navigation (`BackButton.tsx`).
+- Task Queue API methods:
+  - `enqueueScraper(source?, idempotencyKey?)`: Triggers `POST /api/scraper/enqueue` returning `TaskResponse` (`HTTP 202 Accepted`).
+  - `getTask(taskId)`: Fetches current execution state via `GET /api/tasks/{task_id}`.
+  - `listTasks(params?)`: Retrieves user tasks via `GET /api/tasks` with optional status, task_type, limit, offset filters.
+  - `cancelTask(taskId)`: Requests cancellation via `POST /api/tasks/{task_id}/cancel`.
+  - Legacy `runScraper(source?)` remains available for backward compatibility.
+
+### 5.3 Background Task Queue Client Poller (`frontend/lib/taskPoller.ts`)
+- **Lifecycle Coordination**: The recommendation dashboard (`frontend/app/dashboard/page.tsx`) uses a dedicated `TaskPoller` instance to track asynchronous scraping tasks out-of-process.
+- **State Transitions**:
+  - Active states (`queued`, `running`): Triggers `onUpdate` callback with elapsed duration and latest task state.
+  - Terminal states (`succeeded`, `failed`, `cancelled`): Resolves execution, stops the timer, and triggers the corresponding `onSuccess`, `onError`, or `onCancelled` callback.
+- **Resilience & Fencing**:
+  - **Transient Failure Tolerance**: Tolerates temporary network errors (up to `maxTransientFailures = 3`) during poll cycles without erroneously declaring task failure.
+  - **Explicit Polling Timeout**: If the configured `timeoutMs` (default: 180s) expires before completion, polling halts gracefully via `onTimeout`, clearly notifying the user that the task is still executing in the background without falsely reporting failure.
+  - **Generation Token Fencing**: Each polling session maintains a generation token (`currentPollToken`) ensuring late-arriving responses from previous task runs cannot corrupt active UI state.
+  - **Component Cleanup**: Registered in a React `useEffect` unmount cleanup handler to prevent memory leaks or state updates after page navigation.
+  - **Post-Scrape Scoring Coordination**: If the worker result contains a valid `scoring_run_id`, the dashboard automatically initiates score polling via `GET /api/scraper/scoring-status` to refresh match badges in real time.
 
 ---
 

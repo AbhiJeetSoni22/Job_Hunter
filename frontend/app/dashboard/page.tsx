@@ -16,9 +16,11 @@ import {
   getScraperStatus,
   getDashboardStats,
   getScoringStatus,
-  runScraper,
+  enqueueScraper,
+  getTask,
   ApiClientError,
 } from "@/lib/api";
+import { TaskPoller } from "@/lib/taskPoller";
 import type { DashboardStats, JobStatus, TopMatchItem } from "@/lib/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -30,6 +32,8 @@ interface DashStats {
 
 const SCORING_POLL_INTERVAL_MS = 2_000;
 const SCORING_POLL_TIMEOUT_MS = 90_000;
+const TASK_POLL_INTERVAL_MS = 2_000;
+const TASK_POLL_TIMEOUT_MS = 120_000;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -96,6 +100,7 @@ export default function DashboardPage() {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTokenRef = useRef(0);
+  const taskPollerRef = useRef<TaskPoller | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
@@ -140,7 +145,14 @@ export default function DashboardPage() {
     loadStats();
   }, [loadStats]);
 
-  useEffect(() => stopPolling, [stopPolling]);
+  useEffect(() => {
+    return () => {
+      stopPolling();
+      if (taskPollerRef.current) {
+        taskPollerRef.current.stop();
+      }
+    };
+  }, [stopPolling]);
 
   const startScoringPoll = useCallback(
     (runId: string, total: number) => {
@@ -212,25 +224,107 @@ export default function DashboardPage() {
     [stopPolling, addToast, loadStats],
   );
 
+  // Keep callback references fresh for background poller without recreating poller
+  const callbacksRef = useRef({
+    addToast,
+    loadStats,
+    startScoringPoll,
+    setSyncing,
+  });
+  callbacksRef.current = {
+    addToast,
+    loadStats,
+    startScoringPoll,
+    setSyncing,
+  };
+
   async function handleSync() {
     if (syncing || scoring) return;
     setSyncing(true);
     try {
-      const result = await runScraper();
-      const total = result.total_new;
-      addToast(
-        `Sync complete — ${total} new job${total !== 1 ? "s" : ""} found.`,
-        "success",
-      );
-      const { hasResume } = await loadStats();
+      const task = await enqueueScraper();
+      addToast("Sync task queued in background.", "info");
 
-      if (total > 0 && hasResume && result.scoring_run_id) {
-        startScoringPoll(result.scoring_run_id, result.new_job_ids.length);
+      if (!taskPollerRef.current) {
+        taskPollerRef.current = new TaskPoller(
+          getTask,
+          () => ({
+            onSuccess: async (completedTask) => {
+              callbacksRef.current.setSyncing(false);
+
+              let totalNew: number | null = null;
+              let scoringRunId: string | null = null;
+              let newJobIdsCount = 0;
+
+              if (completedTask.result && typeof completedTask.result === "object") {
+                if (typeof completedTask.result.total_new === "number") {
+                  totalNew = completedTask.result.total_new;
+                }
+                if (
+                  typeof completedTask.result.scoring_run_id === "string" &&
+                  completedTask.result.scoring_run_id
+                ) {
+                  scoringRunId = completedTask.result.scoring_run_id;
+                }
+                if (Array.isArray(completedTask.result.new_job_ids)) {
+                  newJobIdsCount = completedTask.result.new_job_ids.length;
+                }
+              }
+
+              if (totalNew !== null) {
+                callbacksRef.current.addToast(
+                  `Sync complete — ${totalNew} new job${totalNew !== 1 ? "s" : ""} found.`,
+                  "success",
+                );
+              } else {
+                callbacksRef.current.addToast("Sync complete. Dashboard updated.", "success");
+              }
+
+              const { hasResume } = await callbacksRef.current.loadStats();
+
+              if (scoringRunId && hasResume && (totalNew === null || totalNew > 0)) {
+                callbacksRef.current.startScoringPoll(
+                  scoringRunId,
+                  newJobIdsCount || totalNew || 1,
+                );
+              }
+            },
+            onError: async (errorMessage) => {
+              callbacksRef.current.setSyncing(false);
+              callbacksRef.current.addToast(
+                errorMessage || "Background sync task failed.",
+                "error",
+              );
+              await callbacksRef.current.loadStats();
+            },
+            onCancelled: async () => {
+              callbacksRef.current.setSyncing(false);
+              callbacksRef.current.addToast(
+                "Background sync task was cancelled.",
+                "info",
+              );
+              await callbacksRef.current.loadStats();
+            },
+            onTimeout: async () => {
+              callbacksRef.current.setSyncing(false);
+              callbacksRef.current.addToast(
+                "Sync is taking longer than expected. It will continue running in the background.",
+                "info",
+              );
+              await callbacksRef.current.loadStats();
+            },
+          }),
+          {
+            intervalMs: TASK_POLL_INTERVAL_MS,
+            timeoutMs: TASK_POLL_TIMEOUT_MS,
+          },
+        );
       }
+
+      taskPollerRef.current.start(task.id);
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : "Sync failed.";
       addToast(msg, "error");
-    } finally {
       setSyncing(false);
     }
   }

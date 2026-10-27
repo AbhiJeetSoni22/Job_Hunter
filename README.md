@@ -241,6 +241,7 @@ This operation deletes only expired jobs with status `"saved"` and no user notes
 
 ## Running Tests
 
+### Backend Tests
 The backend test suite consists of **357 tests** written for pytest:
 
 ```bash
@@ -250,6 +251,16 @@ python -m pytest
 ```
 
 > **Note on test environment**: Database integration tests strictly require PostgreSQL (`TEST_DATABASE_URL`). When running in CI or with `FAIL_ON_MISSING_TEST_DB=true`, an omitted `TEST_DATABASE_URL` will fail clearly with an error rather than silently skipping integration tests. All external AI and email provider calls are mocked during testing.
+
+### Frontend Tests & Checks
+The frontend test suite consists of **12 automated regression tests** written for the native Node test runner (`tests/task_queue_client.test.mjs` and `tests/auth_callback_guard.test.mjs`):
+
+```bash
+cd frontend
+npm test             # Run Node test suite (12 tests)
+npm run type-check   # TypeScript strict type checking
+npm run build        # Production Next.js build
+```
 
 See [`docs/TESTING.md`](docs/TESTING.md) for full test details.
 

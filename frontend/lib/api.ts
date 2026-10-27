@@ -45,12 +45,12 @@ import type {
 // ── Client error class ────────────────────────────────────────────────────────
 
 export class ApiClientError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
     super(message);
     this.name = "ApiClientError";
+    this.code = code;
   }
 }
 

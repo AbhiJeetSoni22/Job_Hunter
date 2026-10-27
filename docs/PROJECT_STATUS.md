@@ -78,9 +78,10 @@ A controlled production-hardening roadmap is underway.
 - [x] Scraper enqueue endpoint (`POST /api/scraper/enqueue`) returning HTTP 202 Accepted (coexisting with legacy `POST /api/scraper/run`)
 - [x] Fail-safe `GitHubDispatchService` (`app/services/github_dispatch_service.py`) triggering `repository_dispatch` (`process_task_queue`) upon task enqueue with secret sanitization and non-blocking failure semantics
 - [x] Dedicated GitHub Actions worker workflow (`.github/workflows/worker.yml`) running in drain mode with Playwright Chromium caching, concurrency serialization, and 6-hour cron fallback (`0 */6 * * *`)
-- [x] Complete frontend TypeScript types (`TaskResponse`, `TaskStatus`, `TaskType`, `TaskListParams`) and API client functions (`enqueueScraper`, `getTask`, `listTasks`, `cancelTask`) with verified Node test suite
+- [x] Complete frontend TypeScript types (`TaskResponse`, `TaskStatus`, `TaskType`, `TaskListParams`) and API client functions (`enqueueScraper`, `getTask`, `listTasks`, `cancelTask`)
+- [x] Dashboard background task queue integration (`frontend/app/dashboard/page.tsx` + `frontend/lib/taskPoller.ts`): Connected "Sync Jobs" action to `enqueueScraper()` and resilient `TaskPoller` polling `getTask(taskId)` with 2s interval, timeout protection, transient error tolerance, token fencing, and unmount cleanup, replacing blocking `runScraper()` while preserving legacy endpoint backward compatibility
 - [x] Multi-user isolation, authorization guards, and sanitized error messages
-- [x] 55 dedicated automated queue and dispatch regression tests (`tests/test_task_queue.py`, `tests/test_github_dispatch.py`) (backend suite now at 357 tests across 21 files)
+- [x] 12 passing frontend regression tests (10 in `tests/task_queue_client.test.mjs` testing actual API methods and `TaskPoller`, plus 2 in `tests/auth_callback_guard.test.mjs`) and 55 dedicated automated backend queue/dispatch regression tests (backend suite at 357 tests across 21 files)
 
 
 ### PHASE 2 — PRODUCT / PIPELINE IMPROVEMENTS (PLANNED)
@@ -323,7 +324,11 @@ A controlled production-hardening roadmap is underway.
   - Internal worker and watchdog operations remain fully capable of processing system-owned and user-owned tasks without restriction.
 - **GitHub Actions Background Worker Workflow**: Automated worker execution via `.github/workflows/worker.yml` triggered on `repository_dispatch: [process_task_queue]`, manual `workflow_dispatch`, and a 6-hour cron fallback schedule (`0 */6 * * *`). The workflow installs Playwright Chromium with persistent action caching and runs `python -m app.worker.main --drain --max-duration-seconds 540`.
 - **GitHub Repository Dispatch Service**: `GitHubDispatchService` triggers worker runs asynchronously in background tasks following HTTP 202 task responses. Features comprehensive secret redaction, token masking, and non-blocking failure safety.
-- **Frontend Client Integration**: Complete TypeScript types (`TaskResponse`, `TaskStatus`, `TaskType`, `TaskListParams`) and API functions (`enqueueScraper`, `getTask`, `listTasks`, `cancelTask`) integrated into `lib/types.ts` and `lib/api.ts` with 5 verified Node tests.
+- **Frontend Client Integration & Dashboard Background Sync**:
+  - Complete TypeScript types (`TaskResponse`, `TaskStatus`, `TaskType`, `TaskListParams`) and API functions (`enqueueScraper`, `getTask`, `listTasks`, `cancelTask`) integrated into `lib/types.ts` and `lib/api.ts`.
+  - Reusable `TaskPoller` (`frontend/lib/taskPoller.ts`) handling state machine transitions (`queued`, `running`, `succeeded`, `failed`, `cancelled`), transient HTTP failure tolerance, timeout handling without false task failure, and token fencing against stale responses.
+  - Dashboard "Sync Jobs" action (`frontend/app/dashboard/page.tsx`) upgraded from blocking legacy `runScraper` to `enqueueScraper` with real-time toast notifications, data reloading, post-scrape scoring coordination, and unmount timer cleanup.
+  - 12 verified Node regression tests (10 in `tests/task_queue_client.test.mjs` verifying API client methods and poller lifecycle, plus 2 in `tests/auth_callback_guard.test.mjs`).
 - **Test Coverage**: 55 dedicated task queue and dispatch regression tests (34 in `test_task_queue.py` + 21 in `test_github_dispatch.py`) bringing the backend test suite to 357 passing tests across 21 test files.
 
 ---
