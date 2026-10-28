@@ -132,7 +132,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         headers=exc.headers if hasattr(exc, "headers") and exc.headers else None,
         content={"data": None, "error": {"code": code, "message": message}},
     )
-
+# deploy check
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
