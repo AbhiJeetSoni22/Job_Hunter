@@ -12,6 +12,9 @@ from typing import Any
 from pydantic import PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_GITHUB_REPO_OWNER: str = "AbhiJeetSoni22"
+DEFAULT_GITHUB_REPO_NAME: str = "Job_Hunter"
+
 
 class Settings(BaseSettings):
     """Typed application settings loaded from environment variables."""
@@ -124,7 +127,20 @@ class Settings(BaseSettings):
             raise ValueError("AI_RATE_LIMIT_PER_MINUTE must be greater than 0")
         return v
 
-    @field_validator("GITHUB_DISPATCH_TOKEN", "GITHUB_REPO_OWNER", "GITHUB_REPO_NAME")
+    @field_validator("GITHUB_DISPATCH_TOKEN", mode="before")
+    @classmethod
+    def resolve_github_dispatch_token(cls, v: Any) -> str:
+        tok = (str(v) if v is not None else "").strip()
+        if tok:
+            return tok
+        import os
+        for alt in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT"):
+            alt_val = os.environ.get(alt, "").strip()
+            if alt_val:
+                return alt_val
+        return ""
+
+    @field_validator("GITHUB_REPO_OWNER", "GITHUB_REPO_NAME")
     @classmethod
     def validate_github_dispatch_fields(cls, v: str) -> str:
         return (v or "").strip()
@@ -187,9 +203,23 @@ class Settings(BaseSettings):
         return str(self.DATABASE_URL)
 
     @property
+    def effective_github_repo_owner(self) -> str:
+        """Return configured repository owner or fallback default."""
+        return self.GITHUB_REPO_OWNER or DEFAULT_GITHUB_REPO_OWNER
+
+    @property
+    def effective_github_repo_name(self) -> str:
+        """Return configured repository name or fallback default."""
+        return self.GITHUB_REPO_NAME or DEFAULT_GITHUB_REPO_NAME
+
+    @property
     def is_github_dispatch_configured(self) -> bool:
-        """Return True if all GitHub dispatch parameters are configured."""
-        return bool(self.GITHUB_DISPATCH_TOKEN and self.GITHUB_REPO_OWNER and self.GITHUB_REPO_NAME)
+        """Return True if token is present and repository owner/name are resolvable."""
+        return bool(
+            self.GITHUB_DISPATCH_TOKEN
+            and self.effective_github_repo_owner
+            and self.effective_github_repo_name
+        )
 
 
 @lru_cache

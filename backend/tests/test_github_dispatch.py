@@ -197,6 +197,79 @@ class TestGitHubDispatchService:
         assert success is False
         assert "network error" in caplog.text.lower()
 
+    def test_dispatch_includes_user_agent_header(self) -> None:
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 204
+        mock_client.post.return_value = mock_response
+
+        service = GitHubDispatchService(
+            token="ghp_test_token_12345678901234567890",
+            owner="test-owner",
+            repo="test-repo",
+            httpx_client=mock_client,
+        )
+
+        success = service.dispatch_task_queue()
+        assert success is True
+        call_kwargs = mock_client.post.call_args[1]
+        assert "User-Agent" in call_kwargs["headers"]
+        assert "Job-Hunter" in call_kwargs["headers"]["User-Agent"]
+
+    def test_dispatch_fallback_to_workflow_dispatch_on_403(self) -> None:
+        mock_client = MagicMock(spec=httpx.Client)
+        # First call (repository_dispatch) returns 403 Forbidden (insufficient PAT scope for dispatches)
+        resp_403 = MagicMock(spec=httpx.Response)
+        resp_403.status_code = 403
+        resp_403.text = "Resource not accessible by personal access token"
+
+        # Second call (workflow_dispatch fallback) returns 204 No Content
+        resp_204 = MagicMock(spec=httpx.Response)
+        resp_204.status_code = 204
+
+        mock_client.post.side_effect = [resp_403, resp_204]
+
+        service = GitHubDispatchService(
+            token="ghp_test_token_12345678901234567890",
+            owner="test-owner",
+            repo="test-repo",
+            httpx_client=mock_client,
+        )
+
+        success = service.dispatch_task_queue(
+            event_type="process_task_queue",
+            client_payload={"task_id": "test-task-123"},
+        )
+        assert success is True
+        assert mock_client.post.call_count == 2
+        # First call was to repository_dispatch
+        assert mock_client.post.call_args_list[0][0][0] == "https://api.github.com/repos/test-owner/test-repo/dispatches"
+        # Second call was to workflow_dispatch worker.yml
+        assert mock_client.post.call_args_list[1][0][0] == "https://api.github.com/repos/test-owner/test-repo/actions/workflows/worker.yml/dispatches"
+        assert mock_client.post.call_args_list[1][1]["json"] == {"ref": "main"}
+
+    def test_dispatch_fallback_to_workflow_dispatch_on_404(self) -> None:
+        mock_client = MagicMock(spec=httpx.Client)
+        resp_404 = MagicMock(spec=httpx.Response)
+        resp_404.status_code = 404
+        resp_404.text = "Not Found"
+
+        resp_204 = MagicMock(spec=httpx.Response)
+        resp_204.status_code = 204
+
+        mock_client.post.side_effect = [resp_404, resp_204]
+
+        service = GitHubDispatchService(
+            token="ghp_test_token_12345678901234567890",
+            owner="test-owner",
+            repo="test-repo",
+            httpx_client=mock_client,
+        )
+
+        success = service.dispatch_task_queue()
+        assert success is True
+        assert mock_client.post.call_count == 2
+
 
 # ── Configuration Startup Tests ──────────────────────────────────────────────
 
@@ -225,6 +298,18 @@ class TestDispatchConfiguration:
         assert settings.GITHUB_REPO_OWNER == "my-org"
         assert settings.GITHUB_REPO_NAME == "my-repo"
         assert settings.is_github_dispatch_configured is True
+
+    def test_settings_resolves_alternative_token_env_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_TOKEN", "fallback-token-456")
+        settings = Settings(
+            DATABASE_URL=PostgresDsn("postgresql://user:pass@localhost:5432/testdb"),
+            GEMINI_API_KEY="test-gemini-key",
+            JWT_SECRET_KEY="test-secret-key-at-least-32-characters-long",
+        )
+        assert settings.GITHUB_DISPATCH_TOKEN == "fallback-token-456"
+        assert settings.is_github_dispatch_configured is True
+        assert settings.effective_github_repo_owner == "AbhiJeetSoni22"
+        assert settings.effective_github_repo_name == "Job_Hunter"
 
 
 # ── Integration Tests: Enqueue Endpoint & Dispatch Behavior ──────────────────
@@ -381,3 +466,34 @@ class TestEnqueueEndpointDispatchIntegration:
         task2 = service.enqueue("scrape", {"k": 1}, idempotency_key=idemp_key)
         assert task2.id == task1.id
         assert getattr(task2, "_is_new", True) is False
+
+    def test_enqueue_records_dispatch_metadata_in_task_payload(
+        self,
+        db: Session,
+        sample_user: User,
+        auth_headers: dict[str, str],
+        client: TestClient,
+    ) -> None:
+        """When dispatch is triggered or skipped, dispatch metadata is safely recorded in task.payload."""
+        mock_session = MagicMock(wraps=db)
+        mock_session.close = MagicMock()
+
+        with (
+            patch("app.routers.scraper.GitHubDispatchService") as mock_service_cls,
+            patch("app.routers.scraper.SessionLocal", return_value=mock_session),
+        ):
+            mock_service = MagicMock()
+            mock_service.is_configured = True
+            mock_service.dispatch_task_queue.return_value = True
+            mock_service_cls.return_value = mock_service
+
+            resp = client.post("/api/scraper/enqueue", headers=auth_headers)
+            assert resp.status_code == 202
+            task_id = uuid.UUID(resp.json()["data"]["id"])
+
+            db.expire_all()
+            db_task = db.query(Task).filter(Task.id == task_id).first()
+            assert db_task is not None
+            assert "dispatch" in db_task.payload
+            assert db_task.payload["dispatch"]["status"] == "dispatched"
+            assert "timestamp" in db_task.payload["dispatch"]

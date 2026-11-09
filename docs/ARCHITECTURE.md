@@ -94,7 +94,7 @@ Services contain all business rules, transaction boundaries, and integrations.
 | `match_service` | Module | Job match scoring, score cache verification, recommendation label calculation. |
 | `ScraperService` | Class | Scraper orchestration, `ScrapeRun` logging, `ScoringRun` creation, background auto-scoring execution. |
 | `TaskQueueService` | Class | Durable PostgreSQL task queue management: atomic claiming (`FOR UPDATE SKIP LOCKED`), leases, heartbeats, exponential backoff retries, abandoned task recovery. |
-| `GitHubDispatchService` | Class | Triggers GitHub Actions background worker workflows via `repository_dispatch` API (`process_task_queue`), with secret sanitization and fail-safe async execution. |
+| `GitHubDispatchService` | Class | Triggers GitHub Actions background worker workflows via `repository_dispatch` API (`process_task_queue`) with automatic fallback to `workflow_dispatch` (`worker.yml`), multi-token auto-discovery (`GITHUB_DISPATCH_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PAT`), default repository configuration (`AbhiJeetSoni22/Job_Hunter`), User-Agent header, secret sanitization, and fail-safe async execution. |
 | `DashboardService` | Class | Single-pass aggregate metric calculation and top matches lookup. |
 | `ResumeAnalysisService` | Class | On-demand resume gap analysis against external job text. |
 | `InterviewPrepService` | Class | Job description + active resume synthesis for interview prep generation. |
@@ -472,7 +472,7 @@ Job_Hunter/
 │   │   ├── scrapers/              # base.py, remoteok.py, yc_jobs.py
 │   │   ├── worker/                # Background worker engine (main.py, worker.py, handlers.py)
 │   │   └── ai/                    # gemini_client.py, prompts.py
-│   └── tests/                     # 357 tests across 21 test files (task queue, github dispatch, multi-user isolation, service tests, concurrency, & security hardening)
+│   └── tests/                     # 362 tests across 21 test files (task queue, github dispatch, multi-user isolation, service tests, concurrency, & security hardening)
 └── frontend/
     ├── app/                       # Next.js pages (dashboard/, jobs/, resume/, login/, register/, auth/)
     ├── components/                # ui/, jobs/, resume/, dashboard/, auth/

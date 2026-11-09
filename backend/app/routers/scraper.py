@@ -14,12 +14,14 @@ Multi-user architecture:
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 
 from app.database import SessionLocal
 from app.dependencies import CurrentUser, DbSession
+from app.models.task import Task
 from app.schemas.job import (
     ApiResponse,
     ScoringStatusResponse,
@@ -38,9 +40,32 @@ from app.services.task_queue_service import TaskQueueService
 logger = logging.getLogger(__name__)
 
 
+def _record_dispatch_status(task_id: uuid.UUID, status_val: str, error_msg: str | None = None) -> None:
+    """Safely record dispatch outcome metadata into task.payload['dispatch'] for observability."""
+    try:
+        db = SessionLocal()
+        try:
+            task = db.get(Task, task_id)
+            if task and task.status == "queued":
+                payload = dict(task.payload)
+                dispatch_meta: dict[str, Any] = {
+                    "status": status_val,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                if error_msg:
+                    dispatch_meta["error"] = error_msg[:200]
+                payload["dispatch"] = dispatch_meta
+                task.payload = payload
+                db.commit()
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.debug("Failed to record dispatch metadata for task %s: %s", task_id, exc)
+
+
 def _trigger_github_dispatch_safe(task_id: uuid.UUID) -> None:
     """
-    Trigger GitHub Actions worker workflow via repository_dispatch API.
+    Trigger GitHub Actions worker workflow via repository_dispatch or workflow_dispatch API.
 
     Executes in a background task after the database transaction has committed
     and the HTTP 202 Accepted response has returned to the client.
@@ -50,9 +75,12 @@ def _trigger_github_dispatch_safe(task_id: uuid.UUID) -> None:
         service = GitHubDispatchService()
         if not service.is_configured:
             logger.warning(
-                "GitHub Actions dispatch skipped for task %s: dispatch service is not configured.",
+                "GitHub Actions dispatch skipped for task %s: dispatch service is not configured "
+                "(GITHUB_DISPATCH_TOKEN is unset). Task remains queued for scheduled fallback processing (every 6h). "
+                "Set GITHUB_DISPATCH_TOKEN in your deployment environment variables to enable immediate worker execution.",
                 task_id,
             )
+            _record_dispatch_status(task_id, "skipped_unconfigured")
             return
 
         dispatched = service.dispatch_task_queue(
@@ -60,11 +88,15 @@ def _trigger_github_dispatch_safe(task_id: uuid.UUID) -> None:
             client_payload={"task_id": str(task_id)},
             raise_on_error=False,
         )
-        if not dispatched:
+        if dispatched:
+            logger.info("GitHub Actions dispatch successfully triggered for task %s", task_id)
+            _record_dispatch_status(task_id, "dispatched")
+        else:
             logger.warning(
                 "GitHub Actions dispatch failed for task %s; task remains queued in database for scheduled fallback processing.",
                 task_id,
             )
+            _record_dispatch_status(task_id, "failed")
     except Exception as exc:
         safe_msg = sanitize_error_message(str(exc))
         logger.warning(
@@ -72,6 +104,7 @@ def _trigger_github_dispatch_safe(task_id: uuid.UUID) -> None:
             task_id,
             safe_msg,
         )
+        _record_dispatch_status(task_id, "error", error_msg=safe_msg)
 
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])

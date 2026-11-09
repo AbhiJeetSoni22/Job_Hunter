@@ -81,7 +81,7 @@ A controlled production-hardening roadmap is underway.
 - [x] Complete frontend TypeScript types (`TaskResponse`, `TaskStatus`, `TaskType`, `TaskListParams`) and API client functions (`enqueueScraper`, `getTask`, `listTasks`, `cancelTask`)
 - [x] Dashboard background task queue integration (`frontend/app/dashboard/page.tsx` + `frontend/lib/taskPoller.ts`): Connected "Sync Jobs" action to `enqueueScraper()` and resilient `TaskPoller` polling `getTask(taskId)` with 2s interval, timeout protection, transient error tolerance, token fencing, and unmount cleanup, replacing blocking `runScraper()` while preserving legacy endpoint backward compatibility
 - [x] Multi-user isolation, authorization guards, and sanitized error messages
-- [x] 12 passing frontend regression tests (10 in `tests/task_queue_client.test.mjs` testing actual API methods and `TaskPoller`, plus 2 in `tests/auth_callback_guard.test.mjs`) and 55 dedicated automated backend queue/dispatch regression tests (backend suite at 357 tests across 21 files)
+- [x] 12 passing frontend regression tests (10 in `tests/task_queue_client.test.mjs` testing actual API methods and `TaskPoller`, plus 2 in `tests/auth_callback_guard.test.mjs`) and 70 dedicated automated backend queue/dispatch regression tests (backend suite at 362 tests across 21 files)
 
 
 ### PHASE 2 — PRODUCT / PIPELINE IMPROVEMENTS (PLANNED)
@@ -323,13 +323,13 @@ A controlled production-hardening roadmap is underway.
   - Authenticated users cannot inspect, retrieve, or cancel system-owned tasks (`user_id=None`) or other users' tasks (returns HTTP 404 `NOT_FOUND`).
   - Internal worker and watchdog operations remain fully capable of processing system-owned and user-owned tasks without restriction.
 - **GitHub Actions Background Worker Workflow**: Automated worker execution via `.github/workflows/worker.yml` triggered on `repository_dispatch: [process_task_queue]`, manual `workflow_dispatch`, and a 6-hour cron fallback schedule (`0 */6 * * *`). The workflow installs Playwright Chromium with persistent action caching and runs `python -m app.worker.main --drain --max-duration-seconds 540`.
-- **GitHub Repository Dispatch Service**: `GitHubDispatchService` triggers worker runs asynchronously in background tasks following HTTP 202 task responses. Features comprehensive secret redaction, token masking, and non-blocking failure safety.
+- **GitHub Repository Dispatch Service**: `GitHubDispatchService` triggers worker runs asynchronously in background tasks following HTTP 202 task responses. Features multi-token environment discovery (`GITHUB_DISPATCH_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PAT`), default repository configuration (`AbhiJeetSoni22/Job_Hunter`), compliant `User-Agent` HTTP headers, dual-dispatch resilience (automatic fallback from `repository_dispatch` to `workflow_dispatch` on 403/404 permissions errors), dispatch metadata telemetry recorded in `task.payload["dispatch"]`, comprehensive secret redaction, and non-blocking failure safety.
 - **Frontend Client Integration & Dashboard Background Sync**:
   - Complete TypeScript types (`TaskResponse`, `TaskStatus`, `TaskType`, `TaskListParams`) and API functions (`enqueueScraper`, `getTask`, `listTasks`, `cancelTask`) integrated into `lib/types.ts` and `lib/api.ts`.
   - Reusable `TaskPoller` (`frontend/lib/taskPoller.ts`) handling state machine transitions (`queued`, `running`, `succeeded`, `failed`, `cancelled`), transient HTTP failure tolerance, timeout handling without false task failure, and token fencing against stale responses.
   - Dashboard "Sync Jobs" action (`frontend/app/dashboard/page.tsx`) upgraded from blocking legacy `runScraper` to `enqueueScraper` with real-time toast notifications, data reloading, post-scrape scoring coordination, and unmount timer cleanup.
   - 12 verified Node regression tests (10 in `tests/task_queue_client.test.mjs` verifying API client methods and poller lifecycle, plus 2 in `tests/auth_callback_guard.test.mjs`).
-- **Test Coverage**: 55 dedicated task queue and dispatch regression tests (34 in `test_task_queue.py` + 21 in `test_github_dispatch.py`) bringing the backend test suite to 357 passing tests across 21 test files.
+- **Test Coverage**: 70 dedicated task queue and dispatch regression tests (44 in `test_task_queue.py` + 26 in `test_github_dispatch.py`) bringing the backend test suite to 362 passing tests across 21 test files.
 
 ---
 

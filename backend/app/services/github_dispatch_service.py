@@ -83,6 +83,7 @@ class GitHubDispatchService:
         token: str | None = None,
         owner: str | None = None,
         repo: str | None = None,
+        workflow_id: str = "worker.yml",
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         httpx_client: httpx.Client | None = None,
     ) -> None:
@@ -95,13 +96,20 @@ class GitHubDispatchService:
         self._owner = (
             owner.strip()
             if owner is not None
-            else getattr(settings, "GITHUB_REPO_OWNER", "").strip()
+            else (
+                getattr(settings, "GITHUB_REPO_OWNER", "").strip()
+                or getattr(settings, "effective_github_repo_owner", "AbhiJeetSoni22")
+            )
         )
         self._repo = (
             repo.strip()
             if repo is not None
-            else getattr(settings, "GITHUB_REPO_NAME", "").strip()
+            else (
+                getattr(settings, "GITHUB_REPO_NAME", "").strip()
+                or getattr(settings, "effective_github_repo_name", "Job_Hunter")
+            )
         )
+        self._workflow_id = workflow_id.strip() if workflow_id else "worker.yml"
         self._timeout = httpx.Timeout(timeout_seconds, connect=min(5.0, timeout_seconds))
         self._custom_client = httpx_client
 
@@ -114,6 +122,11 @@ class GitHubDispatchService:
     def dispatch_url(self) -> str:
         """Return the target GitHub repository_dispatch endpoint URL."""
         return f"https://api.github.com/repos/{self._owner}/{self._repo}/dispatches"
+
+    @property
+    def workflow_dispatch_url(self) -> str:
+        """Return target GitHub workflow_dispatch endpoint URL."""
+        return f"https://api.github.com/repos/{self._owner}/{self._repo}/actions/workflows/{self._workflow_id}/dispatches"
 
     def sanitize_error(self, message: str) -> str:
         """Sanitize message using instance token."""
@@ -151,6 +164,7 @@ class GitHubDispatchService:
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {self._token}",
             "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            "User-Agent": "Job-Hunter-Backend/1.0",
         }
         payload: dict[str, Any] = {"event_type": event_type}
         if client_payload:
@@ -171,6 +185,53 @@ class GitHubDispatchService:
                     event_type,
                 )
                 return True
+
+            # If repository_dispatch returned 403 or 404, try workflow_dispatch fallback.
+            # Fine-grained PATs with "Actions: Read and write" permit workflow_dispatch even
+            # if they lack "Contents: Read and write" for repository_dispatch.
+            if response.status_code in (403, 404):
+                safe_primary_body = self.sanitize_error(response.text[:300])
+                logger.info(
+                    "repository_dispatch rejected (HTTP %d: %s); attempting workflow_dispatch fallback on %s/%s (%s)...",
+                    response.status_code,
+                    safe_primary_body,
+                    self._owner,
+                    self._repo,
+                    self._workflow_id,
+                )
+                wf_payload: dict[str, Any] = {"ref": "main"}
+                try:
+                    if self._custom_client is not None:
+                        wf_resp = self._custom_client.post(
+                            self.workflow_dispatch_url, headers=headers, json=wf_payload
+                        )
+                    else:
+                        with httpx.Client(timeout=self._timeout) as client:
+                            wf_resp = client.post(
+                                self.workflow_dispatch_url, headers=headers, json=wf_payload
+                            )
+
+                    if wf_resp.status_code == 204:
+                        logger.info(
+                            "GitHub Actions workflow_dispatch fallback successful for repo %s/%s (workflow: %s)",
+                            self._owner,
+                            self._repo,
+                            self._workflow_id,
+                        )
+                        return True
+                    safe_wf_body = self.sanitize_error(wf_resp.text[:300])
+                    logger.warning(
+                        "workflow_dispatch fallback also rejected for repo %s/%s with HTTP %d: %s",
+                        self._owner,
+                        self._repo,
+                        wf_resp.status_code,
+                        safe_wf_body,
+                    )
+                except Exception as wf_exc:
+                    logger.warning(
+                        "workflow_dispatch fallback failed with exception: %s",
+                        self.sanitize_error(str(wf_exc)),
+                    )
 
             safe_body = self.sanitize_error(response.text[:500])
             logger.warning(
